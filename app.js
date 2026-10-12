@@ -161,10 +161,29 @@ function renderOrders() {
 }
 const promoDate = (row) => row.published_at || row.created_at;
 const isFargonaTezkorPromo = (row) => [row.blogger?.username, row.blogger?.display_name].some((value) => String(value || "").toLowerCase().replace(/^@/, "").replace(/[^a-z0-9]+/g, " ").trim() === "fargona tezkor");
-function promoCard(row) {
+function sourcePromoCard(row) {
   const business = row.business || {}, blogger = row.blogger || {}, profileUrl = blogger.instagram_url || "";
-  return '<article class="crm-card"><div class="crm-card-main"><div class="crm-card-title"><b>' + escapeHtml(business.name || "Бизнес") + '</b></div><p>' + escapeHtml(blogger.display_name || blogger.username || "Блогер") + ' · ' + escapeHtml(business.city || "Ферганская область") + '</p><p class="crm-card-meta">' + escapeHtml(business.phone || "Телефон не указан") + ' · ' + escapeHtml(dateText(promoDate(row))) + '</p></div><div class="crm-card-actions">' + (profileUrl ? '<a class="button secondary" href="' + escapeHtml(profileUrl) + '" target="_blank" rel="noopener">Профиль ↗</a>' : "") + '<a class="button secondary" href="' + escapeHtml(row.permalink) + '" target="_blank" rel="noopener">Публикация ↗</a>' + (business.phone ? '<a class="icon-button" href="' + escapeHtml(phoneHref(business.phone)) + '">☎</a>' : "") + '<select class="filter-select promo-review" data-id="' + escapeHtml(row.id) + '"><option value="needs_review" ' + (row.review_status === "needs_review" ? "selected" : "") + '>Проверить</option><option value="confirmed" ' + (row.review_status === "confirmed" ? "selected" : "") + '>Подтверждено</option><option value="rejected" ' + (row.review_status === "rejected" ? "selected" : "") + '>Не реклама</option></select></div></article>';
+  const phone = String(business.phone || "").trim();
+  return '<article class="source-record-card"><div class="source-record-header"><div><span class="source-record-kicker">БИЗНЕС</span><h3>' + escapeHtml(business.name || "Бизнес") + '</h3><p class="source-record-meta">' + escapeHtml(business.city || "Ферганская область") + (row.published_at ? ' · ' + escapeHtml(dateText(row.published_at)) : "") + '</p></div><div class="source-record-actions">' + (profileUrl ? '<a class="button secondary" href="' + escapeHtml(profileUrl) + '" target="_blank" rel="noopener">Профиль источника ↗</a>' : "") + '<a class="button primary" href="' + escapeHtml(row.permalink) + '" target="_blank" rel="noopener">Публикация ↗</a></div></div><div class="source-record-fields">' + (phone ? '<div class="source-record-field"><span>Телефон</span><a href="' + escapeHtml(phoneHref(phone)) + '">' + escapeHtml(phone) + '</a></div>' : '<div class="source-record-field"><span>Телефон</span><b class="muted-value">Не указан</b></div>') + '<div class="source-record-field"><span>Источник</span><b>' + escapeHtml(blogger.display_name || blogger.username || "Блогер") + '</b></div></div>' + (row.evidence ? '<div class="source-record-evidence"><span>ПОЧЕМУ СЧИТАЕМ РЕКЛАМОЙ</span><p>' + escapeHtml(row.evidence) + '</p></div>' : "") + '</article>';
 }
+function customSourceRecordCard(record, fields) {
+  const entries = (fields || []).map((field) => [field.name, String(record.values?.[field.name] || "").trim()]).filter(([, value]) => value);
+  const findEntry = (pattern) => entries.find(([name]) => pattern.test(name));
+  const value = (pattern) => findEntry(pattern)?.[1] || "";
+  const business = value(/бизнес|business|korxona/i) || "Бизнес";
+  const phone = value(/телефон|phone|telefon/i);
+  const instagram = value(/instagram|профиль/i);
+  const city = value(/город|район|city|shahar/i);
+  const publication = value(/ссылка.*(публикац|пост)|publication|permalink|post link/i);
+  const date = value(/дата.*(публикац|пост)|publish.*date/i);
+  const evidence = value(/подтверж|основан.*реклам|evidence|доказ/i);
+  const consumed = new Set([business, phone, instagram, city, publication, date, evidence].filter(Boolean));
+  const extras = entries.filter(([, item]) => !consumed.has(item)).map(([label, item]) => '<div class="source-record-field"><span>' + escapeHtml(label) + '</span><b>' + escapeHtml(item) + '</b></div>').join("");
+  const profileAction = /^https?:\/\//i.test(instagram) ? '<a class="button secondary" href="' + escapeHtml(instagram) + '" target="_blank" rel="noopener">Instagram бизнеса ↗</a>' : "";
+  const postAction = /^https?:\/\//i.test(publication) ? '<a class="button primary" href="' + escapeHtml(publication) + '" target="_blank" rel="noopener">Публикация ↗</a>' : "";
+  return '<article class="source-record-card"><div class="source-record-header"><div><span class="source-record-kicker">БИЗНЕС</span><h3>' + escapeHtml(business) + '</h3><p class="source-record-meta">' + [city, date ? dateText(date) : ""].filter(Boolean).map(escapeHtml).join(" · ") + '</p></div><div class="source-record-actions">' + profileAction + postAction + '</div></div><div class="source-record-fields">' + (phone ? '<div class="source-record-field"><span>Телефон</span><a href="' + escapeHtml(phoneHref(phone)) + '">' + escapeHtml(phone) + '</a></div>' : '<div class="source-record-field"><span>Телефон</span><b class="muted-value">Не указан</b></div>') + (instagram && !profileAction ? '<div class="source-record-field"><span>Instagram бизнеса</span><b>' + escapeHtml(instagram) + '</b></div>' : "") + (extras ? extras : "") + '</div>' + (evidence ? '<div class="source-record-evidence"><span>ПОЧЕМУ СЧИТАЕМ РЕКЛАМОЙ</span><p>' + escapeHtml(evidence) + '</p></div>' : "") + '</article>';
+}
+function promoCard(row) { return sourcePromoCard(row); }
 function promoSourceGroup(name, rows) {
   const profileUrl = rows[0]?.blogger?.instagram_url || "";
   return '<section class="promo-source-group"><div class="promo-source-heading"><div><p class="eyebrow">ИСТОЧНИК</p><h2>' + escapeHtml(name) + ' <span class="autopilot-count">' + rows.length + '</span></h2></div>' + (profileUrl ? '<a class="button secondary" href="' + escapeHtml(profileUrl) + '" target="_blank" rel="noopener">Профиль источника ↗</a>' : "") + '</div><div class="crm-list">' + rows.map(promoCard).join("") + '</div></section>';
@@ -529,23 +548,39 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
   document.querySelectorAll("[data-view]").forEach((node) => node.classList.toggle("active", nestedInBloggers ? node.dataset.view === "bloggers" : node.dataset.view === "custom-" + tab.id));
   let page = document.getElementById("custom-page-" + tab.id);
   if (!page) { page = document.createElement("section"); page.id = "custom-page-" + tab.id; page.className = "page custom-tab-page"; $("workspace").appendChild(page); } page.classList.add("active");
-  page.innerHTML = '<div class="page-heading"><div><p class="eyebrow">' + (nestedInBloggers ? "БЛОГЕРЫ И ПУБЛИКАЦИИ ИСТОЧНИКА" : "ПОЛЬЗОВАТЕЛЬСКАЯ ВКЛАДКА") + '</p><h1>' + escapeHtml(tab.name) + '</h1></div><button class="button primary" id="customAddRecord">＋ Добавить запись</button></div>' + (nestedInBloggers ? '<p class="subtle">Найденные автопилотом профили и публикации</p><div id="sourcePromoList" class="crm-list"></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
-  if (nestedInBloggers) { const back = document.createElement("button"); back.type = "button"; back.className = "button secondary"; back.textContent = "← " + (state.language === "ru" ? "Блогеры" : "Blogerlar"); back.onclick = () => setPage("bloggers"); page.querySelector(".page-heading").appendChild(back); $("sourcePromoList").innerHTML = state.promos.filter(isFargonaTezkorPromo).map(promoCard).join("") || '<div class="empty-state">Находок по этому источнику пока нет.</div>'; }
+  if (nestedInBloggers) {
+    const sourceRows = state.promos.filter(isFargonaTezkorPromo), sourceProfile = sourceRows[0]?.blogger?.instagram_url || "";
+    page.innerHTML = '<div class="source-page-top"><button class="button secondary" id="sourceBack">← Блогеры</button>' + (sourceProfile ? '<a class="button secondary" href="' + escapeHtml(sourceProfile) + '" target="_blank" rel="noopener">Профиль источника ↗</a>' : "") + '</div><header class="source-page-header"><div><p class="eyebrow">ИСТОЧНИК · INSTAGRAM</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Бизнесы и публикации, найденные через этот профиль.</p></div><div class="source-page-count"><b id="sourceResultCount">0</b><span>НАХОДОК</span></div></header><div id="sourcePromoList" class="source-record-list"></div>';
+    $("sourceBack").onclick = () => setPage("bloggers");
+  } else {
+    page.innerHTML = '<div class="page-heading"><div><p class="eyebrow">ПОЛЬЗОВАТЕЛЬСКАЯ ВКЛАДКА</p><h1>' + escapeHtml(tab.name) + '</h1></div><button class="button primary" id="customAddRecord">＋ Добавить запись</button></div><div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
+  }
   const result = await db.from("custom_records").select("*").eq("tab_id", tab.id).order("created_at", { ascending: false });
-  if (result.error) { $("customRecordList").textContent = result.error.message; return; }
+  if (result.error) { if (!nestedInBloggers) $("customRecordList").textContent = result.error.message; return; }
   const fields = Array.isArray(tab.fields) ? tab.fields : [];
-  const manualRows = (result.data || []).map((record) => '<article class="' + (nestedInBloggers ? "promo-feature-card" : "crm-card") + '"><div class="crm-card-main">' + fields.map((field) => '<p><b>' + escapeHtml(field.name) + ':</b> ' + (/^https?:\/\//i.test(String(record.values?.[field.name] || "")) ? '<a class="button secondary" href="' + escapeHtml(record.values?.[field.name]) + '" target="_blank" rel="noopener">' + (/публикац|publication|post/i.test(field.name) ? "Публикация ↗" : "Открыть ↗") + '</a>' : escapeHtml(record.values?.[field.name] || "—")) + '</p>').join("") + '</div></article>').join("");
-  $("customRecordList").innerHTML = nestedInBloggers ? (manualRows ? '<h2>Дополнительные записи</h2>' + manualRows : "") : (manualRows || '<div class="empty-state">Записей пока нет.</div>');
-  $("customAddRecord").onclick = async () => {
-    state.selectedCustomTab = tab;
-    $("customRecordTitle").textContent = "Новая запись · " + tab.name;
-    $("customRecordFields").innerHTML = fields.map((field, index) => {
-      const inputType = field.type === "phone" ? "tel" : field.type === "date" ? "date" : field.type === "link" ? "url" : "text";
-      const note = field.type === "file" ? '<small class="subtle">Hozircha fayl havolasini kiriting.</small>' : "";
-      return '<label class="field-label" for="customField' + index + '">' + escapeHtml(field.name) + '</label><input class="input-control" id="customField' + index + '" data-field-name="' + escapeHtml(field.name) + '" type="' + inputType + '"' + (field.type === "file" ? ' placeholder="https://…"' : "") + '>' + note;
-    }).join("");
-    showMessage("customRecordMessage", "", ""); $("customRecordDialog").showModal();
-  };
+  const sourceRows = nestedInBloggers ? state.promos.filter(isFargonaTezkorPromo) : [];
+  const sourceUrls = new Set(sourceRows.map((row) => String(row.permalink || "").replace(/\/$/, "").toLowerCase()));
+  const customRows = (result.data || []).filter((record) => {
+    const post = Object.entries(record.values || {}).find(([name]) => /публикац|пост|permalink|post link/i.test(name))?.[1];
+    return !post || !sourceUrls.has(String(post).replace(/\/$/, "").toLowerCase());
+  });
+  if (nestedInBloggers) {
+    const cards = customRows.map((record) => customSourceRecordCard(record, fields)).concat(sourceRows.map(sourcePromoCard));
+    $("sourceResultCount").textContent = String(cards.length);
+    $("sourcePromoList").innerHTML = cards.join("") || '<div class="empty-state">Пока нет находок. Новые результаты появятся здесь после загрузки автопилота.</div>';
+  } else {
+    $("customRecordList").innerHTML = customRows.map((record) => '<article class="crm-card"><div class="crm-card-main">' + fields.map((field) => '<p><b>' + escapeHtml(field.name) + ':</b> ' + (/^https?:\/\//i.test(String(record.values?.[field.name] || "")) ? '<a class="button secondary" href="' + escapeHtml(record.values?.[field.name]) + '" target="_blank" rel="noopener">' + (/публикац|publication|post/i.test(field.name) ? "Публикация ↗" : "Открыть ↗") + '</a>' : escapeHtml(record.values?.[field.name] || "—")) + '</p>').join("") + '</div></article>').join("") || '<div class="empty-state">Записей пока нет.</div>';
+    $("customAddRecord").onclick = async () => {
+      state.selectedCustomTab = tab;
+      $("customRecordTitle").textContent = "Новая запись · " + tab.name;
+      $("customRecordFields").innerHTML = fields.map((field, index) => {
+        const inputType = field.type === "phone" ? "tel" : field.type === "date" ? "date" : field.type === "link" ? "url" : "text";
+        const note = field.type === "file" ? '<small class="subtle">Hozircha fayl havolasini kiriting.</small>' : "";
+        return '<label class="field-label" for="customField' + index + '">' + escapeHtml(field.name) + '</label><input class="input-control" id="customField' + index + '" data-field-name="' + escapeHtml(field.name) + '" type="' + inputType + '"' + (field.type === "file" ? ' placeholder="https://…"' : "") + '>' + note;
+      }).join("");
+      showMessage("customRecordMessage", "", ""); $("customRecordDialog").showModal();
+    };
+  }
 }
 $("customRecordForm").onsubmit = async (event) => {
   event.preventDefault();
