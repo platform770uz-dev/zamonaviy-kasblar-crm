@@ -488,23 +488,23 @@ $("showForm").onsubmit = async (event) => {
   if (result.error) { showMessage("showFormMessage", result.error.message || "Не удалось сохранить заявку.", "error"); return; }
   $("showDialog").close(); event.target.reset(); await loadData(); toast("Заявка сохранена");
 };
-function renderCustomTabs() {
+function isFargonaTezkorTab(tab) { return /^fargona\s+tezkor$/i.test(String(tab?.name || "").trim()); } function renderCustomTabs() {
   const sidebarNav = document.querySelector(".side-nav");
   document.querySelectorAll(".custom-tab-nav,.custom-tab-page").forEach((node) => node.remove());
-  for (const tab of state.tabs) {
+  for (const tab of state.tabs) { if (isFargonaTezkorTab(tab)) continue;
     const nav = document.createElement("button"); nav.className = "nav-item custom-tab-nav"; nav.dataset.view = "custom-" + tab.id; nav.dataset.bound = "1";
     nav.innerHTML = '<span class="nav-icon">' + escapeHtml(tab.icon || "▤") + '</span><span>' + escapeHtml(tab.name) + '</span>';
     sidebarNav.insertBefore(nav, $("newCustomTab")); nav.onclick = () => showCustomTab(tab);
   }
-  document.querySelectorAll("[data-view]").forEach((button) => { if (!button.dataset.bound) { button.dataset.bound = "1"; button.onclick = () => setPage(button.dataset.view); } });
+  const fargonaTab = state.tabs.find(isFargonaTezkorTab); const fargonaLink = $("fargonaTezkorLink"); if (fargonaLink) { fargonaLink.classList.toggle("hidden", !fargonaTab); fargonaLink.onclick = () => fargonaTab && showCustomTab(fargonaTab); } document.querySelectorAll("[data-view]").forEach((button) => { if (!button.dataset.bound) { button.dataset.bound = "1"; button.onclick = () => setPage(button.dataset.view); } });
 }
-async function showCustomTab(tab) {
+async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(tab);
   document.querySelectorAll(".page").forEach((node) => node.classList.remove("active"));
-  document.querySelectorAll("[data-view]").forEach((node) => node.classList.toggle("active", node.dataset.view === "custom-" + tab.id));
+  document.querySelectorAll("[data-view]").forEach((node) => node.classList.toggle("active", nestedInBloggers ? node.dataset.view === "bloggers" : node.dataset.view === "custom-" + tab.id));
   let page = document.getElementById("custom-page-" + tab.id);
-  if (!page) { page = document.createElement("section"); page.id = "custom-page-" + tab.id; page.className = "page active"; $("workspace").appendChild(page); }
+  if (!page) { page = document.createElement("section"); page.id = "custom-page-" + tab.id; page.className = "page custom-tab-page"; $("workspace").appendChild(page); } page.classList.add("active");
   page.innerHTML = '<div class="page-heading"><div><p class="eyebrow">ПОЛЬЗОВАТЕЛЬСКАЯ ВКЛАДКА</p><h1>' + escapeHtml(tab.name) + '</h1></div><button class="button primary" id="customAddRecord">＋ Добавить запись</button></div><div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
-  const result = await db.from("custom_records").select("*").eq("tab_id", tab.id).order("created_at", { ascending: false });
+  if (nestedInBloggers) { const back = document.createElement("button"); back.type = "button"; back.className = "button secondary"; back.textContent = "← " + (state.language === "ru" ? "Блогеры" : "Blogerlar"); back.onclick = () => setPage("bloggers"); page.querySelector(".page-heading").appendChild(back); } const result = await db.from("custom_records").select("*").eq("tab_id", tab.id).order("created_at", { ascending: false });
   if (result.error) { $("customRecordList").textContent = result.error.message; return; }
   const fields = Array.isArray(tab.fields) ? tab.fields : [];
   $("customRecordList").innerHTML = (result.data || []).map((record) => '<article class="crm-card"><div class="crm-card-main">' + fields.map((field) => '<p><b>' + escapeHtml(field.name) + ':</b> ' + escapeHtml(record.values?.[field.name] || "—") + '</p>').join("") + '</div></article>').join("") || '<div class="empty-state">Записей пока нет.</div>';
