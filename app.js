@@ -94,7 +94,7 @@ function showCRM() {
   setPage("bloggers");
 }
 function leadSearchText(lead) {
-  return [lead.full_name, lead.phone, lead.kirgili_answer, lead.study_answer, lead.availability, lead.crm_note]
+  return [lead.full_name, lead.phone, lead.kirgili_answer, lead.study_answer, lead.availability, lead.crm_note, ...Object.values(lead.meta_answers || {})]
     .join(" ").toLowerCase();
 }
 function filteredLeads() {
@@ -212,7 +212,7 @@ async function loadCoreSections() {
   } else $("researchLastRun").textContent = "Excel ещё не загружали · периодичность: раз в 2 недели";
   renderHome(); renderPromos(); renderShows(); renderCustomTabs();
   if (state.manager) {
-    const leads = await db.from("meta_admin_leads").select("meta_lead_id,full_name,phone,kirgili_answer,study_answer,availability,meta_created_at,received_at,pipeline_status,crm_note").order("received_at", { ascending: false }).limit(300);
+    const leads = await db.from("meta_admin_leads").select("meta_lead_id,full_name,phone,kirgili_answer,study_answer,availability,meta_answers,meta_created_at,received_at,pipeline_status,crm_note").order("received_at", { ascending: false }).limit(300);
     state.leadAccess = !leads.error; state.leads = leads.data || []; renderLeads();
     if (leads.error) { $("leadsNotice").textContent = "Не удалось загрузить HR-лиды. Проверьте миграцию и права руководителя."; $("leadsNotice").classList.remove("hidden"); }
     renderHome();
@@ -235,9 +235,16 @@ function openLead(lead) {
   if (!lead) return;
   state.selectedLead = lead;
   $("leadDialogName").textContent = lead.full_name || "Nomsiz nomzod";
+  const metaAnswerRows = Object.entries(lead.meta_answers || {}).filter(([key, value]) => {
+    const normalized = key.toLowerCase().replace(/[^a-zа-яё0-9]/gi, "");
+    return value != null && String(value).trim() && !["fullname", "name", "phone", "phonenumber", "telefon", "ism", "ismfamiliya"].includes(normalized);
+  }).map(([key, value]) => {
+    const label = key.replace(/[_-]+/g, " ").replace(/\\s+/g, " ").trim();
+    return detailRow(label.charAt(0).toUpperCase() + label.slice(1), Array.isArray(value) ? value.join(", ") : String(value));
+  }).join("");
   $("leadDialogInfo").innerHTML = detailRow("Telefon", lead.phone) + detailRow("Kirguli", lead.kirgili_answer) +
     detailRow("O‘qish / talabalik", lead.study_answer) + detailRow("Bo‘sh vaqt", lead.availability) +
-    detailRow("Ariza kelgan sana", dateText(lead.meta_created_at || lead.received_at));
+    detailRow("Ariza kelgan sana", dateText(lead.meta_created_at || lead.received_at)) + metaAnswerRows;
   $("leadStatus").value = lead.pipeline_status || "new";
   $("leadNote").value = lead.crm_note || "";
   const call = $("leadCall");
