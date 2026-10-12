@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f7f8">
   <title>Zamonaviy Kasblar — CRM</title>
-  <link rel="stylesheet" href="./styles.css?v=crm-fargona-page-2">
+  <link rel="stylesheet" href="./styles.css?v=crm-autopilot-1">
 </head>
 <body>
   <div class="app-shell">
@@ -18,6 +18,7 @@
         <button class="nav-item" data-view="hr"><span class="nav-icon">◎</span><span data-i18n="navHr">HR-лиды</span><span class="nav-count" id="leadCountNav">0</span></button>
         <button class="nav-item active" data-view="bloggers"><span class="nav-icon">◉</span><span data-i18n="navBloggers">Блогеры</span></button>
         <button class="nav-item" data-view="shows"><span class="nav-icon">✦</span><span data-i18n="navShows">Заявки на шоу</span><span class="nav-count" id="showCountNav">0</span></button>
+        <button class="nav-item" data-view="autopilot"><span class="nav-icon">✧</span><span data-i18n="navAutopilot">Автопилот</span></button>
         <button class="nav-item" id="newCustomTab"><span class="nav-icon">＋</span><span data-i18n="newTab">Новая вкладка</span></button>
       </nav>
       <div class="sidebar-bottom">
@@ -55,6 +56,13 @@
           <div id="promoList" class="crm-list"></div><div id="promoEmpty" class="empty-state hidden"><span class="empty-icon">◉</span><b>Пока нет рекламных публикаций</b><p class="subtle">Добавьте подтверждённую публикацию блогера.</p></div>
         </section>
 
+                <section class="page" id="autopilotPage">
+<div class="page-heading"><div><p class="eyebrow">ПОИСК В CHROME</p><h1 data-i18n="autopilotTitle">Автопилот</h1><p class="subtle" data-i18n="autopilotSubtitle">Выберите блогера и параметры — CRM подготовит запрос.</p></div></div>
+<div class="autopilot-steps"><div><span>1</span><b>Блогер</b></div><div><span>2</span><b>Бизнесы</b></div><div><span>3</span><b>Поиск</b></div></div>
+<section class="autopilot-panel"><div class="autopilot-section-title"><span>01</span><div><b>Кого ищем?</b><small>Укажите блогера или выберите из известных CRM.</small></div></div><label class="field-label" for="autopilotBlogger">Имя или Instagram-профиль блогера</label><input class="input-control" id="autopilotBlogger" list="autopilotBloggerOptions" value="Fargona Tezkor" placeholder="@username или название"><datalist id="autopilotBloggerOptions"><option value="Fargona Tezkor"></option></datalist></section>
+<section class="autopilot-panel"><div class="autopilot-section-title"><span>02</span><div><b>Какие бизнесы найти?</b><small>Можно выбрать оба размера.</small></div></div><div class="autopilot-choice-grid"><label class="autopilot-choice"><input type="checkbox" id="autopilotSmall" checked><span><b>Малые</b><small>Небольшие местные компании и магазины</small></span></label><label class="autopilot-choice"><input type="checkbox" id="autopilotMedium" checked><span><b>Средние</b><small>Компании с несколькими точками или командой</small></span></label></div><div class="autopilot-fields"><label><span class="field-label">Сколько бизнесов найти?</span><input class="input-control" id="autopilotCount" type="number" min="1" max="100" value="10"></label><label><span class="field-label">Публикации с даты</span><input class="input-control" id="autopilotFrom" type="date"></label><label><span class="field-label">По дату включительно</span><input class="input-control" id="autopilotTo" type="date"></label></div></section>
+<section class="autopilot-result"><div class="autopilot-section-title"><span>03</span><div><b>Запрос готов</b><small>Нажмите — ChatGPT откроется с запросом и начнёт веб-поиск.</small></div></div><textarea id="autopilotPrompt" class="input-control autopilot-prompt" readonly aria-label="Готовый запрос"></textarea><div class="autopilot-actions"><button class="button secondary" id="copyAutopilotPrompt" type="button">Скопировать запрос</button><a class="button primary" id="openAutopilotSearch" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Открыть ChatGPT и начать поиск ↗</a></div><p class="autopilot-footnote">Только открытые публикации. Если появится вход, CAPTCHA или блокировка — остановите поиск и продолжите вручную.</p></section></section>
+
         <section class="page" id="leadsPage">
           <div class="page-heading"><div><p class="eyebrow">HR</p><h1 data-i18n="hrTitle">HR-лиды по вакансии</h1><p class="subtle" data-i18n="hrSubtitle">Ответы кандидатов и этап найма.</p></div></div>
           <div class="toolbar"><label class="search-box"><span>⌕</span><input id="leadSearch" type="search" data-i18n-placeholder="searchNamePhone" placeholder="Имя или телефон" autocomplete="off"></label><select id="leadFilter" class="filter-select" aria-label="Этап заявки"><option value="all" data-i18n="allStages">Все этапы</option><option value="new" data-i18n="new">Новая</option><option value="contacted" data-i18n="contacted">Связались</option><option value="interview" data-i18n="interview">Собеседование</option><option value="hired" data-i18n="hired">Принята</option><option value="rejected" data-i18n="rejected">Отказ</option></select><button class="icon-button" id="refreshLeads" aria-label="Обновить">↻</button></div>
@@ -74,6 +82,7 @@
         <button class="mobile-nav-item" data-view="hr"><span>◎</span><small data-i18n="navHr">HR-лиды</small></button>
         <button class="mobile-nav-item active" data-view="bloggers"><span>◉</span><small data-i18n="navBloggers">Блогеры</small></button>
         <button class="mobile-nav-item" data-view="shows"><span>✦</span><small data-i18n="navShows">Шоу</small></button>
+        <button class="mobile-nav-item" data-view="autopilot"><span>✧</span><small data-i18n="navAutopilot">Автопилот</small></button>
       </nav>
     </div>
   </div>
@@ -138,7 +147,7 @@
   <div class="toast hidden" id="toast" role="status"></div>
   <script>window.SUPABASE_CONFIG={url:"https://uzivivmrixstxjvzkksz.supabase.co",publishableKey:"sb_publishable_8z5WQbInjqHDvigfDSOcuQ_FOq7LQWJ"};</script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script type="module" src="./app.js?v=crm-fargona-page-2"></script>
+  <script type="module" src="./app.js?v=crm-autopilot-1"></script>
 </body>
 </html>
 
