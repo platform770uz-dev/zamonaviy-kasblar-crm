@@ -29,8 +29,15 @@ function money(value) {
 function dateText(value) {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("uz-UZ", { day: "numeric", month: "short", year: "numeric" });
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("uz-UZ", { day: "numeric", month: "short", year: "numeric" });}
+
+function telegramHref(value) {
+  let digits = String(value || "").replace(/\D/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  if (digits.length === 9) digits = "998" + digits;
+  return digits.length >= 8 && digits.length <= 15 ? "https://t.me/+" + digits : "";
 }
+
 function phoneHref(value) {
   return "tel:" + String(value || "").replace(/[^+\d]/g, "");
 }
@@ -237,6 +244,12 @@ function openLead(lead) {
     call.href = phoneHref(lead.phone);
     call.classList.remove("hidden");
   } else call.classList.add("hidden");
+  const telegram = $("leadTelegram");
+  const telegramUrl = telegramHref(lead.phone);
+  if (telegramUrl) {
+    telegram.href = telegramUrl;
+    telegram.classList.remove("hidden");
+  } else telegram.classList.add("hidden");
   showMessage("leadDialogMessage", "", "");
   $("leadDialog").showModal();
 }
