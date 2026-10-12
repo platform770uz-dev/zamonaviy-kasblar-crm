@@ -1,22 +1,45 @@
 # Zamonaviy Kasblar CRM
 
-A simple, responsive CRM for desktop and mobile.
+Yangi alohida CRM ilovasi. Interfeys sodda va ikki formatga mos:
 
-## Features
+- Kompyuterda chap menyu va keng ish maydoni.
+- Telefonda pastki menyu, bir ustunli kartalar va qulay to‘ldiriladigan oynalar.
+- Minimal, ChatGPT uslubidan ilhomlangan neytral dizayn.
 
-- Telegram Mini App sign-in through the existing crm-telegram-login Supabase Edge Function.
-- Candidate applications with search, stages, phone links, and internal notes.
-- Orders, order details, and one-time signing links.
-- A separate signing page for order owners.
+## Funksiyalar
 
-## Security and setup
+- Telegram Mini App orqali kirish. Kirish huquqini mavjud `crm-telegram-login` Edge Function tekshiradi.
+- Rahbar uchun vakansiya arizalari: qidiruv, bosqich, telefon orqali qo‘ng‘iroq va ichki eslatma.
+- Blogerlar bo‘limi: biznes, ochiq telefon manbasi, profil, reklama postiga havola va sana; bir xil post URL yangilanadi.
+- TV-shou arizalari: brend-feys va mobilograf toifalari, telefon, portfel hamda tanlov bosqichlari.
+- Maydon va ko‘rish/tahrirlash huquqlarini tanlab shaxsiy bo‘limlar yaratish.
+- Shartnoma egasi uchun alohida imzolash sahifasi.
+- Supabase RLS. Brauzerdagi publishable key hech qachon service-role key bo‘lmaydi.
 
-The browser uses only the Supabase publishable key. It does not include a service-role key or Telegram bot token. Candidate data is protected by Supabase authentication and row-level security.
+## Ma’lumotlar va xavfsizlik
 
-The static HTML intentionally does not contain contractor tax, bank, or phone details. Add or deliver those through an authenticated server flow before using the signing page for production contracts.
+`index.html` ichida faqat Supabase publishable key ishlatiladi. Service-role key, Telegram bot tokeni va boshqa maxfiy kalitlar ilovaga kiritilmaydi. Nomzod ma’lumotlarini ko‘rish va o‘zgartirish RLS orqali egaga cheklangan.
 
-The candidate workflow migration is in supabase/migrations/20261012_meta_admin_leads_crm_fields.sql. Review it and apply it to Supabase before using pipeline stages and internal notes; it is not applied automatically.
+Nomzodlarning ichki bosqichi va eslatmalarini saqlash uchun quyidagi migratsiyani Supabase SQL Editor’da ko‘rib chiqib, alohida qo‘llash kerak:
 
-The existing Supabase Edge Functions allow the GitHub Pages origin https://platform770uz-dev.github.io. Configure GitHub Pages to publish the main branch from the repository root. The expected site URL is https://platform770uz-dev.github.io/zamonaviy-kasblar-crm/.
+`supabase/migrations/20261012_meta_admin_leads_crm_fields.sql`
 
-The Telegram bot still needs to be pointed to that URL separately. Do not enable production use until the project's data-region requirements have been verified.
+Migratsiya CRM egasiga faqat `pipeline_status` va `crm_note` ustunlarini yangilashga ruxsat beradi. Boshqa ustunlar va mavjud kirish cheklovlari o‘zgarmaydi. Migratsiya GitHub PR tayyorlanishi bilan avtomatik qo‘llanmaydi.
+
+## Yangi asosiy bo‘limlar
+
+CRM endi uchta asosiy bo‘limdan iborat: rahbar uchun vakansiya arizalari, blogerlarning mahalliy biznes reklamasi va TV-shou arizalari. Shuningdek, foydalanuvchi maydonlar va ruxsatlarni tanlab yangi bo‘lim yaratishi mumkin; RU / UZ almashtirgichi mavjud.
+
+Yangi bo‘limlar uchun `supabase/migrations/20261012_crm_core_sections.sql` migratsiyasini `20261012_meta_admin_leads_crm_fields.sql` migratsiyasidan keyin Supabase SQL Editor’da alohida qo‘llash kerak. U blogerlar va reklama, shou arizalari, foydalanuvchi bo‘limlari hamda rollar jadvallari va RLS qoidalarini yaratadi. HR arizalariga faqat rahbar kira oladi. Mavjud `private.is_crm_owner()` foydalanuvchisi rahbar deb olinadi; qo‘shimcha rahbarni `crm_members` jadvaliga egasi qo‘shishi kerak.
+
+Instagram Meta API ulanmaydi. Chrome’da ikki haftada bir marta ruxsatli qidiruv o‘tkazib, oxirgi 7 kunlik natijalarni Excel faylida CRM’ga yuklash rejalashtirilgan. CRM `.xlsx`, `.xls` yoki `.csv` faylining birinchi varag‘ini o‘qib, biznes, telefon, telefon manbasi, hudud, bloger, post havolasi, sana va reklama dalilini oladi. Oxirgi 7 kundan tashqaridagi yoki sanasi yo‘q satrlar import qilinmaydi. Bir xil profil va biznes birlashtiriladi; bir xil post URL yangilanadi va tekshiruv holati saqlanadi. Excel faylining o‘zi saqlanmaydi. Captcha yoki login so‘ralsa, qidiruvni qo‘lda davom ettirish kerak; chetlab o‘tish yo‘q.
+
+Fayl maydonlari hozircha qiymat yoki havolani saqlaydi; yopiq Storage yuklash oqimi keyingi bosqichda ulanadi.
+
+## Ishga tushirish
+
+Bu oddiy statik ilova. `crm/` papkasini GitHub Pages orqali chiqarish mumkin; Telegram Mini App URL manziliga saytning `/crm/` yo‘lini ko‘rsatish kerak. Amaldagi Telegram bot tugmasi hozircha o‘zgartirilmagan.
+
+Pages manzili ishlatilishidan oldin uni `crm-telegram-login` va `order-link` Edge Function’larining ruxsat etilgan CORS originlari bilan mosligini tekshiring. Yangi origin kerak bo‘lsa, backend CORS ro‘yxatiga qo‘shib, alohida tekshiruvdan so‘ng chiqarish lozim.
+
+Supabase va arizachilar ma’lumotlari loyihaning tasdiqlangan O‘zbekiston hududida joylashganini tekshirmasdan production’da ishga tushirmang.
