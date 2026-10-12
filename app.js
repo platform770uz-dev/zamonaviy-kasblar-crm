@@ -159,13 +159,13 @@ function renderOrders() {
   bindOpenButtons();
 }
 const promoDate = (row) => row.published_at || row.created_at;
-function renderPromos() {
+const isFargonaTezkorPromo = (row) => [row.blogger?.username, row.blogger?.display_name].some((value) => String(value || "").toLowerCase().replace(/^@/, "").replace(/[^a-z0-9]+/g, " ").trim() === "fargona tezkor"); function renderPromos() {
   const query = $("promoSearch").value.trim().toLowerCase();
   const sevenDays = Date.now() - 7 * 86400000;
   const rows = state.promos.filter((row) => {
     const matchesPeriod = $("promoPeriod").value === "all" || (row.published_at && new Date(row.published_at).getTime() >= sevenDays);
     const haystack = [row.business?.name, row.business?.phone, row.business?.city, row.blogger?.display_name, row.blogger?.username, row.permalink].join(" ").toLowerCase();
-    return matchesPeriod && (!query || haystack.includes(query));
+    return !isFargonaTezkorPromo(row) && matchesPeriod && (!query || haystack.includes(query));
   });
   $("promoList").innerHTML = rows.map((row) => '<article class="crm-card"><div class="crm-card-main"><div class="crm-card-title"><b>' + escapeHtml(row.business?.name || "Бизнес") + '</b></div><p>' + escapeHtml(row.blogger?.display_name || row.blogger?.username || "Блогер") + ' · ' + escapeHtml(row.business?.city || "Ферганская область") + '</p><p class="crm-card-meta">' + escapeHtml(row.business?.phone || "Телефон не указан") + ' · ' + escapeHtml(dateText(promoDate(row))) + '</p></div><div class="crm-card-actions"><a class="button secondary" href="' + escapeHtml(row.permalink) + '" target="_blank" rel="noopener">Публикация ↗</a>' + (row.business?.phone ? '<a class="icon-button" href="' + escapeHtml(phoneHref(row.business.phone)) + '">☎</a>' : "") + '<select class="filter-select promo-review" data-id="' + escapeHtml(row.id) + '"><option value="needs_review" ' + (row.review_status === "needs_review" ? "selected" : "") + '>Проверить</option><option value="confirmed" ' + (row.review_status === "confirmed" ? "selected" : "") + '>Подтверждено</option><option value="rejected" ' + (row.review_status === "rejected" ? "selected" : "") + '>Не реклама</option></select></div></article>').join("");
   $("promoEmpty").classList.toggle("hidden", rows.length > 0);
@@ -507,7 +507,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
   if (nestedInBloggers) { const back = document.createElement("button"); back.type = "button"; back.className = "button secondary"; back.textContent = "← " + (state.language === "ru" ? "Блогеры" : "Blogerlar"); back.onclick = () => setPage("bloggers"); page.querySelector(".page-heading").appendChild(back); } const result = await db.from("custom_records").select("*").eq("tab_id", tab.id).order("created_at", { ascending: false });
   if (result.error) { $("customRecordList").textContent = result.error.message; return; }
   const fields = Array.isArray(tab.fields) ? tab.fields : [];
-  $("customRecordList").innerHTML = (result.data || []).map((record) => '<article class="crm-card"><div class="crm-card-main">' + fields.map((field) => '<p><b>' + escapeHtml(field.name) + ':</b> ' + escapeHtml(record.values?.[field.name] || "—") + '</p>').join("") + '</div></article>').join("") || '<div class="empty-state">Записей пока нет.</div>';
+  $("customRecordList").innerHTML = (result.data || []).map((record) => '<article class="crm-card"><div class="crm-card-main">' + fields.map((field) => '<p><b>' + escapeHtml(field.name) + ':</b> ' + (/^https?:\/\//i.test(String(record.values?.[field.name] || "")) ? '<a class="button secondary" href="' + escapeHtml(record.values?.[field.name]) + '" target="_blank" rel="noopener">' + (/публикац|publication|post/i.test(field.name) ? "Публикация ↗" : "Открыть ↗") + '</a>' : escapeHtml(record.values?.[field.name] || "—")) + '</p>').join("") + '</div></article>').join("") || '<div class="empty-state">Записей пока нет.</div>';
   $("customAddRecord").onclick = async () => {
     state.selectedCustomTab = tab;
     $("customRecordTitle").textContent = "Новая запись · " + tab.name;
