@@ -206,3 +206,25 @@ a{color:inherit;text-decoration:none}
  .source-record-actions .button{flex:1;justify-content:center}
  .source-record-fields{grid-template-columns:1fr 1fr;gap:8px;margin-top:13px}
 }
+
+
+/* Keep the Bloggers home focused on the Fargona Tezkor folder */
+#homePage > .page-heading,
+#homePage > .research-banner,
+#homePage > #excelImportMessage,
+#homePage > .toolbar,
+#homePage > #promoList,
+#homePage > #promoEmpty{display:none!important}
+#homePage > .blogger-subnav{display:flex;justify-content:center;align-items:center;width:100%;margin:clamp(24px,7vh,72px) auto}
+#homePage .source-folder-button{display:grid;grid-template-columns:72px minmax(0,1fr) 42px;align-items:center;gap:18px;width:min(100%,720px);min-height:148px;padding:24px 30px;border:1px solid #079873;border-radius:26px;background:linear-gradient(125deg,#12ae86 0%,#078568 58%,#076c5a 100%);box-shadow:0 18px 42px #087b612e;color:#fff;text-align:left;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease}
+#homePage .source-folder-button:hover{transform:translateY(-3px);box-shadow:0 24px 50px #087b6138}
+#homePage .source-folder-button:focus-visible{outline:4px solid #9be5cf;outline-offset:4px}
+#homePage .source-folder-symbol{display:grid;place-items:center;width:68px;height:68px;border:1px solid #ffffff55;border-radius:21px;background:#ffffff20;font-size:34px;line-height:1}
+#homePage .source-folder-name{font-size:clamp(24px,3vw,34px);font-weight:750;letter-spacing:-.035em}
+#homePage .source-folder-arrow{display:grid;place-items:center;width:42px;height:42px;border:1px solid #ffffff55;border-radius:50%;background:#ffffff18;font-size:23px}
+@media(max-width:720px){
+ #homePage > .blogger-subnav{margin:28px auto}
+ #homePage .source-folder-button{grid-template-columns:56px minmax(0,1fr) 36px;gap:13px;min-height:112px;padding:18px;border-radius:21px}
+ #homePage .source-folder-symbol{width:54px;height:54px;border-radius:17px;font-size:27px}
+ #homePage .source-folder-arrow{width:36px;height:36px;font-size:19px}
+}
