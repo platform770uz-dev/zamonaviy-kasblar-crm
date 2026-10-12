@@ -239,7 +239,7 @@ function openLead(lead) {
     const normalized = key.toLowerCase().replace(/[^a-zа-яё0-9]/gi, "");
     return value != null && String(value).trim() && !["fullname", "name", "phone", "phonenumber", "telefon", "ism", "ismfamiliya"].includes(normalized);
   }).map(([key, value]) => {
-    const label = key.replace(/[_-]+/g, " ").replace(/\\s+/g, " ").trim();
+    const label = key.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
     return detailRow(label.charAt(0).toUpperCase() + label.slice(1), Array.isArray(value) ? value.join(", ") : String(value));
   }).join("");
   $("leadDialogInfo").innerHTML = detailRow("Telefon", lead.phone) + detailRow("Kirguli", lead.kirgili_answer) +
