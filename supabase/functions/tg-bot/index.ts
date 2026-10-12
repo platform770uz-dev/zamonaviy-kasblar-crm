@@ -10,6 +10,7 @@ const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SE
 const json = (o: Record<string, unknown>, status = 200) => new Response(JSON.stringify(o), { status, headers: HEAD });
 const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const SITE = "https://platform770uz-dev.github.io/zamonaviy-kasblar-crm/";
+const CONTRACT_SITE = "https://uzivivmrixstxjvzkksz.supabase.co/functions/v1/contract-web";
 
 function safeEqual(a: string, b: string) {
   if (a.length !== b.length) return false;
@@ -63,7 +64,10 @@ async function issueCrmAccess(chatId: number) {
   }
   const url = SITE + "#crm-login=" + encodeURIComponent(token);
   return await send(chatId, "CRM’ga kirish uchun tugmani bosing. Havola 5 daqiqada tugaydi va bir marta ishlaydi.", {
-    inline_keyboard: [[{ text: "CRM", url }]],
+    inline_keyboard: [[
+      { text: "CRM", url },
+      { text: "📄 Договор", web_app: { url: CONTRACT_SITE } },
+    ]],
   });
 }
 
