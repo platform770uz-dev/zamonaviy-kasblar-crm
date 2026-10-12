@@ -555,6 +555,12 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
   } else {
     page.innerHTML = '<div class="page-heading"><div><p class="eyebrow">ПОЛЬЗОВАТЕЛЬСКАЯ ВКЛАДКА</p><h1>' + escapeHtml(tab.name) + '</h1></div><button class="button primary" id="customAddRecord">＋ Добавить запись</button></div><div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
   }
+  if (nestedInBloggers) {
+    const sourceRows = state.promos.filter(isFargonaTezkorPromo);
+    $("sourceResultCount").textContent = String(sourceRows.length);
+    $("sourcePromoList").innerHTML = sourceRows.map(sourcePromoCard).join("") || '<div class="empty-state">Пока нет находок. Новые результаты появятся здесь после загрузки автопилота.</div>';
+    return;
+  }
   const result = await db.from("custom_records").select("*").eq("tab_id", tab.id).order("created_at", { ascending: false });
   if (result.error) { if (!nestedInBloggers) $("customRecordList").textContent = result.error.message; return; }
   const fields = Array.isArray(tab.fields) ? tab.fields : [];
