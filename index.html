@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f7f8">
   <title>Zamonaviy Kasblar — CRM</title>
-  <link rel="stylesheet" href="./styles.css?v=crm-source-page-polish-3">
+  <link rel="stylesheet" href="./styles.css?v=crm-source-page-polish-4">
 </head>
 <body>
   <div class="app-shell">
@@ -50,7 +50,7 @@
       <main class="workspace hidden" id="workspace">
         <section class="page active" id="homePage">
           <button class="hidden" id="addPromo" type="button" tabindex="-1" aria-hidden="true">Добавить рекламу</button>
-          <div class="blogger-subnav"><button class="source-folder-button hidden" id="fargonaTezkorLink" type="button" aria-label="Открыть папку Fargona Tezkor"><span class="source-folder-symbol" aria-hidden="true">◉</span><span class="source-folder-name">Fargona Tezkor</span><span class="source-folder-arrow" aria-hidden="true">↗</span></button></div>
+          <div class="blogger-folder-grid hidden" id="bloggerFolders" aria-label="Папки блогеров"></div>
           <div class="research-banner"><div><b data-i18n="researchTitle">Ресерч в Chrome раз в 2 недели</b><p id="researchStatus" class="subtle">Проведите ресерч в Chrome и загрузите Excel сюда. CRM проверит строки и обновит совпадения.</p><small id="researchLastRun"></small><small class="upload-privacy">Файл обрабатывается в браузере; в CRM сохраняются записи, сам Excel не хранится.</small></div><div class="research-actions"><button class="button secondary" id="uploadExcelButton">Загрузить Excel</button><button class="button secondary" id="downloadExcelTemplate">Шаблон</button><button class="icon-button" id="refreshPromos" aria-label="Обновить">↻</button><input class="hidden" id="excelFile" type="file" accept=".xlsx,.xls,.csv"></div></div>
           <div id="excelImportMessage" class="message hidden" role="status"></div>
           <div class="toolbar"><label class="search-box"><span>⌕</span><input id="promoSearch" type="search" data-i18n-placeholder="promoSearch" placeholder="Бизнес, блогер или телефон"></label><select id="promoPeriod" class="filter-select"><option value="7" data-i18n="last7">Последние 7 дней</option><option value="all" data-i18n="allTime">За всё время</option></select></div>
@@ -141,7 +141,7 @@
     <section class="owner-card">
       <span class="login-mark">✳</span><p class="eyebrow">ZAMONAVIY KASBLAR DUO</p><h1>Buyurtma shartlari</h1>
       <div id="ownerOrderInfo" class="detail-grid"><div class="loading-row">Buyurtma yuklanmoqda…</div></div>
-      <div class="terms-copy"><h2>Tomonlarning tasdig‘i</h2><p>Yuqoridagi ma’lumotlar, xizmat tarkibi, narx, to‘lov va muddatlar bilan tanishing. Imzo ushbu buyurtma shartlariga roziligingizni qayd etadi.</p><ul><li>Ko‘rishlar, murojaatlar va savdo natijalari kafolatlanmaydi.</li><li>Buyurtmachi suratga olinadigan xodimlar va boshqa shaxslar uchun kerakli roziliklarni oladi.</li><li>Ikki mobilografga bir xil brif va ish sharoiti beriladi. Biznes egasi to‘rt mezon bo‘yicha 1–5 ball qo‘yadi; tenglikda g‘olibni o‘zi tanlaydi.</li><li>G‘olib mobilograf bir oylik kursga kirish oladi; pul bilan almashtirilmaydi.</li><li>Ijrochi va buyurtmachi videolarni kelishilgan sahifalarida e’lon qilishi mumkin.</li></ul><h3>Ijrochi rekvizitlari</h3><p>YTT Tilavoldiyev Jamshidali Alisher o‘g‘li · STIR: 543238354</p><p>Hisob raqami: 202180006007843003001 · ATB «Kapitalbank» · MFO 01043</p><p>Telefon: +998 93 731-96-54</p></div>
+      <div class="terms-copy"><h2>Tomonlarning tasdig‘i</h2><p>Yuqoridagi ma’lumotlar, xizmat tarkibi, narx, to‘lov va muddatlar bilan tanishing. Imzo ushbu buyurtma shartlariga roziligingizni qayd etadi.</p><ul><li>Ko‘rishlar, murojaatlar va savdo natijalari kafolatlanmaydi.</li><li>Buyurtmachi suratga olinadigan xodimlar va boshqa shaxslar uchun kerakli roziliklarni oladi.</li><li>Ikki mobilografga bir xil brif va ish sharoiti beriladi. Biznes egasi to‘rt mezon bo‘yicha 1–5 ball qo‘yadi; tenglikda g‘olibni o‘zi tanlaydi.</li><li>G‘olib mobilograf bir oylik kursga kirish oladi; pul bilan almashtirilmaydi.</li><li>Ijrochi va buyurtmachi videolarni kelishilgan sahifalarida e’lon qilishi mumkin.</li></ul></div>
       <div id="signArea"><label class="field-label" for="signature">Imzo chizing</label><canvas id="signature" class="signature"></canvas><button class="text-button" id="clearSignature">Qayta chizish</button><label class="agree-row"><input type="checkbox" id="agreeTerms"><span>Buyurtma ma’lumotlari va shartlarini o‘qidim, tekshirdim va qabul qilaman.</span></label><button class="button primary full" id="signOrder">Qabul qilish va imzolash</button></div>
       <div id="signedNotice" class="message success hidden">Buyurtma tasdiqlandi. Imzolangan nusxani PDF qilib saqlashingiz mumkin.</div>
       <button class="button secondary full hidden" id="ownerPrint">PDF saqlash</button>
@@ -152,7 +152,7 @@
   <div class="toast hidden" id="toast" role="status"></div>
   <script>window.SUPABASE_CONFIG={url:"https://uzivivmrixstxjvzkksz.supabase.co",publishableKey:"sb_publishable_8z5WQbInjqHDvigfDSOcuQ_FOq7LQWJ"};</script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script type="module" src="./app.js?v=crm-source-page-polish-6"></script>
+  <script type="module" src="./app.js?v=crm-source-page-polish-7"></script>
 </body>
 </html>
 
