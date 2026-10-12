@@ -160,7 +160,7 @@ function renderOrders() {
   bindOpenButtons();
 }
 const promoDate = (row) => row.published_at || row.created_at;
-const isFargonaTezkorPromo = (row) => [row.blogger?.username, row.blogger?.display_name].some((value) => String(value || "").toLowerCase().replace(/^@/, "").replace(/[^a-z0-9]+/g, " ").trim() === "fargona tezkor");
+const isFargonaTezkorPromo = (row) => [row.blogger?.username, row.blogger?.display_name, row.blogger?.instagram_url].some((value) => String(value || "").toLowerCase().replace(/^@/, "").replace(/[^a-z0-9]+/g, " ").trim().includes("fargona tezkor"));
 function sourcePromoCard(row) {
   const business = row.business || {}, blogger = row.blogger || {};
   const phone = String(business.phone || "").trim();
