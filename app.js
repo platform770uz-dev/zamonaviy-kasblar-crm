@@ -191,6 +191,7 @@ function promoSourceGroup(name, rows) {
 function renderPromos() {
   const query = $("promoSearch").value.trim().toLowerCase(), sevenDays = Date.now() - 7 * 86400000;
   const rows = state.promos.filter((row) => {
+    if (isFargonaTezkorPromo(row)) return false;
     const matchesPeriod = $("promoPeriod").value === "all" || (row.published_at && new Date(row.published_at).getTime() >= sevenDays);
     const haystack = [row.business?.name, row.business?.phone, row.business?.city, row.blogger?.display_name, row.blogger?.username, row.permalink, row.evidence].join(" ").toLowerCase();
     return matchesPeriod && (!query || haystack.includes(query));
