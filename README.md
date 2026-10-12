@@ -18,9 +18,9 @@ Yangi alohida CRM ilovasi. Interfeys sodda va ikki formatga mos:
 
 ## Ma’lumotlar va xavfsizlik
 
-`index.html` ichida faqat Supabase publishable key ishlatiladi. Service-role key, Telegram bot tokeni va boshqa maxfiy kalitlar ilovaga kiritilmaydi. HR arizalarini ko‘rish va o‘zgartirish faqat rahbar roliga ochiq; boshqa bo‘limlar tasdiqlangan adminlarga ochiq.
+`index.html` ichida faqat Supabase publishable key ishlatiladi. Service-role key, Telegram bot tokeni va boshqa maxfiy kalitlar ilovaga kiritilmaydi. HR arizalarini ko‘rish va o‘zgartirish faqat rahbar roliga ochiq; boshqa bo‘limlar tasdiqlangan adminlarga ochiq. Admin havolasi 5 daqiqada tugaydi, bir marta ishlaydi va bazada faqat xesh saqlanadi.
 
-Nomzodlarning ichki bosqichi va eslatmalarini saqlash uchun quyidagi migratsiyani Supabase SQL Editor’da ko‘rib chiqib, alohida qo‘llash kerak:
+Nomzodlarning ichki bosqichi va eslatmalarini saqlash uchun quyidagi migratsiya qo‘llanadi:
 
 `supabase/migrations/20261012_meta_admin_leads_crm_fields.sql`
 
@@ -40,6 +40,4 @@ Fayl maydonlari hozircha qiymat yoki havolani saqlaydi; yopiq Storage yuklash oq
 
 Bu oddiy statik ilova. `crm-public-site/` fayllari GitHub Pages ildiziga chiqariladi. Telegram botidagi CRM tugmasi oddiy veb-havolani ochadi; Telegram Mini App ishlatilmaydi.
 
-Pages manzili ishlatilishidan oldin uni `crm-telegram-login` va `order-link` Edge Function’larining ruxsat etilgan CORS originlari bilan mosligini tekshiring. Yangi origin kerak bo‘lsa, backend CORS ro‘yxatiga qo‘shib, alohida tekshiruvdan so‘ng chiqarish lozim.
-
-Supabase va arizachilar ma’lumotlari loyihaning tasdiqlangan O‘zbekiston hududida joylashganini tekshirmasdan production’da ishga tushirmang.
+`crm-browser-login`, `crm-web-login` va `order-link` funksiyalarida GitHub Pages originiga ruxsat bor. CRM Supabase loyihasining mavjud Frankfurt (`eu-central-1`) hududida ishlaydi.
