@@ -532,37 +532,62 @@ $("logoutBtn").onclick = async () => {
   state.user = null;
   showLogin("Tizimdan chiqdingiz.", false);
 };
-async function telegramLogin() {
-  const initData = window.Telegram?.WebApp?.initData || "";
-  if (!initData) {
-    showMessage("loginMessage", "CRM’ni Telegram botdagi sayt tugmasi orqali oching.", "error");
-    return;
-  }
-  const button = $("loginBtn");
-  button.disabled = true; button.textContent = "Tekshirilmoqda…";
+function setSignedInUser(user) {
+  state.user = user;
+  const name = user?.user_metadata?.full_name || "CRM";
+  $("profileName").textContent = name;
+  $("avatar").textContent = initials(name);
+  showCRM();
+  return loadData();
+}
+async function verifyLoginToken(tokenHash) {
+  const auth = await db.auth.verifyOtp({ token_hash: tokenHash, type: "magiclink" });
+  if (auth.error || !auth.data?.user) throw new Error("Не удалось завершить вход. Запросите новую ссылку у бота.");
+  await setSignedInUser(auth.data.user);
+}
+async function managerPinLogin() {
+  const pinInput = $("managerPin"), button = $("managerPinLoginBtn");
+  const pin = pinInput.value.trim();
+  if (!/^\d{4}$/.test(pin)) { showMessage("loginMessage", "Введите четырёхзначный PIN руководителя.", "error"); return; }
+  button.disabled = true; button.textContent = "Проверяю…";
   try {
-    const response = await fetch(config.url + "/functions/v1/crm-telegram-login", {
+    const response = await fetch(config.url + "/functions/v1/crm-web-login", {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: config.publishableKey },
-      body: JSON.stringify({ initData })
+      body: JSON.stringify({ pin })
     });
     const result = await response.json();
     if (!response.ok || !result.token_hash) {
-      const errors = { approval_required: "Kirish uchun CRM egasidan ruxsat oling.", login_not_configured: "Telegram orqali kirish sozlanmagan." };
-      throw new Error(errors[result.error] || "Telegram orqali kirib bo‘lmadi.");
+      const errors = { pin_invalid: "Неверный PIN.", too_many_attempts: "Слишком много попыток. Подождите 15 минут.", web_access_disabled: "Вход руководителя отключён.", login_not_configured: "Вход руководителя временно недоступен." };
+      throw new Error(errors[result.error] || "Не удалось войти.");
     }
-    const auth = await db.auth.verifyOtp({ token_hash: result.token_hash, type: "magiclink" });
-    if (auth.error) throw new Error("Kirishni yakunlab bo‘lmadi.");
-    state.user = auth.data.user;
-    showCRM();
-    await loadData();
+    pinInput.value = "";
+    await verifyLoginToken(result.token_hash);
   } catch (error) {
-    showMessage("loginMessage", error.message || "Kirish amalga oshmadi.", "error");
+    showMessage("loginMessage", error.message || "Не удалось войти.", "error");
   } finally {
-    button.disabled = false; button.textContent = "Telegram orqali kirish";
+    button.disabled = false; button.textContent = "Войти как руководитель";
   }
 }
-$("loginBtn").onclick = telegramLogin;
+$("managerPinLoginBtn").onclick = managerPinLogin;
+$("managerPin").addEventListener("keydown", (event) => { if (event.key === "Enter") managerPinLogin(); });
+async function browserLinkLogin(token) {
+  try {
+    const response = await fetch(config.url + "/functions/v1/crm-browser-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: config.publishableKey },
+      body: JSON.stringify({ token })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.token_hash) {
+      const errors = { link_invalid: "Ссылка уже использована или устарела. Нажмите /start в боте, чтобы получить новую.", approval_required: "Руководитель ещё не одобрил доступ.", login_unavailable: "Не удалось войти. Запросите новую ссылку через бота." };
+      throw new Error(errors[result.error] || "Не удалось проверить ссылку.");
+    }
+    await verifyLoginToken(result.token_hash);
+  } catch (error) {
+    showLogin(error.message || "Не удалось проверить ссылку.", true);
+  }
+}
 function renderOwnerOrder(order) {
   $("ownerOrderInfo").innerHTML =
     detailRow("Buyurtma raqami", order.order_number) +
@@ -651,11 +676,17 @@ async function start() {
     await loadOwnerOrder();
     return;
   }
+  const browserLogin = location.hash.match(/^#crm-login=(.+)$/);
+  if (browserLogin) {
+    const token = decodeURIComponent(browserLogin[1]);
+    history.replaceState(null, document.title, location.pathname + location.search);
+    await browserLinkLogin(token);
+    return;
+  }
   const session = await db.auth.getSession();
   state.user = session.data.session?.user || null;
   if (!state.user) {
     showLogin("", false);
-    window.Telegram?.WebApp?.ready();
     return;
   }
   const name = state.user.user_metadata?.full_name || "Koordinator";
@@ -663,7 +694,6 @@ async function start() {
   $("avatar").textContent = initials(name);
   showCRM();
   await loadData();
-  window.Telegram?.WebApp?.ready();
 }
 start();
 

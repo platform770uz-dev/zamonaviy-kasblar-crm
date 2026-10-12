@@ -5,8 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f7f8">
   <title>Zamonaviy Kasblar — CRM</title>
-  <link rel="stylesheet" href="./styles.css?v=crm-core-1">
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="./styles.css?v=crm-browser-1">
 </head>
 <body>
   <div class="app-shell">
@@ -38,9 +37,11 @@
           <span class="login-mark">✳</span>
           <p class="eyebrow">ZAMONAVIY KASBLAR DUO</p>
           <h1>CRM’ga xush kelibsiz</h1>
-          <p class="subtle">HR-лиды, блогеры и кастинг-заявки в одном месте.</p>
-          <button class="button primary full" id="loginBtn">Telegram orqali kirish</button>
-          <p class="login-note">Kirish faqat tasdiqlangan jamoa a’zolari uchun.</p>
+          <p class="subtle">HR-лиды, блогеры и заявки на шоу в одном месте.</p>
+          <label class="field-label" for="managerPin">PIN руководителя</label>
+          <input class="input-control" id="managerPin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" aria-label="PIN руководителя">
+          <button class="button primary full" id="managerPinLoginBtn">Войти как руководитель</button>
+          <p class="login-note">Администраторы входят по личной ссылке из Telegram-бота после одобрения руководителем.</p>
           <div id="loginMessage" class="message hidden" role="status"></div>
         </div>
       </section>
@@ -79,7 +80,7 @@
 
   <dialog class="dialog" id="promoDialog"><div class="dialog-head"><div><p class="eyebrow">INSTAGRAM</p><h2>Рекламная публикация</h2></div><button class="icon-button" data-close="promoDialog">×</button></div><form id="promoForm"><label class="field-label">Бизнес *</label><input class="input-control" id="promoBusiness" required><label class="field-label">Телефон бизнеса</label><input class="input-control" id="promoPhone" type="tel"><label class="field-label">Источник телефона</label><input class="input-control" id="promoPhoneSource" type="url" placeholder="Публичная страница / контакт"><label class="field-label">Город или район</label><input class="input-control" id="promoCity" value="Ферганская область"><label class="field-label">Блогер / Instagram профиль *</label><input class="input-control" id="promoBlogger" placeholder="@username или ссылка" required><label class="field-label">Ссылка на рекламную публикацию *</label><input class="input-control" id="promoLink" type="url" required><label class="field-label">Дата публикации</label><input class="input-control" id="promoDate" type="date"><label class="field-label">Что подтверждает рекламу</label><textarea class="input-control compact-area" id="promoEvidence" placeholder="Отметка бизнеса, рекламная подпись…"></textarea><div id="promoFormMessage" class="message hidden"></div><div class="dialog-actions"><button class="button secondary" type="button" data-close="promoDialog">Отмена</button><button class="button primary" type="submit">Сохранить</button></div></form></dialog>
   <dialog class="dialog" id="showDialog"><div class="dialog-head"><div><p class="eyebrow">CASTING</p><h2>Заявка участника</h2></div><button class="icon-button" data-close="showDialog">×</button></div><form id="showForm"><label class="field-label">Имя *</label><input class="input-control" id="showName" required><label class="field-label">Телефон *</label><input class="input-control" id="showPhone" type="tel" required><label class="field-label">Категория *</label><select class="input-control" id="showType" required><option value="brand_face">Бренд-фейс</option><option value="mobileographer">Мобилограф</option></select><label class="field-label">Город *</label><input class="input-control" id="showCity" required><label class="field-label">Портфолио / ссылка</label><input class="input-control" id="showPortfolio" type="url"><div id="showFormMessage" class="message hidden"></div><div class="dialog-actions"><button class="button secondary" type="button" data-close="showDialog">Отмена</button><button class="button primary" type="submit">Сохранить</button></div></form></dialog>
-  <dialog class="dialog" id="customTabDialog"><div class="dialog-head"><div><p class="eyebrow">CRM</p><h2>Создать вкладку</h2></div><button class="icon-button" data-close="customTabDialog">×</button></div><form id="customTabForm"><label class="field-label">Название вкладки *</label><input class="input-control" id="customTabName" required><label class="field-label">Поля (по одному на строку: название — тип)</label><textarea class="input-control note-area" id="customTabFields" placeholder="Название — текст\nСтатус — статус\nСсылка — ссылка"></textarea><label class="field-label">Кто видит вкладку</label><select class="input-control" id="customTabViewAccess"><option value="owner,manager">Я и руководитель</option><option value="manager">Только руководитель</option><option value="owner">Только я</option></select><label class="field-label">Кто может менять записи</label><select class="input-control" id="customTabEditAccess"><option value="owner,manager">Я и руководитель</option><option value="manager">Только руководитель</option><option value="owner">Только я</option></select><div id="customTabMessage" class="message hidden"></div><div class="dialog-actions"><button class="button secondary" type="button" data-close="customTabDialog">Отмена</button><button class="button primary" type="submit">Создать</button></div></form></dialog>
+  <dialog class="dialog" id="customTabDialog"><div class="dialog-head"><div><p class="eyebrow">CRM</p><h2>Создать вкладку</h2></div><button class="icon-button" data-close="customTabDialog">×</button></div><form id="customTabForm"><label class="field-label">Название вкладки *</label><input class="input-control" id="customTabName" required><label class="field-label">Поля (по одному на строку: название — тип)</label><textarea class="input-control note-area" id="customTabFields" placeholder="Название — текст\nСтатус — статус\nСсылка — ссылка"></textarea><label class="field-label">Кто видит вкладку</label><select class="input-control" id="customTabViewAccess"><option value="owner,manager,admin">Я, руководитель и админы</option><option value="manager,admin">Руководитель и админы</option><option value="manager">Только руководитель</option><option value="owner">Только я</option></select><label class="field-label">Кто может менять записи</label><select class="input-control" id="customTabEditAccess"><option value="owner,manager,admin">Я, руководитель и админы</option><option value="manager,admin">Руководитель и админы</option><option value="manager">Только руководитель</option><option value="owner">Только я</option></select><div id="customTabMessage" class="message hidden"></div><div class="dialog-actions"><button class="button secondary" type="button" data-close="customTabDialog">Отмена</button><button class="button primary" type="submit">Создать</button></div></form></dialog>
   <dialog class="dialog" id="customRecordDialog"><div class="dialog-head"><div><p class="eyebrow">CRM</p><h2 id="customRecordTitle">Новая запись</h2></div><button class="icon-button" data-close="customRecordDialog">×</button></div><form id="customRecordForm"><div id="customRecordFields"></div><div id="customRecordMessage" class="message hidden"></div><div class="dialog-actions"><button class="button secondary" type="button" data-close="customRecordDialog">Отмена</button><button class="button primary" type="submit">Сохранить</button></div></form></dialog>
 
   <dialog class="dialog" id="leadDialog">
@@ -137,7 +138,7 @@
   <div class="toast hidden" id="toast" role="status"></div>
   <script>window.SUPABASE_CONFIG={url:"https://uzivivmrixstxjvzkksz.supabase.co",publishableKey:"sb_publishable_8z5WQbInjqHDvigfDSOcuQ_FOq7LQWJ"};</script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script type="module" src="./app.js?v=excel-import-2"></script>
+  <script type="module" src="./app.js?v=crm-browser-1"></script>
 </body>
 </html>
 
