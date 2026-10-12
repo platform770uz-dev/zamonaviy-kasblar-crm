@@ -150,3 +150,14 @@ a{color:inherit;text-decoration:none}
 @keyframes fade-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:720px){.research-banner{align-items:flex-start;padding:15px;flex-direction:column}.research-actions{width:100%}.research-actions .button{flex:1;justify-content:center}.crm-card{align-items:flex-start;flex-direction:column;padding:16px}.crm-card-actions{width:100%}.crm-card-actions .button{flex:1;justify-content:center}.toolbar{flex-wrap:wrap}.toolbar .search-box{flex-basis:100%}.language-switch{padding:7px 9px;font-size:11px}.crm-card-title b{font-size:15px}}
 
+
+
+/* Fargona Tezkor publication cards */
+.promo-feature-card { padding: 22px 24px; border: 1px solid #e8ecea; border-radius: 20px; background: linear-gradient(135deg, #fff 0%, #f8fcfa 100%); box-shadow: 0 8px 24px rgba(18, 48, 39, .055); }
+.promo-feature-card .crm-card-main { min-width: 0; }
+.promo-feature-card .crm-card-main p { margin: 8px 0; color: #4b5652; line-height: 1.6; overflow-wrap: anywhere; }
+.promo-feature-card .crm-card-main p:first-child { margin-top: 0; font-size: 18px; color: #202123; }
+.promo-feature-card .crm-card-main p:first-child b { font-size: 10px; color: #0b9875; letter-spacing: .1em; }
+.promo-feature-card .crm-card-main a.button { margin: 2px 4px 2px 0; }
+.promo-feature-card .crm-card-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-top: 18px; }
+@media (max-width: 640px) { .promo-feature-card { padding: 17px; border-radius: 17px; } .promo-feature-card .crm-card-main p:first-child { font-size: 17px; } .promo-feature-card .crm-card-actions { display: grid; grid-template-columns: 1fr 1fr; } .promo-feature-card .crm-card-actions .button:first-child { grid-column: 1 / -1; } }
