@@ -407,8 +407,9 @@ $("showSearch").addEventListener("input", renderShows);
 $("showCategory").addEventListener("change", renderShows);
 $("showStatus").addEventListener("change", renderShows);
 $("refreshPromos").onclick = loadData;
-$("uploadExcelButton").onclick = () => $("excelFile").click();
-$("uploadAutopilotExcel").onclick = () => $("excelFile").click();
+let autopilotUploadSource = "";
+$("uploadExcelButton").onclick = () => { autopilotUploadSource = ""; $("excelFile").click(); };
+$("uploadAutopilotExcel").onclick = () => { autopilotUploadSource = $("autopilotBlogger").value.trim(); $("excelFile").click(); };
 $("downloadAutopilotTemplate").onclick = () => $("downloadExcelTemplate").click();
 $("excelFile").onchange = async (event) => {
   const file = event.target.files?.[0]; if (!file) return;
@@ -436,7 +437,7 @@ $("excelFile").onchange = async (event) => {
     for (const key of ["business", "blogger", "permalink"]) if (columns[key] < 0) throw new Error("Не найдена обязательная колонка: " + ({ business: "Бизнес", blogger: "Блогер (профиль Instagram)", permalink: "Ссылка на пост" })[key] + ". Скачайте шаблон CRM и используйте его заголовки.");
     const rows = matrix.slice(1).map((cells, index) => {
       const value = (key) => columns[key] < 0 ? "" : cells[columns[key]];
-      return { row: index + 2, business: String(value("business") || "").trim(), phone: String(value("phone") || "").trim(), phone_source: String(value("phone_source") || "").trim(), city: String(value("city") || "").trim(), blogger: String(value("blogger") || "").trim(), permalink: String(value("permalink") || "").trim(), published_at: value("published_at"), evidence: String(value("evidence") || "").trim() };
+      return { row: index + 2, business: String(value("business") || "").trim(), phone: String(value("phone") || "").trim(), phone_source: String(value("phone_source") || "").trim(), city: String(value("city") || "").trim(), blogger: String(autopilotUploadSource || value("blogger") || "").trim(), permalink: String(value("permalink") || "").trim(), published_at: value("published_at"), evidence: String(value("evidence") || "").trim() };
     }).filter((row) => row.business || row.blogger || row.permalink);
     if (rows.length > 300) throw new Error("В файле больше 300 строк данных. Разделите его на несколько частей.");
     let added = 0, updated = 0, skipped = 0; const issues = [];
@@ -483,7 +484,7 @@ $("excelFile").onchange = async (event) => {
     showMessage("excelImportMessage", summary, skipped ? "error" : "success");
      showMessage("autopilotImportMessage", summary, skipped ? "error" : "success");
   } catch (error) { showMessage("excelImportMessage", error.message || "Не удалось прочитать Excel.", "error"); showMessage("autopilotImportMessage", error.message || "Не удалось прочитать Excel.", "error"); }
-  finally { event.target.value = ""; }
+  finally { event.target.value = ""; autopilotUploadSource = ""; }
 };
 $("downloadExcelTemplate").onclick = () => {
   if (!window.XLSX) { toast("Модуль Excel пока недоступен"); return; }
@@ -536,52 +537,12 @@ $("showForm").onsubmit = async (event) => {
 function isFargonaTezkorTab(tab) { return /^fargona\s+tezkor$/i.test(String(tab?.name || "").trim()); } function renderCustomTabs() {
   const sidebarNav = document.querySelector(".side-nav");
   document.querySelectorAll(".custom-tab-nav,.custom-tab-page").forEach((node) => node.remove());
-  for (const tab of state.tabs) {
-    if (isFargonaTezkorTab(tab)) continue;
+  for (const tab of state.tabs) { if (isFargonaTezkorTab(tab)) continue;
     const nav = document.createElement("button"); nav.className = "nav-item custom-tab-nav"; nav.dataset.view = "custom-" + tab.id; nav.dataset.bound = "1";
     nav.innerHTML = '<span class="nav-icon">' + escapeHtml(tab.icon || "▤") + '</span><span>' + escapeHtml(tab.name) + '</span>';
     sidebarNav.insertBefore(nav, $("newCustomTab")); nav.onclick = () => showCustomTab(tab);
   }
-  const groups = new Map();
-  for (const row of state.promos || []) {
-    const blogger = row.blogger || {};
-    const key = String(blogger.id || blogger.instagram_url || blogger.username || blogger.display_name || "").toLowerCase();
-    if (!key) continue;
-    if (!groups.has(key)) {
-      const rawName = blogger.display_name || blogger.username || "Источник не указан";
-      const name = isFargonaTezkorPromo(row) ? "Fargona Tezkor" : String(rawName).replace(/^https?:\/\/(www\.)?instagram\.com\//i, "@").replace(/\/+$/, "");
-      const profileUrl = blogger.instagram_url || (blogger.username ? "https://www.instagram.com/" + String(blogger.username).replace(/^@/, "") + "/" : "");
-      groups.set(key, { id: blogger.id || key, name, profileUrl });
-    }
-  }
-  const folderGrid = $("bloggerFolders");
-  if (folderGrid) {
-    const sources = [...groups.values()];
-    folderGrid.classList.toggle("hidden", sources.length === 0);
-    folderGrid.innerHTML = sources.map((source, index) => '<button class="source-folder-button" type="button" data-source-index="' + index + '" aria-label="Открыть папку ' + escapeHtml(source.name) + '"><span class="source-folder-symbol" aria-hidden="true">◉</span><span class="source-folder-name">' + escapeHtml(source.name) + '</span><span class="source-folder-arrow" aria-hidden="true">↗</span></button>').join("");
-    folderGrid.querySelectorAll(".source-folder-button").forEach((button) => {
-      button.onclick = () => showPromoFolder(sources[Number(button.dataset.sourceIndex)]);
-    });
-  }
-  document.querySelectorAll("[data-view]").forEach((button) => {
-    if (!button.dataset.bound) { button.dataset.bound = "1"; button.onclick = () => setPage(button.dataset.view); }
-  });
-}
-function showPromoFolder(source) {
-  if (!source) return;
-  const slug = String(source.id || source.name).toLowerCase().replace(/[^a-z0-9-]+/g, "-");
-  const pageId = "promo-folder-" + slug;
-  document.querySelectorAll(".page").forEach((node) => node.classList.remove("active"));
-  document.querySelectorAll("[data-view]").forEach((node) => node.classList.toggle("active", node.dataset.view === "bloggers"));
-  let page = document.getElementById(pageId);
-  if (!page) {
-    page = document.createElement("section"); page.id = pageId; page.className = "page source-folder-page";
-    $("workspace").appendChild(page);
-  }
-  page.classList.add("active");
-  const rows = state.promos.filter((row) => String(row.blogger?.id || row.blogger?.instagram_url || row.blogger?.username || row.blogger?.display_name || "").toLowerCase() === String(source.id).toLowerCase());
-  page.innerHTML = '<div class="source-page-top"><button class="button secondary" id="sourceFolderBack">← Блогеры</button>' + (source.profileUrl ? '<a class="button secondary" href="' + escapeHtml(source.profileUrl) + '" target="_blank" rel="noopener">Профиль источника ↗</a>' : "") + '</div><header class="source-page-header"><div><p class="eyebrow">ПАПКА БЛОГЕРА</p><h1>' + escapeHtml(source.name) + '</h1><p class="subtle">Публикации и бизнесы из этого профиля.</p></div><div class="source-page-count"><b>' + rows.length + '</b><span>НАХОДОК</span></div></header><div class="source-record-list">' + rows.map(sourcePromoCard).join("") + '</div>';
-  $("sourceFolderBack").onclick = () => setPage("bloggers");
+  const fargonaTab = state.tabs.find(isFargonaTezkorTab); const fargonaLink = $("fargonaTezkorLink"); if (fargonaLink) { fargonaLink.classList.toggle("hidden", !fargonaTab); fargonaLink.onclick = () => fargonaTab && showCustomTab(fargonaTab); } document.querySelectorAll("[data-view]").forEach((button) => { if (!button.dataset.bound) { button.dataset.bound = "1"; button.onclick = () => setPage(button.dataset.view); } });
 }
 async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(tab);
   document.querySelectorAll(".page").forEach((node) => node.classList.remove("active"));
@@ -647,7 +608,7 @@ $("customTabForm").onsubmit = async (event) => {
 function apDate(d){const x=new Date(d.getTime()-d.getTimezoneOffset()*60000);return x.toISOString().slice(0,10)}
 function apPrompt(){const ru=state.language==="ru",blog=$("autopilotBlogger").value.trim()||"Fargona Tezkor",sizes=[];if($("autopilotSmall").checked)sizes.push(ru?"малые":"kichik");if($("autopilotMedium").checked)sizes.push(ru?"средние":"o‘rta");const n=Math.min(100,Math.max(1,Number($("autopilotCount").value)||10)),from=$("autopilotFrom").value,to=$("autopilotTo").value;if(!sizes.length)return ru?"Выберите хотя бы один размер бизнеса.":"Kamida bitta biznes hajmini tanlang.";if(from>to)return ru?"Дата начала должна быть раньше окончания.":"Boshlanish sanasi tugashdan oldin bo‘lishi kerak.";return ru?`Работай через подключённый Chrome: открой публичный профиль Instagram «${blog}» и проверь публикации за период с ${from} по ${to} включительно. Ищи рекламировавшиеся там местные бизнесы Ферганской области: ${sizes.join(" и ")}, до ${n} разных подтверждённых бизнесов. Не заменяй проверку публикаций в Chrome общим веб-поиском. Если Chrome недоступен, попроси пользователя открыть или подключить его и остановись; не заявляй, что проверил Instagram.
 
-Считай рекламой пост только при явной рекламе, рекомендации, отметке бизнеса или рекламном сотрудничестве. Для каждой находки укажи название, город/район, дату и фактический профиль Instagram, где размещён рекламный пост, в виде ссылки на профиль или @username. Заполни колонку blogger этим профилем — CRM создаст профиль и папку отдельно для каждого значения. Не подменяй фактический источник выбранным в запросе блогером, если публикацию разместил другой профиль. Также укажи ссылку на пост, короткое доказательство рекламы и публичный источник телефона. Если телефон не найден открыто — оставь пустым, не угадывай. Подготовь скачиваемый Excel для импорта в CRM с точными заголовками: business, phone, phone_source, city, blogger, permalink, published_at, evidence. Не дублируй бизнесы и не включай догадки. Не входи в аккаунты. Если потребуется вход, появится CAPTCHA, блокировка или ошибка загрузки Instagram — остановись и сообщи мне, ничего не обходи. При нуле подтверждённых бизнесов не создавай и не прикладывай пустой Excel; объясни, что именно помешало проверке.`:`Ulangan Chrome orqali ishlagin: Instagram’da «${blog}» ochiq profilini ochib, ${from} dan ${to} gacha bo‘lgan postlarni tekshir. Farg‘ona viloyatida shu bloger reklama qilgan mahalliy bizneslarni izla. Hajmi: ${sizes.join(" va ")}. ${n} tagacha tasdiqlangan, takrorlanmaydigan biznes top. Har biri uchun nomi, shahar/tuman, sana va reklama posti joylangan haqiqiy Instagram profilini havola yoki @username ko‘rinishida yoz. blogger ustuniga aynan shu profilni kiriting — CRM har bir profil uchun alohida sahifa va papka yaratadi. Agar postni boshqa profil joylagan bo‘lsa, qidiruvda tanlangan bloger bilan almashtirmang. Post havolasi, reklama dalili va telefonning ochiq manbasini ham yoz. Telefon topilmasa taxmin qilma. CRM uchun aynan business, phone, phone_source, city, blogger, permalink, published_at, evidence ustunlari bilan yuklab olinadigan Excel tayyorla. Faqat ochiq sahifalardan foydalan, akkauntga kirmagin. Kirish, CAPTCHA, bloklash yoki Instagram yuklanish xatosi chiqsa, to‘xtab xabar ber; chetlab o‘tma. Tasdiqlangan biznes topilmasa, bo‘sh Excel yaratma va tekshiruvga nima xalaqit berganini tushuntir.`}
+Считай рекламой пост только при явной рекламе, рекомендации, отметке бизнеса или рекламном сотрудничестве. Для каждой находки укажи название, город/район, дату, выбранный профиль-источник блогера «${blog}» (по нему CRM сгруппирует результаты в разделе «Блогеры»), ссылку на пост, короткое доказательство рекламы и публичный источник телефона. Если телефон не найден открыто — оставь пустым, не угадывай. Подготовь скачиваемый Excel для импорта в CRM с точными заголовками: business, phone, phone_source, city, blogger, permalink, published_at, evidence. Не дублируй бизнесы и не включай догадки. Не входи в аккаунты. Если потребуется вход, появится CAPTCHA, блокировка или ошибка загрузки Instagram — остановись и сообщи мне, ничего не обходи. При нуле подтверждённых бизнесов не создавай и не прикладывай пустой Excel; объясни, что именно помешало проверке.`:`Ulangan Chrome orqali ishlagin: Instagram’da «${blog}» ochiq profilini ochib, ${from} dan ${to} gacha bo‘lgan postlarni tekshir. Farg‘ona viloyatida shu bloger reklama qilgan mahalliy bizneslarni izla. Hajmi: ${sizes.join(" va ")}. ${n} tagacha tasdiqlangan, takrorlanmaydigan biznes top. Har biri uchun nomi, shahar/tuman, sana, tanlangan manba bloger profili «${blog}» (CRM natijalarni Blogerlar bo‘limida shu manba bo‘yicha guruhlaydi), post havolasi, reklama dalili va telefonning ochiq manbasini yoz. Telefon topilmasa taxmin qilma. CRM uchun aynan business, phone, phone_source, city, blogger, permalink, published_at, evidence ustunlari bilan yuklab olinadigan Excel tayyorla. Faqat ochiq sahifalardan foydalan, akkauntga kirmagin. Kirish, CAPTCHA, bloklash yoki Instagram yuklanish xatosi chiqsa, to‘xtab xabar ber; chetlab o‘tma. Tasdiqlangan biznes topilmasa, bo‘sh Excel yaratma va tekshiruvga nima xalaqit berganini tushuntir.`}
 function renderAutopilot(){if(!$("autopilotFrom").value)$("autopilotFrom").value=apDate(new Date(Date.now()-6*86400000));if(!$("autopilotTo").value)$("autopilotTo").value=apDate(new Date());const opts=new Set(["Fargona Tezkor"]);for(const row of state.promos||[]){const n=row.blogger?.display_name||row.blogger?.username;if(n)opts.add(String(n))}$("autopilotBloggerOptions").innerHTML=[...opts].map(n=>'<option value="'+escapeHtml(n)+'"></option>').join("");const p=apPrompt();$("autopilotPrompt").value=p;$("openAutopilotSearch").href="https://chatgpt.com/?q="+encodeURIComponent(p);$("openAutopilotSearch").setAttribute("aria-disabled",!($("autopilotSmall").checked||$("autopilotMedium").checked)||$("autopilotFrom").value>$("autopilotTo").value?"true":"false")}
 for(const id of ["autopilotBlogger","autopilotSmall","autopilotMedium","autopilotCount","autopilotFrom","autopilotTo"])$(id).addEventListener("input",renderAutopilot);
 $("copyAutopilotPrompt").onclick=async()=>{try{await navigator.clipboard.writeText($("autopilotPrompt").value);toast(state.language==="ru"?"Запрос скопирован":"So‘rov nusxalandi")}catch{$("autopilotPrompt").select();document.execCommand("copy")}};
