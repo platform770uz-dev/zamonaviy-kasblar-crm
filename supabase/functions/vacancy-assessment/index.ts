@@ -77,6 +77,7 @@ Deno.serve(async (req: Request) => {
   const answerLabels = language === "ru"
     ? ["Роль", "Общение с занятым клиентом", "Гибкость маршрута", "Условия комиссии", "Работа с возражением"]
     : ["Lavozimni tushunish", "Band mijoz bilan muloqot", "Yo‘nalishda moslashuv", "Komissiya sharti", "E’tiroz bilan ishlash"];
+  const answerStates = language === "ru" ? ["верно", "неверно"] : ["to‘g‘ri", "noto‘g‘ri"];
   const summary = language === "ru"
     ? `Город: ${city}; права B: ${body.license === "yes" ? "да" : "нет"}; авто: ${body.car === "yes" ? fuel : "нет"}; график: ${body.schedule}`
     : `Shahar: ${city}; B toifa: ${body.license === "yes" ? "bor" : "yo‘q"}; mashina: ${body.car === "yes" ? fuel : "yo‘q"}; grafik: ${body.schedule}`;
@@ -97,8 +98,13 @@ Deno.serve(async (req: Request) => {
     communication_max: 2,
     flexibility_score: flexibility,
     flexibility_max: 2,
-    candidate_profile: { city, license: body.license, car: body.car, fuel, schedule: body.schedule, language },
-    answers: Object.fromEntries(answerLabels.map((label, i) => [label, { selected: answers[i], correct: correct[i] }])),
+    city,
+    license: body.license,
+    car: body.car,
+    fuel,
+    schedule: body.schedule,
+    language,
+    ...Object.fromEntries(answerLabels.map((label, i) => [`answer_${i + 1}_${label}`, `${String.fromCharCode(65 + Number(answers[i]))} — ${answerStates[correct[i] ? 0 : 1]}`])),
     consent: true,
     submitted_at: new Date().toISOString(),
   };
