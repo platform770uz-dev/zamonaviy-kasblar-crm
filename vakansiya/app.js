@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 8039)
+Total output lines: 172
+
 const SITE_CONFIG = {
   supabaseUrl: "https://uzivivmrixstxjvzkksz.supabase.co",
   publishableKey: "sb_publishable_8z5WQbInjqHDvigfDSOcuQ_Foq7LQWJ",
@@ -22,90 +25,10 @@ const copy = {
       { tag: "MULOQOT · VAZIYAT 2", text: "Tadbirkor: «Narxi qimmat ekan», dedi. Eng yaxshi keyingi qadam qaysi?", answers: ["Narxni darhol yashirib, paket arzon deb aytaman", "E’tirozini aniqlashtiraman, biznes maqsadini so‘rayman va mos qismini bosimsiz tushuntiraman", "Ko‘p ko‘rish va savdoni kafolatlayman", "Suhbatni shu zahoti tugataman"], correct: 1 }
     ],
     resultEyebrow: "SIZNING NATIJANGIZ", resultTitle: "Test yakunlandi", totalScore: "Umumiy ball", communication: "Muloqot", flexibility: "Moslashuvchanlik", strong: "Kuchli natija", middle: "Aniqlashtirib suhbatlashish", low: "Darslarni qayta ko‘rib chiqish", resultStrong: "Siz rolning asosiy qismlarini va mijoz bilan muloqot vaziyatlarini yaxshi tushundingiz. Keyingi qadam — jonli suhbatda o‘zaro tanishish.", resultMiddle: "Boshlanish yaxshi. Javoblaringizni qisqa suhbatda, ayniqsa moslashuvchanlik va mijoz bilan aloqa bo‘yicha aniqlashtirish mumkin.", resultLow: "Kerakli darslarni takrorlab, testni qayta topshirishingiz mumkin.", scoreNote: "Test natijasi tanишувga yordam beradi; yakuniy qaror faqat test balli bilan qabul qilinmaydi.",
-    contactTitle: "Natijangizni saqlash uchun aloqa qoldiring", contactLead: "Ism, telefon va javoblaringiz Zamonaviy Kasb HR CRM’iga yuboriladi. Ularni faqat vakansiya bo‘yicha bog‘lanish uchun ishlatamiz.", name: "Ism-familiya", phone: "Telefon raqami", namePlaceholder: "Masalan, Ali Valiyev", phonePlaceholder: "+998 __ ___ __ __", consent: "Roziman: ma’lumotlarimni vakansiya bo‘yicha bog‘lanish va nomzodlar javoblarini baholash uchun qayta ishlash mumkin.", submit: "Natijani saqlash", sending: "Saqlanmoqda…", sentTitle: "Tayyor — javoblaringiz CRM’ga tushdi", sentText: "Rahmat! Natijangiz va aloqa ma’lumotlaringiz vakansiya jamoasiga yuborildi.", fail: "Hozir saqlab bo‘lmadi. Internetni tekshirib, qayta urinib ko‘ring.", required: "Ism, to‘g‘ri telefon raqami va rozilik kerak.", home: "Bosh sahifaga",
+    contactTitle: "Natijangizni saqlash uchun aloqa qoldiring", contactLead: "Ism, telefon va javoblaringiz Zamonaviy Kasb HR CRM’iga yuboriladi. Ma’lumotlar Germaniyaning Frankfurt shahridagi serverda saqlanadi va faqat vakansiya bo‘yicha bog‘lanish uchun ishlatiladi.", name: "Ism-familiya", phone: "Telefon raqami", namePlaceholder: "Masalan, Ali Valiyev", phonePlaceholder: "+998 __ ___ __ __", consent: "Roziman: ismim, telefonim va javoblarim vakansiya bo‘yicha bog‘lanish uchun HR CRM’da qayta ishlanadi va Germaniyaning Frankfurt shahridagi serverda saqlanadi.", submit: "Natijani saqlash", sending: "Saqlanmoqda…", sentTitle: "Tayyor — javoblaringiz CRM’ga tushdi", sentText: "Rahmat! Natijangiz va aloqa ma’lumotlaringiz vakansiya jamoasiga yuborildi.", fail: "Hozir saqlab bo‘lmadi. Internetni tekshirib, qayta urinib ko‘ring.", required: "Ism, to‘g‘ri telefon raqami va rozilik kerak.", home: "Bosh sahifaga",
   },
   ru: {
-    roleChip: "Открытая вакансия", pathLabel: "ВАШ ПУТЬ", sideNote: "Здесь вы узнаете, как устроена работа. Важны не возраст, а готовность общаться с клиентами и учиться.", sideFoot: "Проходите в своём темпе", footerNote: "Продажа начинается с умения слушать.",
-    steps: ["Вакансия", "О вас", "3 урока", "Тест"], progress: ["Старт", "Короткая анкета", "Обучение", "5 вопросов"],
-    welcomeEyebrow: "B2B-ПРЕДСТАВИТЕЛЬ · ФЕРГАНА", welcomeTitle: "Знакомьтесь с бизнесами. Ведите переговоры сами.", welcomeLead: "Эту работу не нужно долго объяснять по телефону. Сначала посмотрите, в чём она заключается, пройдите три коротких урока и ответьте на пять вопросов.",
-    introTitle1: "Что вы предлагаете?", introText1: "Короткие Reels-видео для бизнеса и контент-съёмку в компании в формате кампании.", introTitle2: "Что нужно делать?", introText2: "Находить предпринимателей, узнавать их задачи, представлять услугу и договариваться о сотрудничестве.",
-    conditions: "УСЛОВИЯ РАБОТЫ", condition1: "Место работы", value1: "Фергана", condition2: "График", value2: "Пн–Пт 09:00–17:00 · Сб 09:00–14:30", condition3: "Доход", value3: "2 млн сум + 30% маржи по оплаченному договору", travel: "Согласованные рабочие поездки компенсируются.", estimate: "Около 7 минут", start: "Познакомиться с вакансией", roleFooter: "Окончательное решение принимается вместе после собеседования.",
-    profileEyebrow: "КОРОТКАЯ АНКЕТА", profileTitle: "Сначала сверим рабочие условия", profileLead: "Подходят ли вам эти требования? Имя и телефон спросим только в конце.", city: "В каком городе вы живёте?", cityHint: "Укажите город проживания", cityPlaceholder: "Выберите город", cityOptions: ["Фергана", "Маргилан", "Коканд", "Другой город"], license: "Есть водительское удостоверение категории B?", yes: "Да", no: "Нет", car: "Есть личный автомобиль?", fuel: "Тип топлива", fuelPlaceholder: "Выберите", fuelOptions: ["Бензин", "Метан", "Пропан", "Электро", "Другое"], noCar: "Личного автомобиля нет", schedule: "Подходит указанный рабочий график?", can: "Да, подходит", discuss: "Нужно обсудить отдельные дни", cannot: "Пока не подходит", next: "Перейти к урокам", back: "Назад", completeProfile: "Выберите ответ в каждом пункте.",
-    lessonHeading: "Три коротких урока о работе", lessonSub: "Основные задачи и порядок общения с клиентом.", lessonOf: "УРОК", lessonNext: "Следующий урок", startTest: "Начать тест из 5 вопросов", lessonTitles: ["Что входит в услугу?", "Как начать встречу?", "Честное и точное предложение"], lessonBodies: ["Кампания включает короткое интервью о бизнесе и Reels для соцсетей. Платный пакет начинается от 2 500 000 сум. Точный состав, цена и график оплаты согласуются после встречи.", "Сначала спросите владельца бизнеса, что он хочет развивать. Выслушайте, не перебивая, а затем свяжите состав услуги с его задачей. Необязательно повторять один и тот же текст каждому клиенту.", "Объясняйте точный объём услуг и не скрывайте цену. Не обещайте просмотры, поток клиентов или продажи. Если предприниматель хочет подумать, не давите: предложите отправить информацию и договоритесь, когда связаться снова."], lessonCallouts: ["Siz videoni suratga olmaysiz — loyihani tushuntirib, biznes bilan kelishuvga kelasiz.", "Tadbirkor bilan umumiy til topish uchun savollar bering va uni diqqat bilan tinglang.", "Yaxshi vakil ishonchni saqlaydi: shartlar aniq va aytilgan gaplar tekshiriladi."],
-    quizEyebrow: "СИТУАЦИОННЫЙ ТЕСТ", quizTitle: "Как бы вы поступили в работе?", quizIntro: "В каждом вопросе выберите ответ, который кажется вам лучшим.", question: "Вопрос", quizNext: "Следующий вопрос", seeResult: "Посмотреть результат", chooseAnswer: "Выберите ответ, чтобы продолжить.",
-    qs: [
-      { tag: "ПОНИМАНИЕ РОЛИ", text: "В чём главная задача B2B-представителя?", answers: ["Самому снимать и монтировать видео", "Находить предпринимателей, выяснять их задачи и договариваться о кампании", "Писать комментарии в соцсетях", "Обещать клиенту определённое число просмотров"], correct: 1 },
-      { tag: "ОБЩЕНИЕ · СИТУАЦИЯ 1", text: "Предприниматель говорит, что сейчас занят. Что вы сделаете?", answers: ["Сразу подробно расскажу все условия пакета", "Спрошу, когда удобно коротко поговорить, или свяжусь позже в подходящее время", "Больше не буду звонить", "Попрошу сразу подписать договор"], correct: 1 },
-      { tag: "ГИБКОСТЬ", text: "Из-за встречи с клиентом изменился маршрут на день. Как вы поступите?", answers: ["Перепланирую приоритеты и предупрежу тех, кого касается изменение", "Откажусь от любых изменений", "Ничего никому не скажу и пропущу остальные встречи", "Просто закончу рабочий день"], correct: 0 },
-      { tag: "УСЛОВИЯ РАБОТЫ", text: "Когда начисляется комиссия 30%?", answers: ["После любой встречи", "От согласованной маржи, когда договор заключён и оплата получена", "За каждый телефонный звонок", "Как фиксированная доплата каждый месяц"], correct: 1 },
-      { tag: "ОБЩЕНИЕ · СИТУАЦИЯ 2", text: "Предприниматель говорит: «Для нас это дорого». Как лучше продолжить?", answers: ["Скрою цену и скажу, что пакет дешёвый", "Уточню возражение и задачу бизнеса, затем спокойно расскажу о подходящей части услуги", "Пообещаю много просмотров и продаж", "Сразу закончу разговор"], correct: 1 }
-    ],
-    resultEyebrow: "ВАШ РЕЗУЛЬТАТ", resultTitle: "Тест завершён", totalScore: "Общий балл", communication: "Общение", flexibility: "Гибкость", strong: "Сильный результат", middle: "Нужно уточнить на беседе", low: "Повторить уроки", resultStrong: "Вы хорошо поняли основные задачи и ситуации общения с клиентом. Следующий шаг — познакомиться на коротком разговоре.", resultMiddle: "Хорошее начало. На коротком разговоре можно уточнить ответы, особенно про гибкость и контакт с клиентом.", resultLow: "Kerakli darslarni takrorlab, testni qayta topshirishingiz mumkin.", scoreNote: "Тест помогает начать знакомство; решение не принимается только по баллу.",
-    contactTitle: "Оставьте контакт, чтобы сохранить результат", contactLead: "Имя, телефон и ответы будут переданы в HR CRM Zamonaviy Kasb. Мы используем их только для связи по вакансии.", name: "Имя и фамилия", phone: "Номер телефона", namePlaceholder: "Например, Али Валиев", phonePlaceholder: "+998 __ ___ __ __", consent: "Согласен(на): мои данные можно обработать для связи по вакансии и оценки ответов кандидатов.", submit: "Сохранить результат", sending: "Сохраняем…", sentTitle: "Готово — ответы сохранены в CRM", sentText: "Спасибо! Ваш результат и контакты отправлены команде по вакансии.", fail: "Не удалось сохранить. Проверьте интернет и попробуйте ещё раз.", required: "Укажите имя, корректный номер и согласие.", home: "На главную"
-  }
-};
-
-const steps = ["welcome", "profile", "lessons", "quiz", "contact", "done"];
-const state = { lang: localStorage.getItem("zk-lang") || "uz", step: "welcome", lesson: 0, question: 0, profile: { city: "", license: "", car: "", fuel: "", schedule: "" }, answers: [], startedAt: Date.now(), saving: false };
-const $ = (selector) => document.querySelector(selector);
-const view = $("#view");
-const t = (key) => copy[state.lang][key];
-const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
-
-function refreshChrome() {
-  document.documentElement.lang = state.lang;
-  document.querySelectorAll("[data-i18n]").forEach((el) => { const key = el.dataset.i18n; if (t(key)) el.textContent = t(key); });
-  document.querySelectorAll("[data-lang]").forEach((button) => {
-    const active = button.dataset.lang === state.lang;
-    button.classList.toggle("selected", active); button.setAttribute("aria-pressed", String(active));
-  });
-  const stepNum = Math.min(steps.indexOf(state.step), 3);
-  $("#stepList").innerHTML = t("steps").map((label, i) => `<div class="step-item ${i === stepNum ? "active" : i < stepNum ? "done" : ""}"><span class="step-number">${i < stepNum ? "✓" : String(i + 1).padStart(2, "0")}</span><span>${esc(label)}</span></div>`).join("");
-  $("#progressLabel").textContent = t("progress")[stepNum];
-  $("#progressFill").style.width = `${Math.max(9, [0, 26, 51, 77, 100, 100][steps.indexOf(state.step)] || 9)}%`;
-  $("#year").textContent = new Date().getFullYear();
-}
-
-function paint(html) { refreshChrome(); view.innerHTML = html; view.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
-
-function render() {
-  refreshChrome();
-  if (state.step === "welcome") renderWelcome();
-  if (state.step === "profile") renderProfile();
-  if (state.step === "lessons") renderLesson();
-  if (state.step === "quiz") renderQuestion();
-  if (state.step === "contact") renderContact();
-  if (state.step === "done") renderDone();
-}
-
-function renderWelcome() {
-  paint(`<p class="eyebrow">${t("welcomeEyebrow")}</p><h1>${t("welcomeTitle")}</h1><p class="lead">${t("welcomeLead")}</p>
-    <div class="intro-grid"><article class="intro-card"><div class="intro-card-head"><span class="mini-icon">◉</span>${t("introTitle1")}</div><p>${t("introText1")}</p></article><article class="intro-card"><div class="intro-card-head"><span class="mini-icon">↗</span>${t("introTitle2")}</div><p>${t("introText2")}</p></article></div>
-    <div class="condition-strip"><p class="condition-title">${t("conditions")}</p><div class="condition-grid"><div><span>${t("condition1")}</span><b>${t("value1")}</b></div><div><span>${t("condition2")}</span><b>${t("value2")}</b></div><div><span>${t("condition3")}</span><b>${t("value3")}</b></div></div><p class="condition-title" style="margin-top:12px;letter-spacing:.2px;text-transform:none">${t("travel")}</p></div>
-    <div class="time-estimate"><span>◷</span>${t("estimate")}</div><div class="action-row"><span class="fineprint">${t("roleFooter")}</span><button class="btn" id="begin">${t("start")} <span class="btn-arrow">→</span></button></div>`);
-  $("#begin").onclick = () => { state.step = "profile"; render(); };
-}
-
-function radioGroup(name, values, selected, labels) {
-  return `<div class="choice-grid">${values.map((value, i) => `<label class="choice-card"><input type="radio" name="${name}" value="${esc(value)}" ${selected === value ? "checked" : ""}><span class="radio-mark"></span><span>${esc(labels[i])}</span></label>`).join("")}</div>`;
-}
-function renderProfile() {
-  const cities = t("cityOptions"), fuels = t("fuelOptions");
-  paint(`<p class="eyebrow">${t("profileEyebrow")}</p><h2 class="section-heading">${t("profileTitle")}</h2><p class="section-sub">${t("profileLead")}</p>
-    <div class="profile-form"><div><label class="field-label" for="city">${t("city")}</label><p class="field-hint">${t("cityHint")}</p><select class="select-input" id="city"><option value="">${t("cityPlaceholder")}</option>${cities.map((x) => `<option ${state.profile.city === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
-    <div><p class="field-label">${t("license")}</p>${radioGroup("license", ["yes", "no"], state.profile.license, [t("yes"), t("no")])}</div>
-    <div><p class="field-label">${t("car")}</p>${radioGroup("car", ["yes", "no"], state.profile.car, [t("yes"), t("no")])}</div>
-    <div><label class="field-label" for="fuel">${t("fuel")}</label><select class="select-input" id="fuel"><option value="">${t("fuelPlaceholder")}</option>${[...fuels, t("noCar")].map((x) => `<option ${state.profile.fuel === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
-    <div><p class="field-label">${t("schedule")}</p>${radioGroup("schedule", ["yes", "discuss", "no"], state.profile.schedule, [t("can"), t("discuss"), t("cannot")])}</div></div>
-    <div id="profileError" class="error-note"></div><div class="action-row"><button class="btn secondary" id="back">← ${t("back")}</button><button class="btn" id="continue">${t("next")} <span class="btn-arrow">→</span></button></div>`);
-  $("#city").onchange = (e) => state.profile.city = e.target.value;
-  $("#fuel").onchange = (e) => state.profile.fuel = e.target.value;
-  document.querySelectorAll('input[name="license"]').forEach((el) => el.onchange = (e) => state.profile.license = e.target.value);
-  document.querySelectorAll('input[name="car"]').forEach((el) => el.onchange = (e) => state.profile.car = e.target.value);
-  document.querySelectorAll('input[name="schedule"]').forEach((el) => el.onchange = (e) => state.profile.schedule = e.target.value);
-  $("#back").onclick = () => { state.step = "welcome"; render(); };
-  $("#continue").onclick = () => {
-    if (!state.profile.city || !state.profile.license || !state.profile.car || !state.profile.fuel || !state.profile.schedule) { $("#profileError").textContent = t("completeProfile"); return; }
+    roleChip: "Открытая вакансия", pathLabel: "ВАШ ПУТЬ", sideNote: "Здесь вы узнаете, как устроена работа. Важны не возраст, а готовность общаться с клиентами и учиться.", sideFoot: "Проходите в своём темпе", footerNote: "П…4039 tokens truncated…ile.schedule) { $("#profileError").textContent = t("completeProfile"); return; }
     state.step = "lessons"; state.lesson = 0; render();
   };
 }
