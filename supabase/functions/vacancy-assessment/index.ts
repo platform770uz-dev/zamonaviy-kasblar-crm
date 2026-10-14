@@ -15,7 +15,7 @@ const commonHeaders = {
 
 function json(body: Record<string, unknown>, status: number, origin: string | null) {
   const cors = origin && ALLOWED_ORIGINS.has(origin)
-    ? { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "content-type" }
+    ? { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "content-type, apikey" }
     : {};
   return new Response(JSON.stringify(body), { status, headers: { ...commonHeaders, ...cors } });
 }
