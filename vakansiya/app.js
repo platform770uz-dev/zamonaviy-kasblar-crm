@@ -1,5 +1,6 @@
 const SITE_CONFIG = {
   supabaseUrl: "https://uzivivmrixstxjvzkksz.supabase.co",
+  publishableKey: "sb_publishable_8z5WQbInjqHDvigfDSOcuQ_Foq7LQWJ",
   submitFunction: "vacancy-assessment"
 };
 
@@ -151,7 +152,7 @@ async function submitCandidate(event) {
   const s = scores();
   const payload = { full_name: name, phone, city: state.profile.city, license: state.profile.license, car: state.profile.car, fuel: state.profile.fuel, schedule: state.profile.schedule, answers: state.answers, language: state.lang, started_at: new Date(state.startedAt).toISOString(), consent: $("#consent").checked, honeypot: "" };
   try {
-    const response = await fetch(`${SITE_CONFIG.supabaseUrl}/functions/v1/${SITE_CONFIG.submitFunction}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const response = await fetch(`${SITE_CONFIG.supabaseUrl}/functions/v1/${SITE_CONFIG.submitFunction}`, { method: "POST", headers: { "Content-Type": "application/json", apikey: SITE_CONFIG.publishableKey }, body: JSON.stringify(payload) });
     if (!response.ok) throw new Error("submit failed");
     const result = await response.json();
     if (result?.ok !== true || result?.score !== s.total) throw new Error("invalid result");
