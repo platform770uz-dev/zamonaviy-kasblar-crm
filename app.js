@@ -616,6 +616,65 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     $("sourcePromoList").innerHTML = cards.join("") || '<div class="empty-state">Пока нет находок. Новые результаты появятся здесь после загрузки автопилота.</div>';
   } else {
     $("customRecordList").innerHTML = customRows.map((record) => '<article class="crm-card"><div class="crm-card-main">' + fields.map((field) => '<p><b>' + escapeHtml(field.name) + ':</b> ' + (/^https?:\/\//i.test(String(record.values?.[field.name] || "")) ? '<a class="button secondary" href="' + escapeHtml(record.values?.[field.name]) + '" target="_blank" rel="noopener">' + (/публикац|publication|post/i.test(field.name) ? "Публикация ↗" : "Открыть ↗") + '</a>' : escapeHtml(record.values?.[field.name] || "—")) + '</p>').join("") + '</div></article>').join("") || '<div class="empty-state">Записей пока нет.</div>';
+    if (String(tab.name).trim().toLowerCase() === "blogerlik leadlari bolalar") {
+      const cards = [...document.querySelectorAll("#customRecordList .crm-card")];
+      customRows.forEach((record, index) => {
+        const card = cards[index];
+        if (!card) return;
+        const box = document.createElement("div");
+        box.className = "yba-parent-invite-actions";
+        box.style.cssText = "display:grid;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb";
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "button secondary";
+        button.textContent = "Создать ссылку для родителя";
+        const status = document.createElement("small");
+        status.className = "subtle";
+        const link = document.createElement("input");
+        link.className = "input-control";
+        link.type = "text";
+        link.readOnly = true;
+        link.hidden = true;
+        link.setAttribute("aria-label", "Персональная ссылка родителя");
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "button secondary";
+        copy.textContent = "Скопировать ссылку";
+        copy.hidden = true;
+        copy.onclick = async () => {
+          try { await navigator.clipboard.writeText(link.value); status.textContent = "Ссылка скопирована. Отправьте её родителю."; }
+          catch { link.focus(); link.select(); status.textContent = "Ссылка выделена — скопируйте её и отправьте родителю."; }
+        };
+        button.onclick = async () => {
+          button.disabled = true;
+          button.textContent = "Создаю…";
+          status.textContent = "";
+          try {
+            const auth = await db.auth.getSession();
+            const accessToken = auth.data?.session?.access_token;
+            if (!accessToken) throw new Error("Войдите в CRM заново.");
+            const response = await fetch(config.url + "/functions/v1/yba-parent-api", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", apikey: config.publishableKey, Authorization: "Bearer " + accessToken },
+              body: JSON.stringify({ action: "create_invite", lead_record_id: record.id })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || !result.link) throw new Error(result.error === "forbidden" ? "Нет прав на создание ссылки." : "Ссылку создать не удалось.");
+            link.value = result.link;
+            link.hidden = false;
+            copy.hidden = false;
+            try { await navigator.clipboard.writeText(result.link); status.textContent = "Ссылка создана и скопирована. Отправьте её родителю."; }
+            catch { status.textContent = "Ссылка готова. Нажмите поле и скопируйте её родителю."; }
+            button.textContent = "Создать новую ссылку";
+          } catch (error) {
+            status.textContent = error.message || "Не удалось создать ссылку.";
+            button.textContent = "Повторить";
+          } finally { button.disabled = false; }
+        };
+        box.append(button, link, copy, status);
+        card.appendChild(box);
+      });
+    }
     $("customAddRecord").onclick = async () => {
       state.selectedCustomTab = tab;
       $("customRecordTitle").textContent = "Новая запись · " + tab.name;
