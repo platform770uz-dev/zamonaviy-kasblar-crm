@@ -5,7 +5,7 @@ const db = createClient(config.url, config.publishableKey, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
 });
 const $ = (id) => document.getElementById(id);
-const state = { user: null, leads: [], orders: [], promos: [], shows: [], tabs: [], selectedLead: null, selectedOrder: null, ownerToken: "", leadAccess: false, manager: false, language: localStorage.getItem("crm-language") || "ru" };
+const state = { user: null, crmRole: null, selectedCustomRecord: null, leads: [], orders: [], promos: [], shows: [], tabs: [], selectedLead: null, selectedOrder: null, ownerToken: "", leadAccess: false, manager: false, language: localStorage.getItem("crm-language") || "ru" };
 const statuses = {
   new: "Yangi",
   contacted: "Bog‘lanildi",
@@ -226,8 +226,9 @@ function renderShows() {
   });
 }
 async function loadCoreSections() {
-  const manager = await db.rpc("crm_is_manager");
+  const [manager, role] = await Promise.all([db.rpc("crm_is_manager"), db.rpc("crm_user_role")]);
   state.manager = !manager.error && manager.data === true;
+  state.crmRole = !role.error && typeof role.data === "string" ? role.data : null;
   state.leadAccess = state.manager;
   const [promos, shows, tabs, runs] = await Promise.all([
     db.from("promo_observations").select("*,blogger:bloggers(*),business:local_businesses(*)").order("published_at", { ascending: false }).limit(300),
@@ -583,7 +584,41 @@ function showPromoFolder(source) {
   page.innerHTML = '<div class="source-page-top"><button class="button secondary" id="sourceFolderBack">← Блогеры</button>' + (source.profileUrl ? '<a class="button secondary" href="' + escapeHtml(source.profileUrl) + '" target="_blank" rel="noopener">Профиль источника ↗</a>' : "") + '</div><header class="source-page-header"><div><p class="eyebrow">ПАПКА БЛОГЕРА</p><h1>' + escapeHtml(source.name) + '</h1><p class="subtle">Публикации и бизнесы из этого профиля.</p></div><div class="source-page-count"><b>' + rows.length + '</b><span>НАХОДОК</span></div></header><div class="source-record-list">' + rows.map(sourcePromoCard).join("") + '</div>';
   $("sourceFolderBack").onclick = () => setPage("bloggers");
 }
-async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(tab);
+function canManageCustomTab(tab) {
+  return Boolean(state.user && (tab.created_by === state.user.id || (state.crmRole && Array.isArray(tab.editor_roles) && tab.editor_roles.includes(state.crmRole))));
+}
+function openCustomRecordDialog(tab, fields, record = null) {
+  state.selectedCustomTab = tab;
+  state.selectedCustomRecord = record;
+  $("customRecordTitle").textContent = (record ? "Изменить запись · " : "Новая запись · ") + tab.name;
+  $("customRecordFields").innerHTML = fields.map((field, index) => {
+    const inputType = field.type === "phone" ? "tel" : field.type === "date" ? "date" : field.type === "link" ? "url" : "text";
+    const value = record?.values?.[field.name] ?? "";
+    const note = field.type === "file" ? '<small class="subtle">Hozircha fayl havolasini kiriting.</small>' : "";
+    return '<label class="field-label" for="customField' + index + '">' + escapeHtml(field.name) + '</label><input class="input-control" id="customField' + index + '" data-field-name="' + escapeHtml(field.name) + '" type="' + inputType + '" value="' + escapeHtml(value) + '"' + (field.type === "file" ? ' placeholder="https://…"' : "") + '>' + note;
+  }).join("");
+  showMessage("customRecordMessage", "", "");
+  $("customRecordDialog").showModal();
+}
+function customRecordCard(record, fields, canManage) {
+  const values = record.values || {};
+  const titleField = fields.find((field) => /лид|имя|name/i.test(field.name) && String(values[field.name] || "").trim());
+  const title = titleField ? values[titleField.name] : Object.values(values).find((value) => String(value || "").trim());
+  const filled = fields.filter((field) => String(values[field.name] ?? "").trim()).length;
+  const updated = record.updated_at || record.created_at;
+  const cells = fields.map((field) => {
+    const raw = String(values[field.name] ?? "").trim();
+    const content = /^https?:\/\//i.test(raw)
+      ? '<a class="custom-record-link" href="' + escapeHtml(raw) + '" target="_blank" rel="noopener noreferrer">Открыть ссылку ↗</a>'
+      : escapeHtml(raw || "—");
+    return '<div class="custom-record-field' + (raw ? "" : " is-empty") + '"><span>' + escapeHtml(field.name) + '</span><strong>' + content + '</strong></div>';
+  }).join("");
+  const actions = canManage
+    ? '<div class="custom-record-actions"><button class="button secondary custom-record-edit" type="button" data-record-id="' + escapeHtml(record.id) + '">Изменить</button><button class="button danger custom-record-delete" type="button" data-record-id="' + escapeHtml(record.id) + '">Удалить</button></div>'
+    : "";
+  return '<article class="crm-card custom-record-card"><header class="custom-record-card-head"><div><p class="eyebrow">ЗАПИСЬ</p><h2>' + escapeHtml(title || "Без имени") + '</h2><small class="subtle">Обновлено: ' + escapeHtml(dateText(updated)) + '</small></div><span class="custom-record-completion">' + filled + ' из ' + fields.length + ' полей</span></header><div class="custom-record-fields">' + cells + '</div>' + actions + '</article>';
+}
+async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(tab); const canManage = canManageCustomTab(tab);
   document.querySelectorAll(".page").forEach((node) => node.classList.remove("active"));
   document.querySelectorAll("[data-view]").forEach((node) => node.classList.toggle("active", nestedInBloggers ? node.dataset.view === "bloggers" : node.dataset.view === "custom-" + tab.id));
   let page = document.getElementById("custom-page-" + tab.id);
@@ -593,7 +628,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     page.innerHTML = '<div class="source-page-top"><button class="button secondary" id="sourceBack">← Блогеры</button>' + (sourceProfile ? '<a class="button secondary" href="' + escapeHtml(sourceProfile) + '" target="_blank" rel="noopener">Профиль источника ↗</a>' : "") + '</div><header class="source-page-header"><div><p class="eyebrow">ИСТОЧНИК · INSTAGRAM</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Бизнесы и публикации, найденные через этот профиль.</p></div><div class="source-page-count"><b id="sourceResultCount">0</b><span>НАХОДОК</span></div></header><div id="sourcePromoList" class="source-record-list"></div>';
     $("sourceBack").onclick = () => setPage("bloggers");
   } else {
-    page.innerHTML = '<div class="page-heading"><div><p class="eyebrow">ПОЛЬЗОВАТЕЛЬСКАЯ ВКЛАДКА</p><h1>' + escapeHtml(tab.name) + '</h1></div><button class="button primary" id="customAddRecord">＋ Добавить запись</button></div><div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
+    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">ЛИДЫ И ЗАПИСИ</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Карточки записей · поиск по полям · изменения сохраняются в CRM.</p></div>' + (canManage ? '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>' : '') + '</div><div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и ответам" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div><div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
   }
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo);
@@ -615,7 +650,28 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     $("sourceResultCount").textContent = String(cards.length);
     $("sourcePromoList").innerHTML = cards.join("") || '<div class="empty-state">Пока нет находок. Новые результаты появятся здесь после загрузки автопилота.</div>';
   } else {
-    $("customRecordList").innerHTML = customRows.map((record) => '<article class="crm-card"><div class="crm-card-main">' + fields.map((field) => '<p><b>' + escapeHtml(field.name) + ':</b> ' + (/^https?:\/\//i.test(String(record.values?.[field.name] || "")) ? '<a class="button secondary" href="' + escapeHtml(record.values?.[field.name]) + '" target="_blank" rel="noopener">' + (/публикац|publication|post/i.test(field.name) ? "Публикация ↗" : "Открыть ↗") + '</a>' : escapeHtml(record.values?.[field.name] || "—")) + '</p>').join("") + '</div></article>').join("") || '<div class="empty-state">Записей пока нет.</div>';
+    const recordById = new Map(customRows.map((record) => [String(record.id), record]));
+    const renderCustomRecords = () => {
+      const query = $("customRecordSearch").value.trim().toLocaleLowerCase();
+      const visible = customRows.filter((record) => !query || Object.values(record.values || {}).some((value) => String(value ?? "").toLocaleLowerCase().includes(query)));
+      $("customRecordCount").textContent = query ? visible.length + " из " + customRows.length + " записей" : customRows.length + " записей";
+      $("customRecordList").innerHTML = visible.map((record) => customRecordCard(record, fields, canManage)).join("") || '<div class="empty-state">' + (query ? "По этому запросу записей нет." : "Записей пока нет.") + '</div>';
+      document.querySelectorAll(".custom-record-edit").forEach((button) => button.onclick = () => {
+        const record = recordById.get(button.dataset.recordId);
+        if (record) openCustomRecordDialog(tab, fields, record);
+      });
+      document.querySelectorAll(".custom-record-delete").forEach((button) => button.onclick = async () => {
+        const record = recordById.get(button.dataset.recordId);
+        if (!record || !window.confirm("Удалить эту запись из CRM? Это действие нельзя отменить.")) return;
+        button.disabled = true;
+        const { data, error } = await db.from("custom_records").delete().eq("id", record.id).select("id").maybeSingle();
+        if (error || !data) { button.disabled = false; toast(error ? "Не удалось удалить запись. Проверьте права доступа." : "Запись не найдена или у вас нет прав на удаление."); return; }
+        toast("Запись удалена");
+        await showCustomTab(tab);
+      });
+    };
+    $("customRecordSearch").oninput = renderCustomRecords;
+    renderCustomRecords();
     if (String(tab.name).trim().toLowerCase() === "blogerlik leadlari bolalar") {
       const cards = [...document.querySelectorAll("#customRecordList .crm-card")];
       customRows.forEach((record, index) => {
@@ -675,24 +731,24 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
         card.appendChild(box);
       });
     }
-    $("customAddRecord").onclick = async () => {
-      state.selectedCustomTab = tab;
-      $("customRecordTitle").textContent = "Новая запись · " + tab.name;
-      $("customRecordFields").innerHTML = fields.map((field, index) => {
-        const inputType = field.type === "phone" ? "tel" : field.type === "date" ? "date" : field.type === "link" ? "url" : "text";
-        const note = field.type === "file" ? '<small class="subtle">Hozircha fayl havolasini kiriting.</small>' : "";
-        return '<label class="field-label" for="customField' + index + '">' + escapeHtml(field.name) + '</label><input class="input-control" id="customField' + index + '" data-field-name="' + escapeHtml(field.name) + '" type="' + inputType + '"' + (field.type === "file" ? ' placeholder="https://…"' : "") + '>' + note;
-      }).join("");
-      showMessage("customRecordMessage", "", ""); $("customRecordDialog").showModal();
-    };
+    $("customAddRecord")?.addEventListener("click", () => openCustomRecordDialog(tab, fields));
   }
 }
 $("customRecordForm").onsubmit = async (event) => {
   event.preventDefault();
+  const button = event.submitter;
+  button.disabled = true;
   const values = Object.fromEntries([...document.querySelectorAll("#customRecordFields [data-field-name]")].map((input) => [input.dataset.fieldName, input.value.trim()]));
-  const result = await db.from("custom_records").insert({ tab_id: state.selectedCustomTab?.id, values });
-  if (result.error) { showMessage("customRecordMessage", result.error.message || "Не удалось сохранить запись.", "error"); return; }
-  $("customRecordDialog").close(); await showCustomTab(state.selectedCustomTab);
+  const record = state.selectedCustomRecord;
+  const result = record
+    ? await db.from("custom_records").update({ values, updated_at: new Date().toISOString() }).eq("id", record.id).select("id").maybeSingle()
+    : await db.from("custom_records").insert({ tab_id: state.selectedCustomTab?.id, values }).select("id").single();
+  button.disabled = false;
+  if (result.error || !result.data) { showMessage("customRecordMessage", result.error?.message || "Не удалось сохранить изменения. Проверьте права доступа.", "error"); return; }
+  const tab = state.selectedCustomTab;
+  state.selectedCustomRecord = null;
+  $("customRecordDialog").close();
+  await showCustomTab(tab);
 };
 $("customTabForm").onsubmit = async (event) => {
   event.preventDefault(); const rows = $("customTabFields").value.split("\n").map((line) => line.trim()).filter(Boolean);
