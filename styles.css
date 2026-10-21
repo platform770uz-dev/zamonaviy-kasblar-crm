@@ -235,3 +235,30 @@ a{color:inherit;text-decoration:none}
 #homePage > .blogger-folder-grid.hidden{display:none!important}
 #homePage .blogger-folder-grid .source-folder-button{width:100%;justify-self:center}
 @media(max-width:720px){#homePage > .blogger-folder-grid{grid-template-columns:minmax(0,1fr);gap:14px;margin:28px auto}}
+
+/* Clear, scannable custom lead records */
+.custom-record-page-header{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin:0 0 18px;padding:0 0 20px;border-bottom:1px solid #e8ecea}
+.custom-record-page-header h1{margin:0;font-size:clamp(25px,3vw,34px);letter-spacing:-.04em}
+.custom-record-page-header .subtle{margin:7px 0 0;font-size:13px}
+.custom-record-page-header .button{flex:0 0 auto}
+.custom-record-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 16px}
+.custom-record-toolbar .search-box{width:min(100%,460px)}
+.custom-record-count,.custom-record-completion{display:inline-flex;align-items:center;white-space:nowrap;border:1px solid #dcece5;border-radius:999px;background:#f3faf7;color:#087f61;padding:7px 11px;font-size:12px;font-weight:700}
+.custom-record-card{display:block;padding:20px 22px;border-color:#e7ebe9;border-radius:17px;box-shadow:0 3px 14px #20212a08}
+.custom-record-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}
+.custom-record-card-head .eyebrow{margin:0 0 4px;color:#128568}
+.custom-record-card-head h2{margin:0;font-size:18px;letter-spacing:-.025em;overflow-wrap:anywhere}
+.custom-record-card-head small{display:block;margin-top:5px;font-size:11px}
+.custom-record-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.custom-record-field{min-width:0;padding:11px 12px;border:1px solid #edf0ef;border-radius:12px;background:#fafcfb}
+.custom-record-field>span{display:block;margin-bottom:5px;color:#777e7a;font-size:10px;font-weight:700;letter-spacing:.04em}
+.custom-record-field>strong{display:block;color:#202824;font-size:13px;font-weight:600;line-height:1.45;overflow-wrap:anywhere;white-space:pre-wrap}
+.custom-record-field.is-empty>strong{color:#a5aaa7;font-weight:400}
+.custom-record-link{color:#087f61;text-decoration:none}
+.custom-record-link:hover{text-decoration:underline}
+.custom-record-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:15px;padding-top:14px;border-top:1px solid #edf0ef}
+.button.danger{border:1px solid #f1d7d7;background:#fff;color:#b42318}
+.button.danger:hover{background:#fff5f4}
+.custom-record-actions button{min-width:112px}
+@media(max-width:760px){.custom-record-page-header{align-items:flex-start;flex-direction:column}.custom-record-page-header .button{width:100%;justify-content:center}.custom-record-toolbar{align-items:stretch;flex-direction:column}.custom-record-toolbar .search-box{width:100%}.custom-record-card{padding:16px}.custom-record-card-head{align-items:flex-start;flex-direction:column}.custom-record-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.custom-record-actions{display:grid;grid-template-columns:1fr 1fr}.custom-record-actions button{width:100%;min-width:0;justify-content:center}}
+@media(max-width:430px){.custom-record-fields{grid-template-columns:1fr}}
