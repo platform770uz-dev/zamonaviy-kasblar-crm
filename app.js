@@ -600,6 +600,66 @@ function openCustomRecordDialog(tab, fields, record = null) {
   showMessage("customRecordMessage", "", "");
   $("customRecordDialog").showModal();
 }
+function attachYbaInviteActions(records) {
+  const cards = [...document.querySelectorAll("#customRecordList .custom-record-card")];
+
+      records.forEach((record, index) => {
+        const card = cards[index];
+        if (!card) return;
+        const box = document.createElement("div");
+        box.className = "yba-parent-invite-actions";
+        box.style.cssText = "display:grid;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb";
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "button secondary";
+        button.textContent = "Создать ссылку для родителя";
+        const status = document.createElement("small");
+        status.className = "subtle";
+        const link = document.createElement("input");
+        link.className = "input-control";
+        link.type = "text";
+        link.readOnly = true;
+        link.hidden = true;
+        link.setAttribute("aria-label", "Персональная ссылка родителя");
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "button secondary";
+        copy.textContent = "Скопировать ссылку";
+        copy.hidden = true;
+        copy.onclick = async () => {
+          try { await navigator.clipboard.writeText(link.value); status.textContent = "Ссылка скопирована. Отправьте её родителю."; }
+          catch { link.focus(); link.select(); status.textContent = "Ссылка выделена — скопируйте её и отправьте родителю."; }
+        };
+        button.onclick = async () => {
+          button.disabled = true;
+          button.textContent = "Создаю…";
+          status.textContent = "";
+          try {
+            const auth = await db.auth.getSession();
+            const accessToken = auth.data?.session?.access_token;
+            if (!accessToken) throw new Error("Войдите в CRM заново.");
+            const response = await fetch(config.url + "/functions/v1/yba-parent-api", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", apikey: config.publishableKey, Authorization: "Bearer " + accessToken },
+              body: JSON.stringify({ action: "create_invite", lead_record_id: record.id })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || !result.link) throw new Error(result.error === "forbidden" ? "Нет прав на создание ссылки." : "Ссылку создать не удалось.");
+            link.value = result.link;
+            link.hidden = false;
+            copy.hidden = false;
+            try { await navigator.clipboard.writeText(result.link); status.textContent = "Ссылка создана и скопирована. Отправьте её родителю."; }
+            catch { status.textContent = "Ссылка готова. Нажмите поле и скопируйте её родителю."; }
+            button.textContent = "Создать новую ссылку";
+          } catch (error) {
+            status.textContent = error.message || "Не удалось создать ссылку.";
+            button.textContent = "Повторить";
+          } finally { button.disabled = false; }
+        };
+        box.append(button, link, copy, status);
+        card.appendChild(box);
+      });
+}
 function customRecordCard(record, fields, canManage) {
   const values = record.values || {};
   const titleField = fields.find((field) => /лид|имя|name/i.test(field.name) && String(values[field.name] || "").trim());
@@ -656,6 +716,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
       const visible = customRows.filter((record) => !query || Object.values(record.values || {}).some((value) => String(value ?? "").toLocaleLowerCase().includes(query)));
       $("customRecordCount").textContent = query ? visible.length + " из " + customRows.length + " записей" : customRows.length + " записей";
       $("customRecordList").innerHTML = visible.map((record) => customRecordCard(record, fields, canManage)).join("") || '<div class="empty-state">' + (query ? "По этому запросу записей нет." : "Записей пока нет.") + '</div>';
+      if (String(tab.name).trim().toLowerCase() === "blogerlik leadlari bolalar") attachYbaInviteActions(visible);
       document.querySelectorAll(".custom-record-edit").forEach((button) => button.onclick = () => {
         const record = recordById.get(button.dataset.recordId);
         if (record) openCustomRecordDialog(tab, fields, record);
@@ -672,65 +733,6 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     };
     $("customRecordSearch").oninput = renderCustomRecords;
     renderCustomRecords();
-    if (String(tab.name).trim().toLowerCase() === "blogerlik leadlari bolalar") {
-      const cards = [...document.querySelectorAll("#customRecordList .crm-card")];
-      customRows.forEach((record, index) => {
-        const card = cards[index];
-        if (!card) return;
-        const box = document.createElement("div");
-        box.className = "yba-parent-invite-actions";
-        box.style.cssText = "display:grid;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb";
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "button secondary";
-        button.textContent = "Создать ссылку для родителя";
-        const status = document.createElement("small");
-        status.className = "subtle";
-        const link = document.createElement("input");
-        link.className = "input-control";
-        link.type = "text";
-        link.readOnly = true;
-        link.hidden = true;
-        link.setAttribute("aria-label", "Персональная ссылка родителя");
-        const copy = document.createElement("button");
-        copy.type = "button";
-        copy.className = "button secondary";
-        copy.textContent = "Скопировать ссылку";
-        copy.hidden = true;
-        copy.onclick = async () => {
-          try { await navigator.clipboard.writeText(link.value); status.textContent = "Ссылка скопирована. Отправьте её родителю."; }
-          catch { link.focus(); link.select(); status.textContent = "Ссылка выделена — скопируйте её и отправьте родителю."; }
-        };
-        button.onclick = async () => {
-          button.disabled = true;
-          button.textContent = "Создаю…";
-          status.textContent = "";
-          try {
-            const auth = await db.auth.getSession();
-            const accessToken = auth.data?.session?.access_token;
-            if (!accessToken) throw new Error("Войдите в CRM заново.");
-            const response = await fetch(config.url + "/functions/v1/yba-parent-api", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", apikey: config.publishableKey, Authorization: "Bearer " + accessToken },
-              body: JSON.stringify({ action: "create_invite", lead_record_id: record.id })
-            });
-            const result = await response.json().catch(() => ({}));
-            if (!response.ok || !result.link) throw new Error(result.error === "forbidden" ? "Нет прав на создание ссылки." : "Ссылку создать не удалось.");
-            link.value = result.link;
-            link.hidden = false;
-            copy.hidden = false;
-            try { await navigator.clipboard.writeText(result.link); status.textContent = "Ссылка создана и скопирована. Отправьте её родителю."; }
-            catch { status.textContent = "Ссылка готова. Нажмите поле и скопируйте её родителю."; }
-            button.textContent = "Создать новую ссылку";
-          } catch (error) {
-            status.textContent = error.message || "Не удалось создать ссылку.";
-            button.textContent = "Повторить";
-          } finally { button.disabled = false; }
-        };
-        box.append(button, link, copy, status);
-        card.appendChild(box);
-      });
-    }
     $("customAddRecord")?.addEventListener("click", () => openCustomRecordDialog(tab, fields));
   }
 }
