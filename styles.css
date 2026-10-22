@@ -269,12 +269,15 @@ a{color:inherit;text-decoration:none}
 .excel-lead-date-sort{justify-self:start;padding:0;border:0;background:none;color:inherit;font:inherit;letter-spacing:inherit;text-align:left;cursor:pointer}
 .excel-lead-date-sort:hover{color:#087f61}
 .excel-lead-date{color:#69736e;font-size:12px;white-space:nowrap}
+.excel-lead-meta{grid-column:1/4;display:grid;gap:5px;min-width:0;padding-top:8px;border-top:1px solid #edf0ef}
+.excel-lead-meta p{margin:0;color:#34413a;font-size:12px;line-height:1.45;overflow-wrap:anywhere}
+.excel-lead-meta small{color:#7b8580;font-size:11px}
 .excel-lead-row{padding:13px 18px;border:1px solid #e9ecea;border-radius:14px;background:#fff;box-shadow:0 2px 9px #20212a05}
 .excel-lead-name{display:flex;align-items:center;gap:11px;min-width:0}
 .excel-lead-name b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
 .excel-lead-phone{color:#087f61;text-decoration:none;font-size:14px;font-weight:620}
 .excel-lead-actions{display:flex;justify-content:flex-end;gap:8px}
 .excel-lead-actions .button{min-width:105px;justify-content:center}
-@media(max-width:760px){.excel-lead-page-actions{width:100%;display:grid;grid-template-columns:1fr 1fr}.excel-lead-page-actions #customAddRecord{grid-column:1/-1}.excel-lead-page-actions .button{width:100%}.excel-lead-list-head{display:none}.excel-lead-row{grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:14px}.excel-lead-name{grid-column:1/-1}.excel-lead-phone{grid-column:1;grid-row:2}.excel-lead-actions{grid-column:2;grid-row:2}.excel-lead-date{grid-column:1/-1;grid-row:3}.excel-lead-actions .button{min-width:0;padding:8px 10px;font-size:11px}}
+@media(max-width:760px){.excel-lead-page-actions{width:100%;display:grid;grid-template-columns:1fr 1fr}.excel-lead-page-actions #customAddRecord{grid-column:1/-1}.excel-lead-page-actions .button{width:100%}.excel-lead-list-head{display:none}.excel-lead-row{grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:14px}.excel-lead-name{grid-column:1/-1}.excel-lead-phone{grid-column:1;grid-row:2}.excel-lead-actions{grid-column:2;grid-row:2}.excel-lead-date{grid-column:1/-1;grid-row:3}.excel-lead-meta{grid-column:1/-1;grid-row:4}.excel-lead-actions .button{min-width:0;padding:8px 10px;font-size:11px}}
 #mobileNav:has(.excel-leads-mobile-nav){grid-template-columns:repeat(5,minmax(0,1fr))}
 
