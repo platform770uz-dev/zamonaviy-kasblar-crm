@@ -673,8 +673,9 @@ function openCustomRecordDialog(tab, fields, record = null) {
     const value = record?.values?.[field.name] ?? "";
     const required = tab.name === excelLeadsTabName && ["Имя", "Телефон"].includes(field.name) ? " required" : "";
     const note = field.type === "file" ? '<small class="subtle">Hozircha fayl havolasini kiriting.</small>' : "";
+    const placeholder = field.name === "Результат последнего звонка" ? "Бу ерда қўнғироқ натижалари ёзилади." : "Кратко укажите результат разговора";
     const control = field.type === "textarea"
-      ? '<textarea class="input-control compact-area" id="customField' + index + '" data-field-name="' + escapeHtml(field.name) + '" rows="4" placeholder="Кратко укажите результат разговора">' + escapeHtml(value) + '</textarea>'
+      ? '<textarea class="input-control compact-area" id="customField' + index + '" data-field-name="' + escapeHtml(field.name) + '" rows="4" placeholder="' + escapeHtml(placeholder) + '">' + escapeHtml(value) + '</textarea>'
       : '<input class="input-control" id="customField' + index + '" data-field-name="' + escapeHtml(field.name) + '" type="' + inputType + '" value="' + escapeHtml(value) + '"' + required + (field.type === "file" ? ' placeholder="https://…"' : "") + '>';
     return '<label class="field-label" for="customField' + index + '">' + escapeHtml(field.name) + '</label>' + control + note;
   }).join("");
@@ -764,11 +765,20 @@ function customRecordCard(record, fields, canManage, position = 0) {
     const actions = canManage
       ? '<div class="excel-lead-actions"><button class="button secondary custom-record-edit" type="button" data-record-id="' + escapeHtml(record.id) + '">Изменить</button><button class="button danger custom-record-delete" type="button" data-record-id="' + escapeHtml(record.id) + '">Удалить</button></div>'
       : "";
-    const callMeta = '<div class="excel-lead-meta">' + (callResult ? '<p><b>Результат последнего звонка:</b> ' + escapeHtml(callResult) + '</p>' : '<p class="subtle">Результат последнего звонка пока не указан.</p>') + '<small>Последнее изменение: ' + (lastEditor ? escapeHtml(lastEditor) + ' · ' : '') + escapeHtml(dateTimeText(updatedTime)) + '</small></div>';
+    const consultStatus = String(values["Статус консультации"] || "new");
+    const consultStatusClass = consultStatus === "booked" ? " is-consult-booked" : consultStatus === "attended" ? " is-consult-attended" : "";
+    const consultActions = canManage
+      ? '<div class="lead-consult-actions" aria-label="Отметить результат консультации"><span>Консультация:</span><button class="lead-status-action is-booked' + (consultStatus === "booked" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="booked" aria-pressed="' + (consultStatus === "booked") + '">Записался</button><button class="lead-status-action is-attended' + (consultStatus === "attended" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="attended" aria-pressed="' + (consultStatus === "attended") + '">Пришёл</button></div>'
+      : '<div class="lead-consult-actions"><span class="lead-consult-status ' + (consultStatus === "attended" ? "is-attended" : consultStatus === "booked" ? "is-booked" : "") + '">' + (consultStatus === "attended" ? "Пришёл на консультацию" : consultStatus === "booked" ? "Записался на консультацию" : "Статус консультации не указан") + '</span></div>';
+    const callResultDisplay = callResult
+      ? '<p><b>Результат последнего звонка:</b> ' + escapeHtml(callResult) + '</p>'
+      : '<p class="excel-lead-call-placeholder">Бу ерда қўнғироқ натижалари ёзилади.</p>';
+    const callEdit = canManage ? '<button class="excel-lead-call-edit icon-button" type="button" data-record-id="' + escapeHtml(record.id) + '" aria-label="Изменить результат последнего звонка" title="Изменить результат последнего звонка">✎</button>' : "";
+    const callMeta = '<div class="excel-lead-meta"><div class="excel-lead-call-row"><div class="excel-lead-call-copy">' + callResultDisplay + '</div>' + callEdit + '</div><small>Последнее изменение: ' + (lastEditor ? escapeHtml(lastEditor) + ' · ' : '') + escapeHtml(dateTimeText(updatedTime)) + '</small></div>';
     const leadNumber = '<span class="excel-lead-number">' + (position + 1) + '.</span>';
     const intentBadge = highIntent ? '<span class="lead-intent-badge">Высокое намерение · ' + escapeHtml(leadSubmissionCountText(submissionCount)) + '</span>' : "";
     const rowId = "excel-lead-" + String(record.id).replace(/[^a-zA-Z0-9_-]/g, "");
-    return '<article id="' + escapeHtml(rowId) + '" class="crm-card excel-lead-row' + (highIntent ? ' is-high-intent' : '') + '"><div class="excel-lead-name">' + leadNumber + '<span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><b>' + escapeHtml(name) + '</b>' + intentBadge + '</div><a class="excel-lead-phone" href="' + escapeHtml(phoneHref(phone)) + '">' + escapeHtml(phone) + '</a><time class="excel-lead-date" datetime="' + escapeHtml(createdTime) + '">' + escapeHtml(dateText(createdTime)) + '</time>' + actions + callMeta + '</article>';
+    return '<article id="' + escapeHtml(rowId) + '" class="crm-card excel-lead-row' + (highIntent ? ' is-high-intent' : '') + consultStatusClass + '"><div class="excel-lead-name">' + leadNumber + '<span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><b>' + escapeHtml(name) + '</b>' + intentBadge + '</div><a class="excel-lead-phone" href="' + escapeHtml(phoneHref(phone)) + '">' + escapeHtml(phone) + '</a><time class="excel-lead-date" datetime="' + escapeHtml(createdTime) + '">' + escapeHtml(dateText(createdTime)) + '</time>' + actions + consultActions + callMeta + '</article>';
   }
   const titleField = fields.find((field) => /лид|имя|name/i.test(field.name) && String(values[field.name] || "").trim());
   const title = titleField ? values[titleField.name] : Object.values(values).find((value) => String(value || "").trim());
@@ -798,7 +808,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     $("sourceBack").onclick = () => setPage("bloggers");
   } else {
     const isExcelLeads = tab.name === excelLeadsTabName;
-    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
+    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все лиды</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
   }
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo);
@@ -822,9 +832,31 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
   } else {
     const recordById = new Map(customRows.map((record) => [String(record.id), record]));
     let leadSortAscending = false;
+    let leadStatusFilter = "all";
+    const renderLeadStatusColumns = () => {
+      const columns = $("leadStatusColumns");
+      if (!columns) return;
+      const counts = { all: customRows.length, booked: 0, attended: 0 };
+      customRows.forEach((record) => {
+        const status = String(record.values?.["Статус консультации"] || "new");
+        if (status === "booked") counts.booked++;
+        if (status === "attended") counts.attended++;
+      });
+      columns.querySelectorAll("[data-lead-filter]").forEach((button) => {
+        const filter = button.dataset.leadFilter;
+        button.classList.toggle("is-active", filter === leadStatusFilter);
+        button.querySelector("[data-count]").textContent = String(counts[filter] ?? 0);
+      });
+    };
     const renderCustomRecords = () => {
       const query = $("customRecordSearch").value.trim().toLocaleLowerCase();
-      const visible = customRows.filter((record) => !query || Object.values(record.values || {}).some((value) => String(value ?? "").toLocaleLowerCase().includes(query)));
+      const visible = customRows.filter((record) => {
+        const status = String(record.values?.["Статус консультации"] || "new");
+        const matchesStatus = leadStatusFilter === "all" || status === leadStatusFilter;
+        const matchesQuery = !query || Object.values(record.values || {}).some((value) => String(value ?? "").toLocaleLowerCase().includes(query));
+        return matchesStatus && matchesQuery;
+      });
+      renderLeadStatusColumns();
       if (tab.name === excelLeadsTabName) visible.sort((a, b) => {
         const aTime = Date.parse(a.values?.created_time || a.created_at || "") || 0, bTime = Date.parse(b.values?.created_time || b.created_at || "") || 0;
         return leadSortAscending ? aTime - bTime : bTime - aTime;
@@ -837,6 +869,29 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
         const record = recordById.get(button.dataset.recordId);
         if (record) openCustomRecordDialog(tab, tab.name === excelLeadsTabName ? excelLeadEditFields(fields) : fields, record);
       });
+      document.querySelectorAll(".excel-lead-call-edit").forEach((button) => button.onclick = () => {
+        const record = recordById.get(button.dataset.recordId);
+        if (record) openCustomRecordDialog(tab, [{ name: "Результат последнего звонка", type: "textarea" }], record);
+      });
+      document.querySelectorAll(".lead-status-action").forEach((button) => button.onclick = async () => {
+        const record = recordById.get(button.dataset.recordId);
+        if (!record) return;
+        button.disabled = true;
+        const status = button.dataset.leadStatus;
+        const values = { ...(record.values || {}), "Статус консультации": status, "Последний изменивший": excelLeadEditedBy() };
+        const updatedAt = new Date().toISOString();
+        const { data, error } = await db.from("custom_records").update({ values, updated_at: updatedAt }).eq("id", record.id).select("id").maybeSingle();
+        if (error || !data) {
+          button.disabled = false;
+          toast(error ? "Не удалось обновить статус. Проверьте права доступа." : "Лид не найден или у вас нет прав на изменение.");
+          return;
+        }
+        record.values = values;
+        record.updated_at = updatedAt;
+        leadStatusFilter = status;
+        renderCustomRecords();
+        toast(status === "attended" ? "Лид отмечен как пришедший на консультацию" : "Лид перенесён в колонку «Записались»");
+      });
       document.querySelectorAll(".custom-record-delete").forEach((button) => button.onclick = async () => {
         const record = recordById.get(button.dataset.recordId);
         if (!record || !window.confirm("Удалить эту запись из CRM? Это действие нельзя отменить.")) return;
@@ -848,6 +903,9 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
       });
     };
     $("customRecordSearch").oninput = renderCustomRecords;
+    $("leadStatusColumns")?.querySelectorAll("[data-lead-filter]").forEach((button) => {
+      button.onclick = () => { leadStatusFilter = button.dataset.leadFilter; renderCustomRecords(); };
+    });
     $("excelLeadDateSort")?.addEventListener("click", () => {
       leadSortAscending = !leadSortAscending;
       const direction = $("excelLeadDateSort").querySelector("span");
