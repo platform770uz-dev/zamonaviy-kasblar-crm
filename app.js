@@ -878,7 +878,9 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
         if (!record) return;
         button.disabled = true;
         const status = button.dataset.leadStatus;
-        const values = { ...(record.values || {}), "Статус консультации": status, "Последний изменивший": excelLeadEditedBy() };
+        const selectedStatus = String(record.values?.["Статус консультации"] || "new");
+        const nextStatus = selectedStatus === status ? "new" : status;
+        const values = { ...(record.values || {}), "Статус консультации": nextStatus, "Последний изменивший": excelLeadEditedBy() };
         const updatedAt = new Date().toISOString();
         const { data, error } = await db.from("custom_records").update({ values, updated_at: updatedAt }).eq("id", record.id).select("id").maybeSingle();
         if (error || !data) {
@@ -888,9 +890,9 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
         }
         record.values = values;
         record.updated_at = updatedAt;
-        leadStatusFilter = status;
+        leadStatusFilter = nextStatus === "new" ? "all" : nextStatus;
         renderCustomRecords();
-        toast(status === "attended" ? "Лид отмечен как пришедший на консультацию" : "Лид перенесён в колонку «Записались»");
+        toast(nextStatus === "new" ? "Статус консультации отменён" : nextStatus === "attended" ? "Лид отмечен как пришедший на консультацию" : "Лид перенесён в колонку «Записались»");
       });
       document.querySelectorAll(".custom-record-delete").forEach((button) => button.onclick = async () => {
         const record = recordById.get(button.dataset.recordId);
