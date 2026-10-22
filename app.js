@@ -906,7 +906,6 @@ $("customRecordForm").onsubmit = async (event) => {
     : await db.from("custom_records").insert({ tab_id: tab?.id, values }).select("id").single();
   button.disabled = false;
   if (result.error || !result.data) { showMessage("customRecordMessage", result.error?.message || "Не удалось сохранить изменения. Проверьте права доступа.", "error"); return; }
-  const tab = state.selectedCustomTab;
   state.selectedCustomRecord = null;
   $("customRecordDialog").close();
   await showCustomTab(tab);
