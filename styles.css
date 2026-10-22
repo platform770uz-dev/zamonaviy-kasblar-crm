@@ -272,12 +272,26 @@ a{color:inherit;text-decoration:none}
 .excel-lead-meta{grid-column:1/4;display:grid;gap:5px;min-width:0;padding-top:8px;border-top:1px solid #edf0ef}
 .excel-lead-meta p{margin:0;color:#34413a;font-size:12px;line-height:1.45;overflow-wrap:anywhere}
 .excel-lead-meta small{color:#7b8580;font-size:11px}
+.excel-lead-row.is-high-intent{border-left:4px solid #e38a32;background:#fffaf3}
+.excel-lead-number{flex:0 0 24px;color:#87918b;font-size:13px;font-weight:750;text-align:right}
+.lead-intent-badge{display:inline-flex;flex:0 0 auto;align-items:center;border-radius:999px;background:#fff0d8;color:#95500c;padding:5px 8px;font-size:10px;font-weight:750;white-space:nowrap}
+.high-intent-panel{margin:0 0 18px;padding:18px 20px;border:1px solid #f2d7b1;border-radius:16px;background:#fffaf3}
+.high-intent-header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
+.high-intent-header .eyebrow{margin:0 0 4px;color:#a55b14}
+.high-intent-header h2{margin:0;font-size:18px}
+.high-intent-header .subtle{margin:4px 0 0;font-size:12px}
+.high-intent-total{display:grid;place-items:center;width:38px;height:38px;border-radius:50%;background:#f7e2c5;color:#8c4b0d;font-weight:800}
+.high-intent-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px}
+.high-intent-item{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:11px 13px;border:1px solid #f1e3d0;border-radius:12px;background:#fff;text-align:left;cursor:pointer}
+.high-intent-item:hover{border-color:#df9e56}
+.high-intent-item b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.high-intent-item span{flex:0 0 auto;color:#8a5720;font-size:11px}
 .excel-lead-row{padding:13px 18px;border:1px solid #e9ecea;border-radius:14px;background:#fff;box-shadow:0 2px 9px #20212a05}
 .excel-lead-name{display:flex;align-items:center;gap:11px;min-width:0}
 .excel-lead-name b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
 .excel-lead-phone{color:#087f61;text-decoration:none;font-size:14px;font-weight:620}
 .excel-lead-actions{display:flex;justify-content:flex-end;gap:8px}
 .excel-lead-actions .button{min-width:105px;justify-content:center}
-@media(max-width:760px){.excel-lead-page-actions{width:100%;display:grid;grid-template-columns:1fr 1fr}.excel-lead-page-actions #customAddRecord{grid-column:1/-1}.excel-lead-page-actions .button{width:100%}.excel-lead-list-head{display:none}.excel-lead-row{grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:14px}.excel-lead-name{grid-column:1/-1}.excel-lead-phone{grid-column:1;grid-row:2}.excel-lead-actions{grid-column:2;grid-row:2}.excel-lead-date{grid-column:1/-1;grid-row:3}.excel-lead-meta{grid-column:1/-1;grid-row:4}.excel-lead-actions .button{min-width:0;padding:8px 10px;font-size:11px}}
+@media(max-width:760px){.excel-lead-page-actions{width:100%;display:grid;grid-template-columns:1fr 1fr}.excel-lead-page-actions #customAddRecord{grid-column:1/-1}.excel-lead-page-actions .button{width:100%}.excel-lead-list-head{display:none}.excel-lead-row{grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:14px}.excel-lead-name{grid-column:1/-1}.excel-lead-phone{grid-column:1;grid-row:2}.excel-lead-actions{grid-column:2;grid-row:2}.excel-lead-date{grid-column:1/-1;grid-row:3}.excel-lead-meta{grid-column:1/-1;grid-row:4}.high-intent-panel{padding:15px}.high-intent-list{grid-template-columns:1fr}.lead-intent-badge{font-size:9px;padding:4px 6px}.excel-lead-number{flex-basis:18px}.excel-lead-actions .button{min-width:0;padding:8px 10px;font-size:11px}}
 #mobileNav:has(.excel-leads-mobile-nav){grid-template-columns:repeat(5,minmax(0,1fr))}
 
