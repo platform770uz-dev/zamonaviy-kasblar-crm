@@ -686,7 +686,7 @@ function customRecordCard(record, fields, canManage) {
     const actions = canManage
       ? '<div class="excel-lead-actions"><button class="button secondary custom-record-edit" type="button" data-record-id="' + escapeHtml(record.id) + '">Изменить</button><button class="button danger custom-record-delete" type="button" data-record-id="' + escapeHtml(record.id) + '">Удалить</button></div>'
       : "";
-    return '<article class="crm-card excel-lead-row"><div class="excel-lead-name"><span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><b>' + escapeHtml(name) + '</b></div><a class="excel-lead-phone" href="' + escapeHtml(phoneHref(phone)) + '">' + escapeHtml(phone) + '</a>' + actions + '</article>';
+    return '<article class="crm-card excel-lead-row"><div class="excel-lead-name"><span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><b>' + escapeHtml(name) + '</b></div><a class="excel-lead-phone" href="' + escapeHtml(phoneHref(phone)) + '">' + escapeHtml(phone) + '</a><time class="excel-lead-date" datetime="' + escapeHtml(record.created_at || "") + '">' + escapeHtml(dateText(record.created_at)) + '</time>' + actions + '</article>';
   }
   const titleField = fields.find((field) => /лид|имя|name/i.test(field.name) && String(values[field.name] || "").trim());
   const title = titleField ? values[titleField.name] : Object.values(values).find((value) => String(value || "").trim());
@@ -716,7 +716,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     $("sourceBack").onclick = () => setPage("bloggers");
   } else {
     const isExcelLeads = tab.name === excelLeadsTabName;
-    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите таблицу с именем и телефоном — лиды появятся здесь и сохранятся в CRM.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
+    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите таблицу с именем и телефоном — лиды появятся здесь и сохранятся в CRM.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате добавления">ДАТА ДОБАВЛЕНИЯ <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
   }
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo);
@@ -739,9 +739,14 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     $("sourcePromoList").innerHTML = cards.join("") || '<div class="empty-state">Пока нет находок. Новые результаты появятся здесь после загрузки автопилота.</div>';
   } else {
     const recordById = new Map(customRows.map((record) => [String(record.id), record]));
+    let leadSortAscending = false;
     const renderCustomRecords = () => {
       const query = $("customRecordSearch").value.trim().toLocaleLowerCase();
       const visible = customRows.filter((record) => !query || Object.values(record.values || {}).some((value) => String(value ?? "").toLocaleLowerCase().includes(query)));
+      if (tab.name === excelLeadsTabName) visible.sort((a, b) => {
+        const aTime = Date.parse(a.created_at || "") || 0, bTime = Date.parse(b.created_at || "") || 0;
+        return leadSortAscending ? aTime - bTime : bTime - aTime;
+      });
       $("customRecordCount").textContent = query ? visible.length + " из " + customRows.length + " записей" : customRows.length + " записей";
       $("customRecordList").innerHTML = visible.map((record) => customRecordCard(record, fields, canManage)).join("") || '<div class="empty-state">' + (query ? "По этому запросу записей нет." : "Записей пока нет.") + '</div>';
       if (String(tab.name).trim().toLowerCase() === "blogerlik leadlari bolalar") attachYbaInviteActions(visible);
@@ -760,6 +765,13 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
       });
     };
     $("customRecordSearch").oninput = renderCustomRecords;
+    $("excelLeadDateSort")?.addEventListener("click", () => {
+      leadSortAscending = !leadSortAscending;
+      const direction = $("excelLeadDateSort").querySelector("span");
+      direction.textContent = leadSortAscending ? "↑" : "↓";
+      $("excelLeadDateSort").setAttribute("aria-label", leadSortAscending ? "Сначала старые лиды" : "Сначала новые лиды");
+      renderCustomRecords();
+    });
     renderCustomRecords();
     $("customAddRecord")?.addEventListener("click", () => openCustomRecordDialog(tab, fields));
     if (tab.name === excelLeadsTabName && canManage) {
