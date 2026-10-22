@@ -733,7 +733,7 @@ function customRecordCard(record, fields, canManage) {
     const actions = canManage
       ? '<div class="excel-lead-actions"><button class="button secondary custom-record-edit" type="button" data-record-id="' + escapeHtml(record.id) + '">Изменить</button><button class="button danger custom-record-delete" type="button" data-record-id="' + escapeHtml(record.id) + '">Удалить</button></div>'
       : "";
-    const callMeta = '<div class="excel-lead-meta">' + (callResult ? '<p><b>Результат последнего звонка:</b> ' + escapeHtml(callResult) + '</p>' : '<p class="subtle">Результат последнего звонка пока не указан.</p>') + '<small>Последнее изменение' + (lastEditor ? ' · ' + escapeHtml(lastEditor) : '') + ': ' + escapeHtml(dateTimeText(updatedTime)) + '</small></div>';
+    const callMeta = '<div class="excel-lead-meta">' + (callResult ? '<p><b>Результат последнего звонка:</b> ' + escapeHtml(callResult) + '</p>' : '<p class="subtle">Результат последнего звонка пока не указан.</p>') + '<small>Последнее изменение: ' + (lastEditor ? escapeHtml(lastEditor) + ' · ' : '') + escapeHtml(dateTimeText(updatedTime)) + '</small></div>';
     return '<article class="crm-card excel-lead-row"><div class="excel-lead-name"><span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><b>' + escapeHtml(name) + '</b></div><a class="excel-lead-phone" href="' + escapeHtml(phoneHref(phone)) + '">' + escapeHtml(phone) + '</a><time class="excel-lead-date" datetime="' + escapeHtml(createdTime) + '">' + escapeHtml(dateText(createdTime)) + '</time>' + actions + callMeta + '</article>';
   }
   const titleField = fields.find((field) => /лид|имя|name/i.test(field.name) && String(values[field.name] || "").trim());
