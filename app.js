@@ -6,6 +6,7 @@ const db = createClient(config.url, config.publishableKey, {
 });
 const $ = (id) => document.getElementById(id);
 const state = { user: null, crmRole: null, selectedCustomRecord: null, leads: [], orders: [], promos: [], shows: [], tabs: [], selectedLead: null, selectedOrder: null, ownerToken: "", leadAccess: false, manager: false, language: localStorage.getItem("crm-language") || "ru" };
+const excelLeadsTabName = "Загрузка лидов через Excel";
 const statuses = {
   new: "Yangi",
   contacted: "Bog‘lanildi",
@@ -240,7 +241,19 @@ async function loadCoreSections() {
   else { state.promos = []; $("researchStatus").textContent = "Нужно применить миграцию CRM, чтобы включить этот раздел."; }
   if (!shows.error) state.shows = shows.data || [];
   else { state.shows = []; $("showList").innerHTML = '<div class="loading-row">Примените миграцию CRM в Supabase, чтобы включить заявки шоу.</div>'; }
-  if (!tabs.error) state.tabs = tabs.data || []; else state.tabs = [];
+  if (!tabs.error) {
+    state.tabs = tabs.data || [];
+    if (state.crmRole && !state.tabs.some((tab) => tab.name === excelLeadsTabName)) {
+      const seeded = await db.from("custom_tabs").insert({
+        name: excelLeadsTabName,
+        icon: "⇧",
+        fields: [{ name: "Имя", type: "text" }, { name: "Телефон", type: "phone" }],
+        viewer_roles: ["owner", "manager", "admin"],
+        editor_roles: ["owner", "manager", "admin"]
+      }).select("*").single();
+      if (!seeded.error && seeded.data) state.tabs.push(seeded.data);
+    }
+  } else state.tabs = [];
   if (!runs.error && runs.data) {
     const next = new Date(new Date(runs.data.started_at).getTime() + 14 * 86400000);
     $("researchLastRun").textContent = "Последняя загрузка: " + dateText(runs.data.started_at) + " · найдено строк: " + runs.data.found_count + " · следующий ресерч: " + dateText(next);
@@ -536,12 +549,17 @@ $("showForm").onsubmit = async (event) => {
 };
 function isFargonaTezkorTab(tab) { return /^fargona\s+tezkor$/i.test(String(tab?.name || "").trim()); } function renderCustomTabs() {
   const sidebarNav = document.querySelector(".side-nav");
-  document.querySelectorAll(".custom-tab-nav,.custom-tab-page").forEach((node) => node.remove());
+  document.querySelectorAll(".custom-tab-nav,.custom-tab-page,.excel-leads-mobile-nav").forEach((node) => node.remove());
   for (const tab of state.tabs) {
     if (isFargonaTezkorTab(tab)) continue;
     const nav = document.createElement("button"); nav.className = "nav-item custom-tab-nav"; nav.dataset.view = "custom-" + tab.id; nav.dataset.bound = "1";
     nav.innerHTML = '<span class="nav-icon">' + escapeHtml(tab.icon || "▤") + '</span><span>' + escapeHtml(tab.name) + '</span>';
     sidebarNav.insertBefore(nav, $("newCustomTab")); nav.onclick = () => showCustomTab(tab);
+    if (tab.name === excelLeadsTabName) {
+      const mobileNav = document.createElement("button"); mobileNav.className = "mobile-nav-item excel-leads-mobile-nav"; mobileNav.dataset.view = "custom-" + tab.id; mobileNav.dataset.bound = "1";
+      mobileNav.innerHTML = '<span>⇧</span><small>Excel-лиды</small>';
+      $("mobileNav").appendChild(mobileNav); mobileNav.onclick = () => showCustomTab(tab);
+    }
   }
   const groups = new Map();
   for (const row of state.promos || []) {
@@ -595,7 +613,7 @@ function openCustomRecordDialog(tab, fields, record = null) {
     const inputType = field.type === "phone" ? "tel" : field.type === "date" ? "date" : field.type === "link" ? "url" : "text";
     const value = record?.values?.[field.name] ?? "";
     const note = field.type === "file" ? '<small class="subtle">Hozircha fayl havolasini kiriting.</small>' : "";
-    return '<label class="field-label" for="customField' + index + '">' + escapeHtml(field.name) + '</label><input class="input-control" id="customField' + index + '" data-field-name="' + escapeHtml(field.name) + '" type="' + inputType + '" value="' + escapeHtml(value) + '"' + (field.type === "file" ? ' placeholder="https://…"' : "") + '>' + note;
+    return '<label class="field-label" for="customField' + index + '">' + escapeHtml(field.name) + '</label><input class="input-control" id="customField' + index + '" data-field-name="' + escapeHtml(field.name) + '" type="' + inputType + '" value="' + escapeHtml(value) + '"' + (tab.name === excelLeadsTabName ? " required" : "") + (field.type === "file" ? ' placeholder="https://…"' : "") + '>' + note;
   }).join("");
   showMessage("customRecordMessage", "", "");
   $("customRecordDialog").showModal();
@@ -662,6 +680,14 @@ function attachYbaInviteActions(records) {
 }
 function customRecordCard(record, fields, canManage) {
   const values = record.values || {};
+  if (state.selectedCustomTab?.name === excelLeadsTabName) {
+    const name = values["Имя"] || "Без имени";
+    const phone = values["Телефон"] || "—";
+    const actions = canManage
+      ? '<div class="excel-lead-actions"><button class="button secondary custom-record-edit" type="button" data-record-id="' + escapeHtml(record.id) + '">Изменить</button><button class="button danger custom-record-delete" type="button" data-record-id="' + escapeHtml(record.id) + '">Удалить</button></div>'
+      : "";
+    return '<article class="crm-card excel-lead-row"><div class="excel-lead-name"><span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><b>' + escapeHtml(name) + '</b></div><a class="excel-lead-phone" href="' + escapeHtml(phoneHref(phone)) + '">' + escapeHtml(phone) + '</a>' + actions + '</article>';
+  }
   const titleField = fields.find((field) => /лид|имя|name/i.test(field.name) && String(values[field.name] || "").trim());
   const title = titleField ? values[titleField.name] : Object.values(values).find((value) => String(value || "").trim());
   const filled = fields.filter((field) => String(values[field.name] ?? "").trim()).length;
@@ -679,6 +705,7 @@ function customRecordCard(record, fields, canManage) {
   return '<article class="crm-card custom-record-card"><header class="custom-record-card-head"><div><p class="eyebrow">ЗАПИСЬ</p><h2>' + escapeHtml(title || "Без имени") + '</h2><small class="subtle">Обновлено: ' + escapeHtml(dateText(updated)) + '</small></div><span class="custom-record-completion">' + filled + ' из ' + fields.length + ' полей</span></header><div class="custom-record-fields">' + cells + '</div>' + actions + '</article>';
 }
 async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(tab); const canManage = canManageCustomTab(tab);
+  state.selectedCustomTab = tab;
   document.querySelectorAll(".page").forEach((node) => node.classList.remove("active"));
   document.querySelectorAll("[data-view]").forEach((node) => node.classList.toggle("active", nestedInBloggers ? node.dataset.view === "bloggers" : node.dataset.view === "custom-" + tab.id));
   let page = document.getElementById("custom-page-" + tab.id);
@@ -688,7 +715,8 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     page.innerHTML = '<div class="source-page-top"><button class="button secondary" id="sourceBack">← Блогеры</button>' + (sourceProfile ? '<a class="button secondary" href="' + escapeHtml(sourceProfile) + '" target="_blank" rel="noopener">Профиль источника ↗</a>' : "") + '</div><header class="source-page-header"><div><p class="eyebrow">ИСТОЧНИК · INSTAGRAM</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Бизнесы и публикации, найденные через этот профиль.</p></div><div class="source-page-count"><b id="sourceResultCount">0</b><span>НАХОДОК</span></div></header><div id="sourcePromoList" class="source-record-list"></div>';
     $("sourceBack").onclick = () => setPage("bloggers");
   } else {
-    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">ЛИДЫ И ЗАПИСИ</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Карточки записей · поиск по полям · изменения сохраняются в CRM.</p></div>' + (canManage ? '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>' : '') + '</div><div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и ответам" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div><div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
+    const isExcelLeads = tab.name === excelLeadsTabName;
+    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите таблицу с именем и телефоном — лиды появятся здесь и сохранятся в CRM.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
   }
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo);
@@ -734,7 +762,72 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     $("customRecordSearch").oninput = renderCustomRecords;
     renderCustomRecords();
     $("customAddRecord")?.addEventListener("click", () => openCustomRecordDialog(tab, fields));
+    if (tab.name === excelLeadsTabName && canManage) {
+      $("excelLeadUpload").onclick = () => $("excelLeadFile").click();
+      $("excelLeadTemplate").onclick = downloadExcelLeadsTemplate;
+      $("excelLeadFile").onchange = (event) => importExcelLeads(event, tab, customRows);
+    }
   }
+}
+
+function downloadExcelLeadsTemplate() {
+  if (!window.XLSX) { toast("Модуль Excel пока недоступен"); return; }
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["Имя", "Телефон"]]), "Лиды");
+  XLSX.writeFile(workbook, "CRM_лиды_шаблон.xlsx");
+}
+
+function normalizeLeadPhone(value) {
+  let digits = String(value ?? "").replace(/\D/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  if (digits.startsWith("998") && digits.length === 12) digits = digits.slice(3);
+  return digits;
+}
+
+async function importExcelLeads(event, tab, existingRows) {
+  const input = event.target, file = input.files?.[0];
+  if (!file) return;
+  showMessage("excelLeadImportMessage", "Читаю Excel…", "");
+  try {
+    if (!window.XLSX) throw new Error("Не загрузился модуль Excel. Обновите страницу и попробуйте снова.");
+    if (file.size > 5 * 1024 * 1024) throw new Error("Размер файла больше 5 МБ.");
+    const workbook = XLSX.read(await file.arrayBuffer(), { cellDates: true });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
+    if (matrix.length < 2) throw new Error("В файле нет строк с данными.");
+    const normalizeHeader = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-zа-яё0-9]+/gi, " ").trim();
+    const headers = matrix[0].map(normalizeHeader);
+    const nameColumn = headers.findIndex((value) => ["имя", "фио", "имя фамилия", "full name", "name", "ism", "ism familiya"].includes(value));
+    const phoneColumn = headers.findIndex((value) => ["телефон", "номер", "номер телефона", "телефон номер", "phone", "phone number", "number", "telefon", "telefon raqami"].includes(value));
+    if (nameColumn < 0 || phoneColumn < 0) throw new Error("Нужны два столбца с заголовками «Имя» и «Телефон». Скачайте шаблон CRM и вставьте данные под заголовки.");
+    const dataRows = matrix.slice(1).map((cells, index) => ({ row: index + 2, name: String(cells[nameColumn] ?? "").trim(), phone: String(cells[phoneColumn] ?? "").trim() })).filter((row) => row.name || row.phone);
+    if (!dataRows.length) throw new Error("Не найдены заполненные строки с именем и телефоном.");
+    if (dataRows.length > 500) throw new Error("В файле больше 500 строк. Разделите таблицу на несколько файлов.");
+    const byPhone = new Map();
+    for (const record of existingRows) {
+      const key = normalizeLeadPhone(record.values?.["Телефон"]);
+      if (key && !byPhone.has(key)) byPhone.set(key, record);
+    }
+    let added = 0, updated = 0, skipped = 0;
+    const issues = [];
+    for (const row of dataRows) {
+      const digits = normalizeLeadPhone(row.phone);
+      if (!row.name || digits.length < 7 || digits.length > 15) { skipped++; issues.push("строка " + row.row + ": проверьте имя и номер"); continue; }
+      const values = { "Имя": row.name, "Телефон": row.phone };
+      const found = byPhone.get(digits);
+      const saved = found
+        ? await db.from("custom_records").update({ values, updated_at: new Date().toISOString() }).eq("id", found.id).select("id").maybeSingle()
+        : await db.from("custom_records").insert({ tab_id: tab.id, values }).select("id").single();
+      if (saved.error || !saved.data) { skipped++; issues.push("строка " + row.row + ": не удалось сохранить"); continue; }
+      if (found) { found.values = values; updated++; }
+      else { const created = { id: saved.data.id, tab_id: tab.id, values, created_at: new Date().toISOString() }; existingRows.unshift(created); byPhone.set(digits, created); added++; }
+    }
+    const summary = "Excel обработан: добавлено " + added + ", обновлено " + updated + ", пропущено " + skipped + ". Файл не сохранялся в CRM." + (issues.length ? " Примеры: " + issues.slice(0, 3).join("; ") : "");
+    await showCustomTab(tab);
+    showMessage("excelLeadImportMessage", summary, skipped ? "error" : "success");
+  } catch (error) {
+    showMessage("excelLeadImportMessage", error.message || "Не удалось прочитать Excel.", "error");
+  } finally { input.value = ""; }
 }
 $("customRecordForm").onsubmit = async (event) => {
   event.preventDefault();
@@ -943,6 +1036,7 @@ async function start() {
   await loadData();
 }
 start();
+
 
 
 
