@@ -297,7 +297,7 @@ a{color:inherit;text-decoration:none}
 
 
 /* Excel lead consultation workflow */
-.lead-status-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 18px}
+.lead-status-columns{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 18px}
 .lead-status-column{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:58px;padding:12px 16px;border:1px solid #e5e8e6;border-radius:14px;background:#fff;color:#4e5852;text-align:left;font-weight:700;transition:background .15s,border-color .15s,box-shadow .15s}
 .lead-status-column:hover{border-color:#b8c4bd}
 .lead-status-column b{display:grid;place-items:center;min-width:28px;height:28px;padding:0 8px;border-radius:999px;background:#f0f2f1;color:#5d6761;font-size:12px}
@@ -308,6 +308,9 @@ a{color:inherit;text-decoration:none}
 .lead-status-column.is-attended{border-color:#b8e2c9;background:#f3fbf6;color:#24744a}
 .lead-status-column.is-attended b{background:#d8f1e2;color:#1f7046}
 .lead-status-column.is-attended.is-active{border-color:#64bd88;background:#eaf8ef}
+.lead-status-column.is-no-answer{border-color:#f0c3c0;background:#fff7f6;color:#a63834}
+.lead-status-column.is-no-answer b{background:#f8dddb;color:#9c302d}
+.lead-status-column.is-no-answer.is-active{border-color:#d96e68;background:#ffedeb}
 .lead-consult-actions{grid-column:1/4;display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}
 .lead-consult-actions>span:first-child{color:#737d76;font-size:11px;font-weight:650}
 .lead-status-action{min-height:30px;padding:5px 11px;border:1px solid transparent;border-radius:999px;font-size:11px;font-weight:750;transition:transform .12s,box-shadow .12s}
@@ -316,15 +319,19 @@ a{color:inherit;text-decoration:none}
 .lead-status-action.is-booked.is-selected{border-color:#df9b45;background:#f7e2c5;box-shadow:inset 0 0 0 1px #df9b45}
 .lead-status-action.is-attended{border-color:#b5dfc5;background:#eaf8ef;color:#237449}
 .lead-status-action.is-attended.is-selected{border-color:#54af78;background:#cdebd8;box-shadow:inset 0 0 0 1px #54af78}
+.lead-status-action.is-no-answer{border-color:#efbfbc;background:#fff1f0;color:#a63834}
+.lead-status-action.is-no-answer.is-selected{border-color:#d96e68;background:#f6d5d3;box-shadow:inset 0 0 0 1px #d96e68}
 .lead-consult-status{display:inline-flex;align-items:center;min-height:28px;padding:4px 10px;border-radius:999px;background:#f1f3f2;color:#66716a;font-size:11px;font-weight:700}
 .lead-consult-status.is-booked{background:#fff0d8;color:#925316}
 .lead-consult-status.is-attended{background:#dff3e7;color:#24744a}
+.lead-consult-status.is-no-answer{background:#f8dddb;color:#9c302d}
 .excel-lead-row.is-consult-booked{border-color:#efcfaa;background:#fffaf3}
 .excel-lead-row.is-consult-attended{border-color:#a9dabb;background:#f3fbf6}
+.excel-lead-row.is-consult-no-answer{border-color:#edb2af;background:#fff6f5}
 .excel-lead-call-row{display:flex;align-items:flex-start;gap:10px;min-width:0}
 .excel-lead-call-copy{flex:1;min-width:0}
 .excel-lead-call-placeholder{color:#9ca0a8!important;opacity:.72}
 .excel-lead-call-edit.icon-button{width:30px;height:30px;flex:0 0 30px;border:0;background:transparent;color:#7b8580;font-size:19px;box-shadow:none}
 .excel-lead-call-edit.icon-button:hover{background:#f2f4f3;color:#087f61}
-@media(max-width:760px){.lead-status-columns{gap:6px;margin-bottom:14px}.lead-status-column{min-height:50px;padding:9px 10px;font-size:11px}.lead-status-column b{min-width:24px;height:24px;padding:0 6px}.lead-consult-actions{grid-column:1/-1;grid-row:4}.excel-lead-meta{grid-row:5}}
+@media(max-width:760px){.lead-status-columns{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:14px}.lead-status-column{min-height:50px;padding:9px 10px;font-size:11px}.lead-status-column b{min-width:24px;height:24px;padding:0 6px}.lead-consult-actions{grid-column:1/-1;grid-row:4}.excel-lead-meta{grid-row:5}}
 @media(max-width:430px){.lead-status-columns{grid-template-columns:1fr}.lead-status-column{min-height:44px}.lead-consult-actions{gap:6px}.lead-status-action{padding:5px 9px;font-size:10px}}
