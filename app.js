@@ -31,6 +31,45 @@ function dateText(value) {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("uz-UZ", { day: "numeric", month: "short", year: "numeric" });}
+function excelLeadDateValue(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (/^\d{4}-\d{1,2}-\d{1,2}/.test(text)) {
+    const parts = text.slice(0, 10).split("-").map(Number);
+    return new Date(Date.UTC(parts[0], parts[1] - 1, parts[2])).toISOString().slice(0, 10);
+  }
+  if (/^\d+(\.\d+)?$/.test(text) && Number(text) >= 20000 && Number(text) <= 100000 && window.XLSX?.SSF?.parse_date_code) {
+    const code = XLSX.SSF.parse_date_code(Number(text));
+    if (code) return new Date(Date.UTC(code.y, code.m - 1, code.d)).toISOString().slice(0, 10);
+  }
+  const numericDate = text.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+  if (numericDate) {
+    const first = Number(numericDate[1]), second = Number(numericDate[2]);
+    let month = first, day = second;
+    if (first > 12) { day = first; month = second; }
+    let year = Number(numericDate[3]);
+    if (year < 100) year += year < 70 ? 2000 : 1900;
+    if (month < 1 || month > 12 || day < 1 || day > 31) return "";
+    return new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10);
+  }
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
+}
+function excelLeadEditedBy() {
+  const user = state.user || {};
+  return user.user_metadata?.full_name || user.user_metadata?.name || user.email || "Администратор";
+}
+function excelLeadEditFields(fields) {
+  const name = (fields || []).find((field) => field.name === "Имя") || { name: "Имя", type: "text" };
+  const phone = (fields || []).find((field) => field.name === "Телефон") || { name: "Телефон", type: "phone" };
+  return [name, phone, { name: "Результат последнего звонка", type: "textarea" }];
+}
+function dateTimeText(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
 
 function telegramHref(value) {
   let digits = String(value || "").replace(/\D/g, "");
@@ -612,8 +651,12 @@ function openCustomRecordDialog(tab, fields, record = null) {
   $("customRecordFields").innerHTML = fields.map((field, index) => {
     const inputType = field.type === "phone" ? "tel" : field.type === "date" ? "date" : field.type === "link" ? "url" : "text";
     const value = record?.values?.[field.name] ?? "";
+    const required = tab.name === excelLeadsTabName && ["Имя", "Телефон"].includes(field.name) ? " required" : "";
     const note = field.type === "file" ? '<small class="subtle">Hozircha fayl havolasini kiriting.</small>' : "";
-    return '<label class="field-label" for="customField' + index + '">' + escapeHtml(field.name) + '</label><input class="input-control" id="customField' + index + '" data-field-name="' + escapeHtml(field.name) + '" type="' + inputType + '" value="' + escapeHtml(value) + '"' + (tab.name === excelLeadsTabName ? " required" : "") + (field.type === "file" ? ' placeholder="https://…"' : "") + '>' + note;
+    const control = field.type === "textarea"
+      ? '<textarea class="input-control compact-area" id="customField' + index + '" data-field-name="' + escapeHtml(field.name) + '" rows="4" placeholder="Кратко укажите результат разговора">' + escapeHtml(value) + '</textarea>'
+      : '<input class="input-control" id="customField' + index + '" data-field-name="' + escapeHtml(field.name) + '" type="' + inputType + '" value="' + escapeHtml(value) + '"' + required + (field.type === "file" ? ' placeholder="https://…"' : "") + '>';
+    return '<label class="field-label" for="customField' + index + '">' + escapeHtml(field.name) + '</label>' + control + note;
   }).join("");
   showMessage("customRecordMessage", "", "");
   $("customRecordDialog").showModal();
@@ -683,10 +726,15 @@ function customRecordCard(record, fields, canManage) {
   if (state.selectedCustomTab?.name === excelLeadsTabName) {
     const name = values["Имя"] || "Без имени";
     const phone = values["Телефон"] || "—";
+    const createdTime = values.created_time || record.created_at;
+    const callResult = String(values["Результат последнего звонка"] || "").trim();
+    const lastEditor = String(values["Последний изменивший"] || "").trim();
+    const updatedTime = record.updated_at || record.created_at;
     const actions = canManage
       ? '<div class="excel-lead-actions"><button class="button secondary custom-record-edit" type="button" data-record-id="' + escapeHtml(record.id) + '">Изменить</button><button class="button danger custom-record-delete" type="button" data-record-id="' + escapeHtml(record.id) + '">Удалить</button></div>'
       : "";
-    return '<article class="crm-card excel-lead-row"><div class="excel-lead-name"><span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><b>' + escapeHtml(name) + '</b></div><a class="excel-lead-phone" href="' + escapeHtml(phoneHref(phone)) + '">' + escapeHtml(phone) + '</a><time class="excel-lead-date" datetime="' + escapeHtml(record.created_at || "") + '">' + escapeHtml(dateText(record.created_at)) + '</time>' + actions + '</article>';
+    const callMeta = '<div class="excel-lead-meta">' + (callResult ? '<p><b>Результат последнего звонка:</b> ' + escapeHtml(callResult) + '</p>' : '<p class="subtle">Результат последнего звонка пока не указан.</p>') + '<small>Последнее изменение' + (lastEditor ? ' · ' + escapeHtml(lastEditor) : '') + ': ' + escapeHtml(dateTimeText(updatedTime)) + '</small></div>';
+    return '<article class="crm-card excel-lead-row"><div class="excel-lead-name"><span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><b>' + escapeHtml(name) + '</b></div><a class="excel-lead-phone" href="' + escapeHtml(phoneHref(phone)) + '">' + escapeHtml(phone) + '</a><time class="excel-lead-date" datetime="' + escapeHtml(createdTime) + '">' + escapeHtml(dateText(createdTime)) + '</time>' + actions + callMeta + '</article>';
   }
   const titleField = fields.find((field) => /лид|имя|name/i.test(field.name) && String(values[field.name] || "").trim());
   const title = titleField ? values[titleField.name] : Object.values(values).find((value) => String(value || "").trim());
@@ -716,7 +764,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     $("sourceBack").onclick = () => setPage("bloggers");
   } else {
     const isExcelLeads = tab.name === excelLeadsTabName;
-    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите таблицу с именем и телефоном — лиды появятся здесь и сохранятся в CRM.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате добавления">ДАТА ДОБАВЛЕНИЯ <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
+    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
   }
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo);
@@ -744,7 +792,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
       const query = $("customRecordSearch").value.trim().toLocaleLowerCase();
       const visible = customRows.filter((record) => !query || Object.values(record.values || {}).some((value) => String(value ?? "").toLocaleLowerCase().includes(query)));
       if (tab.name === excelLeadsTabName) visible.sort((a, b) => {
-        const aTime = Date.parse(a.created_at || "") || 0, bTime = Date.parse(b.created_at || "") || 0;
+        const aTime = Date.parse(a.values?.created_time || a.created_at || "") || 0, bTime = Date.parse(b.values?.created_time || b.created_at || "") || 0;
         return leadSortAscending ? aTime - bTime : bTime - aTime;
       });
       $("customRecordCount").textContent = query ? visible.length + " из " + customRows.length + " записей" : customRows.length + " записей";
@@ -752,7 +800,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
       if (String(tab.name).trim().toLowerCase() === "blogerlik leadlari bolalar") attachYbaInviteActions(visible);
       document.querySelectorAll(".custom-record-edit").forEach((button) => button.onclick = () => {
         const record = recordById.get(button.dataset.recordId);
-        if (record) openCustomRecordDialog(tab, fields, record);
+        if (record) openCustomRecordDialog(tab, tab.name === excelLeadsTabName ? excelLeadEditFields(fields) : fields, record);
       });
       document.querySelectorAll(".custom-record-delete").forEach((button) => button.onclick = async () => {
         const record = recordById.get(button.dataset.recordId);
@@ -769,11 +817,11 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
       leadSortAscending = !leadSortAscending;
       const direction = $("excelLeadDateSort").querySelector("span");
       direction.textContent = leadSortAscending ? "↑" : "↓";
-      $("excelLeadDateSort").setAttribute("aria-label", leadSortAscending ? "Сначала старые лиды" : "Сначала новые лиды");
+      $("excelLeadDateSort").setAttribute("aria-label", leadSortAscending ? "Сначала лиды с более ранней датой создания" : "Сначала лиды с более поздней датой создания");
       renderCustomRecords();
     });
     renderCustomRecords();
-    $("customAddRecord")?.addEventListener("click", () => openCustomRecordDialog(tab, fields));
+    $("customAddRecord")?.addEventListener("click", () => openCustomRecordDialog(tab, tab.name === excelLeadsTabName ? excelLeadEditFields(fields) : fields));
     if (tab.name === excelLeadsTabName && canManage) {
       $("excelLeadUpload").onclick = () => $("excelLeadFile").click();
       $("excelLeadTemplate").onclick = downloadExcelLeadsTemplate;
@@ -785,7 +833,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
 function downloadExcelLeadsTemplate() {
   if (!window.XLSX) { toast("Модуль Excel пока недоступен"); return; }
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["Имя", "Телефон"]]), "Лиды");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["Имя", "Телефон", "created_time"]]), "Лиды");
   XLSX.writeFile(workbook, "CRM_лиды_шаблон.xlsx");
 }
 
@@ -811,8 +859,9 @@ async function importExcelLeads(event, tab, existingRows) {
     const headers = matrix[0].map(normalizeHeader);
     const nameColumn = headers.findIndex((value) => ["имя", "фио", "имя фамилия", "full name", "name", "ism", "ism familiya"].includes(value));
     const phoneColumn = headers.findIndex((value) => ["телефон", "номер", "номер телефона", "телефон номер", "phone", "phone number", "number", "telefon", "telefon raqami"].includes(value));
+    const createdTimeColumn = headers.findIndex((value) => ["created time", "created at", "created date", "lead created", "дата создания", "дата создания лида"].includes(value));
     if (nameColumn < 0 || phoneColumn < 0) throw new Error("Нужны два столбца с заголовками «Имя» и «Телефон». Скачайте шаблон CRM и вставьте данные под заголовки.");
-    const dataRows = matrix.slice(1).map((cells, index) => ({ row: index + 2, name: String(cells[nameColumn] ?? "").trim(), phone: String(cells[phoneColumn] ?? "").trim() })).filter((row) => row.name || row.phone);
+    const dataRows = matrix.slice(1).map((cells, index) => ({ row: index + 2, name: String(cells[nameColumn] ?? "").trim(), phone: String(cells[phoneColumn] ?? "").trim(), createdTime: createdTimeColumn < 0 ? "" : excelLeadDateValue(cells[createdTimeColumn]) })).filter((row) => row.name || row.phone);
     if (!dataRows.length) throw new Error("Не найдены заполненные строки с именем и телефоном.");
     if (dataRows.length > 500) throw new Error("В файле больше 500 строк. Разделите таблицу на несколько файлов.");
     const byPhone = new Map();
@@ -825,14 +874,16 @@ async function importExcelLeads(event, tab, existingRows) {
     for (const row of dataRows) {
       const digits = normalizeLeadPhone(row.phone);
       if (!row.name || digits.length < 7 || digits.length > 15) { skipped++; issues.push("строка " + row.row + ": проверьте имя и номер"); continue; }
-      const values = { "Имя": row.name, "Телефон": row.phone };
       const found = byPhone.get(digits);
+      const values = { ...(found?.values || {}), "Имя": row.name, "Телефон": row.phone, "Последний изменивший": excelLeadEditedBy() };
+      if (row.createdTime) values.created_time = row.createdTime;
+      const updatedAt = new Date().toISOString();
       const saved = found
-        ? await db.from("custom_records").update({ values, updated_at: new Date().toISOString() }).eq("id", found.id).select("id").maybeSingle()
+        ? await db.from("custom_records").update({ values, updated_at: updatedAt }).eq("id", found.id).select("id").maybeSingle()
         : await db.from("custom_records").insert({ tab_id: tab.id, values }).select("id").single();
       if (saved.error || !saved.data) { skipped++; issues.push("строка " + row.row + ": не удалось сохранить"); continue; }
-      if (found) { found.values = values; updated++; }
-      else { const created = { id: saved.data.id, tab_id: tab.id, values, created_at: new Date().toISOString() }; existingRows.unshift(created); byPhone.set(digits, created); added++; }
+      if (found) { found.values = values; found.updated_at = updatedAt; updated++; }
+      else { const created = { id: saved.data.id, tab_id: tab.id, values, created_at: updatedAt, updated_at: updatedAt }; existingRows.unshift(created); byPhone.set(digits, created); added++; }
     }
     const summary = "Excel обработан: добавлено " + added + ", обновлено " + updated + ", пропущено " + skipped + ". Файл не сохранялся в CRM." + (issues.length ? " Примеры: " + issues.slice(0, 3).join("; ") : "");
     await showCustomTab(tab);
@@ -845,11 +896,14 @@ $("customRecordForm").onsubmit = async (event) => {
   event.preventDefault();
   const button = event.submitter;
   button.disabled = true;
-  const values = Object.fromEntries([...document.querySelectorAll("#customRecordFields [data-field-name]")].map((input) => [input.dataset.fieldName, input.value.trim()]));
+  const formValues = Object.fromEntries([...document.querySelectorAll("#customRecordFields [data-field-name]")].map((input) => [input.dataset.fieldName, input.value.trim()]));
   const record = state.selectedCustomRecord;
+  const tab = state.selectedCustomTab;
+  const values = tab?.name === excelLeadsTabName ? { ...(record?.values || {}), ...formValues, "Последний изменивший": excelLeadEditedBy() } : formValues;
+  const updatedAt = new Date().toISOString();
   const result = record
-    ? await db.from("custom_records").update({ values, updated_at: new Date().toISOString() }).eq("id", record.id).select("id").maybeSingle()
-    : await db.from("custom_records").insert({ tab_id: state.selectedCustomTab?.id, values }).select("id").single();
+    ? await db.from("custom_records").update({ values, updated_at: updatedAt }).eq("id", record.id).select("id").maybeSingle()
+    : await db.from("custom_records").insert({ tab_id: tab?.id, values }).select("id").single();
   button.disabled = false;
   if (result.error || !result.data) { showMessage("customRecordMessage", result.error?.message || "Не удалось сохранить изменения. Проверьте права доступа.", "error"); return; }
   const tab = state.selectedCustomTab;
