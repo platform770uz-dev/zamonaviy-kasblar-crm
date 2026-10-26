@@ -54,7 +54,7 @@ function makePage() {
   title.textContent = "Bolalar testlari";
   const subtitle = document.createElement("p");
   subtitle.className = "subtle";
-  subtitle.textContent = "Faqat ota-ona yoki qonuniy vakil rozilik bergan natijalar. Kreativ javoblar ochiq matn ko‘rinishida saqlanadi.";
+  subtitle.textContent = "Shartnoma asosida yuborilgan test natijalari. Kreativ javoblar ochiq matn ko‘rinishida saqlanadi.";
   intro.append(eyebrow, title, subtitle);
   const refresh = document.createElement("button");
   refresh.className = "button secondary";
@@ -65,7 +65,7 @@ function makePage() {
   const list = document.createElement("div");
   list.id = "intellektLabResultsList";
   list.className = "crm-list";
-  list.textContent = "Rozilik bilan yuborilgan test natijalari hozircha yo‘q.";
+  list.textContent = "Hozircha test natijalari yo‘q.";
   page.append(heading, list);
   document.getElementById("workspace")?.appendChild(page);
 }
@@ -132,8 +132,6 @@ function makeCard(item) {
   addText(body, "Mantiqiy fikrlash", String(item.logic_score) + "/10");
   addText(body, "Tanqidiy fikrlash", String(item.critical_score) + "/10");
   addText(body, "Avtomatik jami", String(item.logic_score + item.critical_score) + "/20");
-  addText(body, "Rozilik matni versiyasi", item.consent_version);
-  addText(body, "Rozilik vaqti", item.consent_at ? new Date(item.consent_at).toLocaleString("uz-UZ") : "—");
   addText(body, "Yuborilgan", item.created_at ? new Date(item.created_at).toLocaleString("uz-UZ") : "—");
   card.append(body, makeAnswerList(item.answers || []));
   return card;
@@ -147,7 +145,7 @@ async function renderResults() {
   }
   list.textContent = "Yuklanmoqda…";
   try {
-    const response = await managerRequest("/rest/v1/intellekt_lab_results?select=id,child_name,age_group,answers,logic_score,critical_score,consent_version,consent_at,created_at&order=created_at.desc&limit=300");
+    const response = await managerRequest("/rest/v1/intellekt_lab_results?select=id,child_name,age_group,answers,logic_score,critical_score,created_at&order=created_at.desc&limit=300");
     if (!response.ok) throw new Error("read_failed");
     const rows = await response.json();
     list.replaceChildren();
