@@ -2,8 +2,6 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const allowedOrigin = "https://platform770uz-dev.github.io";
-const consentVersion = "intellekt-lab-crm-v1";
-const consentText = "Men bolaning ota-onasi yoki qonuniy vakiliman. Bolaning ismi yoki taxallusi, yosh guruhi, 30 ta test javobi va mantiqiy hamda tanqidiy fikrlash ballarini Intellekt Lab o‘qituvchilari ko‘rishi uchun CRM tizimiga yuborishga roziman. Kreativ javoblarni o‘qituvchi baholaydi. Rozilik bermaslik testdan foydalanishga ta’sir qilmaydi.";
 const answerKey = [1,1,0,2,0,3,2,1,1,2,1,2,2,3,0,2,1,3,0,2];
 const requestsByAddress = new Map<string, { startedAt: number; count: number }>();
 const corsHeaders = {
@@ -44,9 +42,6 @@ Deno.serve(async (req: Request) => {
     const raw = await req.text();
     if (raw.length > 40000) return reply({ error: "payload_too_large" }, 413);
     const body = JSON.parse(raw);
-    if (body?.parent_confirmed !== true || body?.consent_version !== consentVersion || body?.consent_text !== consentText) {
-      return reply({ error: "explicit_parent_consent_required" }, 400);
-    }
     if (!["7-10", "11-14"].includes(body?.age_group)) return reply({ error: "invalid_age_group" }, 400);
     if (typeof body?.child_name !== "string" || body.child_name.trim().length > 50) {
       return reply({ error: "invalid_child_name" }, 400);
@@ -79,9 +74,6 @@ Deno.serve(async (req: Request) => {
       answers,
       logic_score: logicScore,
       critical_score: criticalScore,
-      consent_version: consentVersion,
-      consent_text: consentText,
-      consent_at: new Date().toISOString(),
     }, { onConflict: "submission_id", ignoreDuplicates: true });
     if (error) return reply({ error: "save_failed" }, 500);
     return reply({ ok: true, logic_score: logicScore, critical_score: criticalScore });
