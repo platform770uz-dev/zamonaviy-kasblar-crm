@@ -168,7 +168,11 @@ async function setup() {
   const wh = await tg("setWebhook", { url: hook, secret_token: await webhookSecret(token), allowed_updates: ["message", "callback_query"], drop_pending_updates: true });
   const cmd = await tg("setMyCommands", { commands: [{ command: "start", description: "Boshqaruv paneli" }, { command: "login", description: "CRM’ga kirish havolasi" }, { command: "adminlar", description: "Adminlar (rahbar uchun)" }] });
   const mb = await tg("setChatMenuButton", { menu_button: { type: "web_app", text: "CRM", web_app: { url: CRM_SITE } } });
-  return json({ ok: wh.ok === true, bot: me.result.username, webhook: wh.description ?? "ok", commands: cmd.ok === true, menu_button: mb.ok === true });
+  const desc = await tg("setMyDescription", { description: "Teachnova boshqaruv boti: rahbar va administratorlar uchun CRM va kvitansiyalar bir joyda.\n\nBoshlash uchun /start bosing." });
+  const sdesc = await tg("setMyShortDescription", { short_description: "Teachnova: CRM va kvitansiyalar (rahbar va adminlar uchun)" });
+  await tg("setMyName", { name: "Teachnova" });
+  const name = await tg("getMyName");
+  return json({ ok: wh.ok === true, bot: me.result.username, name: name.result?.name ?? "", webhook: wh.description ?? "ok", commands: cmd.ok === true, menu_button: mb.ok === true, description: desc.ok === true, short_description: sdesc.ok === true });
 }
 
 Deno.serve(async (req: Request) => {
