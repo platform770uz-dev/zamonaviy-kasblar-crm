@@ -97,6 +97,12 @@ export const uzPhrases = {
   "Ссылка скопирована. Отправьте её родителю.": "Havola nusxalandi. Uni ota-onaga yuboring.",
   "Ссылка создана и скопирована. Отправьте её родителю.": "Havola yaratildi va nusxalandi. Uni ota-onaga yuboring.",
   "Не удалось создать ссылку.": "Havolani yaratib bo‘lmadi.", "Нет прав на создание ссылки.": "Havola yaratish huquqi yo‘q.",
+  // Дополнение после проверки на живом сайте
+  "Детский блогинг": "Bolalar blogingi", "Бизнесы": "Bizneslar", "Результат последнего звонка:": "So‘nggi qo‘ng‘iroq natijasi:",
+  "Колонки статусов консультации": "Konsultatsiya holati ustunlari", "Сортировать по дате создания лида": "Lid sanasi bo‘yicha saralash",
+  "Отметить результат консультации": "Konsultatsiya natijasini belgilash", "@username или название": "@username yoki nomi",
+  "Если Chrome не подключён, Instagram выдаёт ошибку или подтверждённых находок нет — попросите сообщить причину. Пустой Excel создавать не нужно. При CAPTCHA, входе или блокировке остановитесь.": "Agar Chrome ulanmagan bo‘lsa, Instagram xato bersa yoki tasdiqlangan topilmalar bo‘lmasa, sababini aytishni so‘rang. Bo‘sh Excel yaratish shart emas. CAPTCHA, kirish yoki bloklanishda to‘xtang.",
+  "После загрузки Excel профили и публикации автоматически появятся в разделе «Блогеры», сгруппированные по профилю-источнику.": "Excel yuklangandan so‘ng profillar va postlar «Blogerlar» bo‘limida manba profili bo‘yicha guruhlangan holda avtomatik paydo bo‘ladi.",
 };
 
 export const uzPatterns = [
@@ -107,6 +113,7 @@ export const uzPatterns = [
   [/^Последнее изменение: (.+)$/, "Oxirgi o‘zgarish: $1"],
   [/^Новая запись · (.+)$/, "Yangi yozuv · $1"],
   [/^Изменить запись · (.+)$/, "Yozuvni tahrirlash · $1"],
+  [/^Открыть папку (.+)$/, "Papkani ochish: $1"],
 ];
 
 const ATTRS = ["placeholder", "aria-label", "title"];
