@@ -1,11 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-2";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
 });
 const $ = (id) => document.getElementById(id);
-const state = { user: null, crmRole: null, selectedCustomRecord: null, leads: [], orders: [], promos: [], shows: [], tabs: [], selectedLead: null, selectedOrder: null, ownerToken: "", leadAccess: false, manager: false, language: localStorage.getItem("crm-language") || "ru" };
+const state = { user: null, crmRole: null, selectedCustomRecord: null, leads: [], orders: [], promos: [], shows: [], tabs: [], selectedLead: null, selectedOrder: null, ownerToken: "", leadAccess: false, manager: false, language: localStorage.getItem("crm-language") || "uz" };
 const excelLeadsTabName = "Загрузка лидов через Excel";
 const statuses = {
   new: "Yangi",
@@ -141,6 +142,7 @@ function showLogin(message, error) {
   $("newCustomTabMobile").classList.add("hidden");
   $("topbar").classList.remove("hidden");
   $("mobileNav").classList.add("hidden");
+  $("mobileLogoutBtn").classList.add("hidden");
   $("workspace").classList.add("hidden");
   $("loginView").classList.remove("hidden");
   $("ownerPage").classList.add("hidden");
@@ -151,6 +153,7 @@ function showCRM() {
   $("newCustomTabMobile").classList.remove("hidden");
   $("topbar").classList.remove("hidden");
   $("mobileNav").classList.remove("hidden");
+  $("mobileLogoutBtn").classList.remove("hidden");
   $("loginView").classList.add("hidden");
   $("ownerPage").classList.add("hidden");
   $("workspace").classList.remove("hidden");
@@ -924,7 +927,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
       });
       document.querySelectorAll(".custom-record-delete").forEach((button) => button.onclick = async () => {
         const record = recordById.get(button.dataset.recordId);
-        if (!record || !window.confirm("Удалить эту запись из CRM? Это действие нельзя отменить.")) return;
+        if (!record || !window.confirm(state.language === "uz" ? uzText("Удалить эту запись из CRM? Это действие нельзя отменить.") : "Удалить эту запись из CRM? Это действие нельзя отменить.")) return;
         button.disabled = true;
         const { data, error } = await db.from("custom_records").delete().eq("id", record.id).select("id").maybeSingle();
         if (error || !data) { button.disabled = false; toast(error ? "Не удалось удалить запись. Проверьте права доступа." : "Запись не найдена или у вас нет прав на удаление."); return; }
@@ -1054,8 +1057,18 @@ for(const id of ["autopilotBlogger","autopilotSmall","autopilotMedium","autopilo
 $("copyAutopilotPrompt").onclick=async()=>{try{await navigator.clipboard.writeText($("autopilotPrompt").value);toast(state.language==="ru"?"Запрос скопирован":"So‘rov nusxalandi")}catch{$("autopilotPrompt").select();document.execCommand("copy")}};
 
 const i18n = { ru: { navHr: "HR-лиды", navBloggers: "Блогеры", navShows: "Заявки на шоу", navAutopilot: "Автопилот", autopilotTitle: "Автопилот", autopilotSubtitle: "Выберите блогера и параметры — CRM подготовит запрос.", newTab: "Новая вкладка", bloggersTitle: "Блогеры и реклама", bloggersSubtitle: "Автопилот и ресерч сгруппированы по профилю источника.", hrTitle: "HR-лиды по вакансии", hrSubtitle: "Ответы кандидатов и этап найма.", showsTitle: "Заявки на ТВ-шоу", showsSubtitle: "Бренд-фейс и мобилографы в одном списке.", addPromo: "Добавить рекламу", addShow: "Добавить заявку", researchTitle: "Ресерч в Chrome раз в 2 недели", last7: "Последние 7 дней", allTime: "За всё время", allStages: "Все этапы", new: "Новая", contacted: "Связались", interview: "Собеседование", hired: "Принята", rejected: "Отказ", reviewed: "Просмотрена", casting: "Кастинг", chosen: "Выбрана", allCategories: "Все категории", brandFace: "Бренд-фейс", mobileographer: "Мобилограф", promoSearch: "Бизнес, блогер или телефон", searchNamePhone: "Имя или телефон", showSearch: "Имя, телефон или город" }, uz: { navHr: "HR arizalari", navBloggers: "Blogerlar", navShows: "Shou arizalari", navAutopilot: "Avtopilot", autopilotTitle: "Avtopilot", autopilotSubtitle: "Blogerni tanlang — CRM qidiruv so‘rovini tayyorlaydi.", newTab: "Yangi bo‘lim", bloggersTitle: "Blogerlar va reklama", bloggersSubtitle: "Avtopilot natijalari manba profili bo‘yicha guruhlangan.", hrTitle: "Vakansiya bo‘yicha arizalar", hrSubtitle: "Nomzod javoblari va ishga olish bosqichi.", showsTitle: "TV-shou arizalari", showsSubtitle: "Brend-feys va mobilograflar bitta ro‘yxatda.", addPromo: "Reklama qo‘shish", addShow: "Ariza qo‘shish", researchTitle: "Chrome’da har 2 haftada qidiruv", last7: "Oxirgi 7 kun", allTime: "Barcha vaqt", allStages: "Barcha bosqichlar", new: "Yangi", contacted: "Bog‘lanildi", interview: "Suhbat", hired: "Qabul qilindi", rejected: "Rad etildi", reviewed: "Ko‘rib chiqildi", casting: "Kasting", chosen: "Tanlandi", allCategories: "Barcha toifalar", brandFace: "Brend-feys", mobileographer: "Mobilograf", promoSearch: "Biznes, bloger yoki telefon", searchNamePhone: "Ism yoki telefon", showSearch: "Ism, telefon yoki shahar" } };
-function applyLanguage() { document.documentElement.lang = state.language === "ru" ? "ru" : "uz-Latn"; document.querySelectorAll("[data-i18n]").forEach((node) => { const value = i18n[state.language][node.dataset.i18n]; if (value) node.textContent = value; }); document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => { const value = i18n[state.language][node.dataset.i18nPlaceholder]; if (value) node.placeholder = value; }); }
+function applyLanguage() { document.documentElement.lang = state.language === "ru" ? "ru" : "uz-Latn"; document.querySelectorAll("[data-i18n]").forEach((node) => { const value = i18n[state.language][node.dataset.i18n]; if (value) node.textContent = value; }); document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => { const value = i18n[state.language][node.dataset.i18nPlaceholder]; if (value) node.placeholder = value; }); applyUzTranslation(); }
 $("languageToggle").onclick = () => { state.language = state.language === "ru" ? "uz" : "ru"; localStorage.setItem("crm-language", state.language); applyLanguage(); };
+function renderLanguageToggle() {
+  const toggle = $("languageToggle");
+  toggle.innerHTML = '<b class="' + (state.language === "ru" ? "on" : "") + '">RU</b> / <b class="' + (state.language === "uz" ? "on" : "") + '">UZ</b>';
+}
+function applyUzTranslation() {
+  if (state.language === "uz") translateTree(document.body);
+  else restoreTree(document.body);
+  renderLanguageToggle();
+}
+startUzObserver(() => state.language === "uz");
 applyLanguage();
 $("mobileLogoutBtn").onclick = () => $("logoutBtn").click();
 $("logoutBtn").onclick = async () => {

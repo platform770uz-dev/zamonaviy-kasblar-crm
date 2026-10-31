@@ -340,3 +340,6 @@ a{color:inherit;text-decoration:none}
 .excel-lead-call-edit.icon-button:hover{background:#f2f4f3;color:#087f61}
 @media(max-width:760px){.lead-status-columns{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:14px}.lead-status-column{min-height:50px;padding:9px 10px;font-size:11px}.lead-status-column b{min-width:24px;height:24px;padding:0 6px}.lead-consult-actions{grid-column:1/-1;grid-row:4}.excel-lead-meta{grid-row:5}}
 @media(max-width:430px){.lead-status-columns{grid-template-columns:1fr}.lead-status-column{min-height:44px}.lead-consult-actions{gap:6px}.lead-status-action{padding:5px 9px;font-size:10px}}
+.language-switch b{font-weight:600;opacity:.45}.language-switch b.on{opacity:1;color:#078366}
+@media(max-width:640px){.language-switch{min-height:44px;padding:0 14px}.icon-button{width:44px;height:44px}.mobile-brand{min-height:44px;display:inline-flex;align-items:center}}
+@media(max-width:640px){.button{min-height:44px}}
