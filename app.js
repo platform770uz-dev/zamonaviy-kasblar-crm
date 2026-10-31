@@ -1220,7 +1220,7 @@ async function start() {
     await loadOwnerOrder();
     return;
   }
-  const browserLogin = location.hash.match(/^#crm-login=(.+)$/);
+  const browserLogin = location.hash.match(/^#crm-login=([A-Za-z0-9_-]{40,64})(?:&|$)/);
   if (browserLogin) {
     const token = decodeURIComponent(browserLogin[1]);
     history.replaceState(null, document.title, location.pathname + location.search);
