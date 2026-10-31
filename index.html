@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f7f8">
   <title>Zamonaviy Kasblar — CRM</title>
-  <link rel="stylesheet" href="./styles.css?v=excel-leads-7">
+  <link rel="stylesheet" href="./styles.css?v=polish-1">
 </head>
 <body>
   <div class="app-shell">
@@ -88,7 +88,9 @@
         <button class="mobile-nav-item active" data-view="bloggers"><span>◉</span><small data-i18n="navBloggers">Блогеры</small></button>
         <button class="mobile-nav-item" data-view="shows"><span>✦</span><small data-i18n="navShows">Шоу</small></button>
         <button class="mobile-nav-item" data-view="autopilot"><span>✧</span><small data-i18n="navAutopilot">Автопилот</small></button>
+        <button class="mobile-nav-item" id="mobileMore" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="mobileMoreSheet"><span>⋯</span><small>Ещё</small></button>
       </nav>
+      <div class="mobile-more hidden" id="mobileMoreSheet" role="menu" aria-label="Все разделы"></div>
     </div>
   </div>
 
@@ -152,7 +154,7 @@
   <div class="toast hidden" id="toast" role="status"></div>
   <script>window.SUPABASE_CONFIG={url:"https://uzivivmrixstxjvzkksz.supabase.co",publishableKey:"sb_publishable_8z5WQbInjqHDvigfDSOcuQ_FOq7LQWJ"};</script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script type="module" src="./app.js?v=excel-leads-7"></script>
+  <script type="module" src="./app.js?v=polish-1"></script>
   <script type="module" src="./yba-results-panel.js?v=payment-receipt-1"></script>
   <script type="module" src="./intellekt-lab-results.js?v=20261026-2"></script>
 </body>

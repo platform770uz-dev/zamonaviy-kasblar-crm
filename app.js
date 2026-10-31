@@ -30,7 +30,10 @@ function money(value) {
 function dateText(value) {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("uz-UZ", { day: "numeric", month: "short", year: "numeric" });}
+  if (Number.isNaN(date.getTime())) return "—";
+  const pad = (n) => String(n).padStart(2, "0");
+  return pad(date.getDate()) + "." + pad(date.getMonth() + 1) + "." + date.getFullYear();
+}
 function excelLeadDateValue(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
   if (typeof value === "number" && value >= 20000 && value <= 100000 && window.XLSX?.SSF?.parse_date_code) {
@@ -568,6 +571,28 @@ $("downloadExcelTemplate").onclick = () => {
 $("addPromo").onclick = () => { $("promoDate").value = new Date().toISOString().slice(0, 10); showMessage("promoFormMessage", "", ""); $("promoDialog").showModal(); };
 $("addShow").onclick = () => { showMessage("showFormMessage", "", ""); $("showDialog").showModal(); };
 $("newCustomTab").onclick = () => { showMessage("customTabMessage", "", ""); $("customTabDialog").showModal(); };
+function closeMobileMore() {
+  $("mobileMoreSheet").classList.add("hidden");
+  $("mobileMore").setAttribute("aria-expanded", "false");
+}
+$("mobileMore").onclick = () => {
+  const sheet = $("mobileMoreSheet");
+  if (!sheet.classList.contains("hidden")) { closeMobileMore(); return; }
+  sheet.innerHTML = "";
+  document.querySelectorAll(".side-nav .nav-item:not(#newCustomTab)").forEach((source) => {
+    const item = document.createElement("button");
+    item.type = "button"; item.className = "mobile-more-item" + (source.classList.contains("active") ? " active" : ""); item.setAttribute("role", "menuitem");
+    const icon = source.querySelector(".nav-icon"), label = [...source.children].find((node) => !node.classList.contains("nav-icon") && !node.classList.contains("nav-count"));
+    item.innerHTML = '<span>' + escapeHtml(icon?.textContent || "▤") + '</span><b>' + escapeHtml(label?.textContent || source.textContent.trim()) + '</b>';
+    item.onclick = () => { closeMobileMore(); source.click(); };
+    sheet.appendChild(item);
+  });
+  sheet.classList.remove("hidden");
+  $("mobileMore").setAttribute("aria-expanded", "true");
+};
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("#mobileMore, #mobileMoreSheet")) closeMobileMore();
+});
 $("newCustomTabMobile").onclick = () => { showMessage("customTabMessage", "", ""); $("customTabDialog").showModal(); };
 $("promoForm").onsubmit = async (event) => {
   event.preventDefault();
@@ -802,6 +827,8 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
   document.querySelectorAll("[data-view]").forEach((node) => node.classList.toggle("active", nestedInBloggers ? node.dataset.view === "bloggers" : node.dataset.view === "custom-" + tab.id));
   let page = document.getElementById("custom-page-" + tab.id);
   if (!page) { page = document.createElement("section"); page.id = "custom-page-" + tab.id; page.className = "page custom-tab-page"; $("workspace").appendChild(page); } page.classList.add("active");
+  // Каждая вкладка использует одинаковые id (customRecordList и др.): держим в DOM только открытую страницу, иначе $() находит скрытую.
+  document.querySelectorAll(".custom-tab-page").forEach((node) => { if (node !== page) node.innerHTML = ""; });
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo), sourceProfile = sourceRows[0]?.blogger?.instagram_url || "";
     page.innerHTML = '<div class="source-page-top"><button class="button secondary" id="sourceBack">← Блогеры</button>' + (sourceProfile ? '<a class="button secondary" href="' + escapeHtml(sourceProfile) + '" target="_blank" rel="noopener">Профиль источника ↗</a>' : "") + '</div><header class="source-page-header"><div><p class="eyebrow">ИСТОЧНИК · INSTAGRAM</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Бизнесы и публикации, найденные через этот профиль.</p></div><div class="source-page-count"><b id="sourceResultCount">0</b><span>НАХОДОК</span></div></header><div id="sourcePromoList" class="source-record-list"></div>';
