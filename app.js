@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-5";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-6";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -126,12 +126,17 @@ function statusPill(status) {
   const key = statuses[status] ? status : "new";
   return '<span class="status ' + key + '">' + statuses[key] + "</span>";
 }
+// Если выбран раздел из «Архива», держим архив раскрытым; сам по себе при входе он свёрнут.
+function openArchiveIfActive() {
+  if ($("navArchiveList").querySelector(".nav-item.active")) $("navArchive").open = true;
+}
 function setPage(page) {
   if (page === "hr" && !state.manager) { toast("HR-лиды доступны только руководителю"); page = "bloggers"; }
   const pageId = ({ bloggers: "homePage", hr: "leadsPage", shows: "ordersPage" })[page] || page + "Page";
   document.querySelectorAll(".page").forEach((node) => node.classList.toggle("active", node.id === pageId));
   document.querySelectorAll("[data-view]").forEach((node) => node.classList.toggle("active", node.dataset.view === page));
   window.scrollTo({ top: 0, behavior: "smooth" });
+  openArchiveIfActive();
   if (page === "hr") renderLeads();
   if (page === "bloggers") renderPromos();
   if (page === "shows") renderShows();
@@ -582,7 +587,7 @@ $("mobileMore").onclick = () => {
   const sheet = $("mobileMoreSheet");
   if (!sheet.classList.contains("hidden")) { closeMobileMore(); return; }
   sheet.innerHTML = "";
-  document.querySelectorAll(".side-nav .nav-item:not(#newCustomTab)").forEach((source) => {
+  document.querySelectorAll("#navArchiveList .nav-item:not(.hidden)").forEach((source) => {
     const item = document.createElement("button");
     item.type = "button"; item.className = "mobile-more-item" + (source.classList.contains("active") ? " active" : ""); item.setAttribute("role", "menuitem");
     const icon = source.querySelector(".nav-icon"), label = [...source.children].find((node) => !node.classList.contains("nav-icon") && !node.classList.contains("nav-count"));
@@ -641,11 +646,13 @@ function isFargonaTezkorTab(tab) { return /^fargona\s+tezkor$/i.test(String(tab?
     if (isFargonaTezkorTab(tab)) continue;
     const nav = document.createElement("button"); nav.className = "nav-item custom-tab-nav"; nav.dataset.view = "custom-" + tab.id; nav.dataset.bound = "1";
     nav.innerHTML = '<span class="nav-icon">' + escapeHtml(tab.icon || "▤") + '</span><span>' + escapeHtml(tab.name) + '</span>';
-    sidebarNav.insertBefore(nav, $("newCustomTab")); nav.onclick = () => showCustomTab(tab);
+    // «Загрузка лидов через Excel» остаётся в меню, остальные созданные вкладки уходят в «Архив».
+    if (tab.name === excelLeadsTabName) sidebarNav.insertBefore(nav, $("navArchive")); else $("navArchiveList").appendChild(nav);
+    nav.onclick = () => showCustomTab(tab);
     if (tab.name === excelLeadsTabName) {
       const mobileNav = document.createElement("button"); mobileNav.className = "mobile-nav-item excel-leads-mobile-nav"; mobileNav.dataset.view = "custom-" + tab.id; mobileNav.dataset.bound = "1";
       mobileNav.innerHTML = '<span>⇧</span><small>Excel-лиды</small>';
-      $("mobileNav").appendChild(mobileNav); mobileNav.onclick = () => showCustomTab(tab);
+      $("mobileNav").insertBefore(mobileNav, $("mobileMore")); mobileNav.onclick = () => showCustomTab(tab);
     }
   }
   const groups = new Map();
@@ -688,26 +695,6 @@ function showPromoFolder(source) {
   const rows = state.promos.filter((row) => String(row.blogger?.id || row.blogger?.instagram_url || row.blogger?.username || row.blogger?.display_name || "").toLowerCase() === sourceKey);
   page.innerHTML = '<div class="source-page-top"><button class="button secondary" id="sourceFolderBack">← Блогеры</button>' + (source.profileUrl ? '<a class="button secondary" href="' + escapeHtml(source.profileUrl) + '" target="_blank" rel="noopener">Профиль источника ↗</a>' : "") + '</div><header class="source-page-header"><div><p class="eyebrow">ПАПКА БЛОГЕРА</p><h1>' + escapeHtml(source.name) + '</h1><p class="subtle">Публикации и бизнесы из этого профиля.</p></div><div class="source-page-count"><b>' + rows.length + '</b><span>НАХОДОК</span></div></header><div class="source-record-list">' + rows.map(sourcePromoCard).join("") + '</div>';
   $("sourceFolderBack").onclick = () => setPage("bloggers");
-}
-// Вкладка, в которую приходят лиды из Meta (webhook meta-yba-webhook): её удаление остановило бы приём заявок.
-const metaLeadsTabId = "d52d616c-a91f-47f4-a151-8bb9c069d06d";
-async function deleteCustomTab(tab, button) {
-  const ask = (text) => window.confirm(state.language === "uz" ? uzText(text) : text);
-  if (tab.id === metaLeadsTabId) { toast("Эта вкладка принимает лиды из Meta. Её нельзя удалить."); return; }
-  const counted = await db.from("custom_records").select("id", { count: "exact", head: true }).eq("tab_id", tab.id);
-  if (counted.error) { toast("Не удалось проверить вкладку. Попробуйте ещё раз."); return; }
-  const count = counted.count || 0;
-  const intro = "Удалить вкладку «" + tab.name + "» и все её записи (" + count + ")? Это действие нельзя отменить.";
-  if (!ask(intro)) return;
-  if (count > 0 && !ask("Последнее подтверждение: записи вкладки «" + tab.name + "» будут удалены навсегда. Продолжить?")) return;
-  button.disabled = true;
-  const { data, error } = await db.from("custom_tabs").delete().eq("id", tab.id).select("id").maybeSingle();
-  if (error || !data) { button.disabled = false; toast(error ? "Не удалось удалить вкладку. Проверьте права доступа." : "Вкладка не найдена или у вас нет прав на удаление."); return; }
-  state.tabs = state.tabs.filter((item) => item.id !== tab.id);
-  state.selectedCustomTab = null;
-  renderCustomTabs();
-  setPage("bloggers");
-  toast("Вкладка удалена");
 }
 function canManageCustomTab(tab) {
   return Boolean(state.user && (tab.created_by === state.user.id || (state.crmRole && Array.isArray(tab.editor_roles) && tab.editor_roles.includes(state.crmRole))));
@@ -848,6 +835,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
   state.selectedCustomTab = tab;
   document.querySelectorAll(".page").forEach((node) => node.classList.remove("active"));
   document.querySelectorAll("[data-view]").forEach((node) => node.classList.toggle("active", nestedInBloggers ? node.dataset.view === "bloggers" : node.dataset.view === "custom-" + tab.id));
+  openArchiveIfActive();
   let page = document.getElementById("custom-page-" + tab.id);
   if (!page) { page = document.createElement("section"); page.id = "custom-page-" + tab.id; page.className = "page custom-tab-page"; $("workspace").appendChild(page); } page.classList.add("active");
   // Каждая вкладка использует одинаковые id (customRecordList и др.): держим в DOM только открытую страницу, иначе $() находит скрытую.
@@ -859,12 +847,6 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
   } else {
     const isExcelLeads = tab.name === excelLeadsTabName;
     page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все лиды</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
-  }
-  if (!nestedInBloggers && canManage) {
-    const deleteTabButton = document.createElement("button");
-    deleteTabButton.className = "button danger"; deleteTabButton.id = "customDeleteTab"; deleteTabButton.type = "button"; deleteTabButton.textContent = "Удалить вкладку";
-    page.querySelector(".custom-record-page-header")?.appendChild(deleteTabButton);
-    deleteTabButton.onclick = () => deleteCustomTab(tab, deleteTabButton);
   }
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo);
