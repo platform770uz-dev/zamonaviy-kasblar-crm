@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-16";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-17";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -978,6 +978,20 @@ async function loadStudentSummaries(tabId) {
     if (info) info.paid += Number(row.amount) || 0;
   }
 }
+// Имя и телефон ученика: телефон — нажимаемая ссылка для звонка.
+function fillStudentLead(node, values) {
+  node.textContent = "";
+  node.classList.add("student-lead-box");
+  const name = document.createElement("b");
+  name.textContent = String(values["Имя"] || "Без имени");
+  node.appendChild(name);
+  const phone = String(values["Телефон"] || "").trim();
+  if (phone) {
+    const link = document.createElement("a");
+    link.className = "student-phone"; link.href = phoneHref(phone); link.textContent = "📞 " + phone;
+    node.appendChild(link);
+  }
+}
 function studentDialogShell(id, className) {
   document.getElementById(id)?.remove();
   const dialog = document.createElement("dialog");
@@ -1001,7 +1015,7 @@ function openStudentCreateDialog(tab, record, onChange) {
     + '<p class="student-debt"><span>Остаток долга:</span> <b id="studentDebt">—</b></p>'
     + '<div class="callback-message hidden" id="studentMessage" role="status"></div>'
     + '<div class="callback-actions"><button type="button" class="button primary" id="studentCreate">Создать карточку</button><button type="button" class="button secondary" id="studentCreateClose">Закрыть</button></div></form>';
-  dialog.querySelector(".student-lead").textContent = String(values["Имя"] || "Без имени") + " · " + String(values["Телефон"] || "—");
+  fillStudentLead(dialog.querySelector(".student-lead"), values);
   const hintNode = dialog.querySelector(".student-hint");
   hintNode.textContent = "";
   if (detected.length) {
@@ -1059,7 +1073,7 @@ async function openStudentCard(tab, record, onChange) {
     + '<div class="callback-message hidden" id="studentCardMessage" role="status"></div>'
     + '<h3 class="student-subtitle">История платежей</h3><div id="studentPayments" class="student-payments"></div>'
     + '<div class="callback-actions"><button type="button" class="button secondary" id="studentCardClose">Закрыть</button></div></form>';
-  dialog.querySelector(".student-lead").textContent = String(values["Имя"] || "Без имени") + " · " + String(values["Телефон"] || "—");
+  fillStudentLead(dialog.querySelector(".student-lead"), values);
   document.body.appendChild(dialog);
   const q = (selector) => dialog.querySelector(selector);
   const say = (text) => { q("#studentCardMessage").textContent = text; q("#studentCardMessage").classList.toggle("hidden", !text); };

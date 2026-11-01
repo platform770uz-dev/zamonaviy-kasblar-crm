@@ -473,3 +473,8 @@ a{color:inherit;text-decoration:none}
 @media(max-width:520px){.dash-bar-row{grid-template-columns:100px 1fr 30px}.dash-row{grid-template-columns:1fr auto}.dash-row-sub{display:none}}
 .dash-tiles{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media(max-width:640px){.dash-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.student-lead-box{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:-4px 0 0}
+.student-lead-box b{font-size:17px;color:#17181a}
+.student-phone{display:inline-flex;align-items:center;min-height:36px;padding:0 12px;border-radius:999px;background:#e9f8ef;color:#1b6b43;font-size:14px;font-weight:700;text-decoration:none}
+.student-phone:hover{background:#d7f1e2}
