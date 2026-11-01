@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-17";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-18";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -126,6 +126,40 @@ function statusPill(status) {
   const key = statuses[status] ? status : "new";
   return '<span class="status ' + key + '">' + statuses[key] + "</span>";
 }
+// После обновления страницы (F5) возвращаем открытый раздел: запоминаем его в браузере.
+const viewMemoryKey = "crm.lastView.v1";
+const viewMemory = { ready: false, restored: false };
+const rememberablePages = new Set(["bloggers", "hr", "shows", "autopilot", "dashboard"]);
+function saveView(view) {
+  if (!viewMemory.ready) return;
+  try { localStorage.setItem(viewMemoryKey, JSON.stringify(view)); } catch { /* память браузера недоступна */ }
+}
+function readSavedView() {
+  try {
+    const value = JSON.parse(localStorage.getItem(viewMemoryKey) || "null");
+    return value && typeof value === "object" ? value : null;
+  } catch { return null; }
+}
+function openSavedPanel(id, attempt = 0) {
+  // Панели «Bolalar tanishuvi» и «Intellekt Lab» добавляются отдельными скриптами чуть позже.
+  const button = document.getElementById(id);
+  if (button) { button.click(); return; }
+  if (attempt < 20) setTimeout(() => openSavedPanel(id, attempt + 1), 400);
+}
+async function restoreLastView() {
+  if (viewMemory.restored) return;
+  viewMemory.restored = true;
+  try {
+    const saved = readSavedView();
+    if (saved?.type === "page" && rememberablePages.has(saved.page) && saved.page !== "bloggers") setPage(saved.page);
+    else if (saved?.type === "tab") { const tab = state.tabs.find((item) => item.id === saved.id); if (tab) await showCustomTab(tab); }
+    else if (saved?.type === "panel" && /^(ybaPublicResultsNav|intellektLabResultsNav)$/.test(String(saved.id))) openSavedPanel(saved.id);
+  } finally { viewMemory.ready = true; }
+}
+document.addEventListener("click", (event) => {
+  const panelButton = event.target.closest?.("#ybaPublicResultsNav, #intellektLabResultsNav");
+  if (panelButton) saveView({ type: "panel", id: panelButton.id });
+});
 // Если выбран раздел из «Архива», держим архив раскрытым; сам по себе при входе он свёрнут.
 function openArchiveIfActive() {
   if ($("navArchiveList").querySelector(".nav-item.active")) $("navArchive").open = true;
@@ -138,6 +172,7 @@ function setPage(page) {
   document.querySelectorAll("[data-view]").forEach((node) => node.classList.toggle("active", node.dataset.view === page));
   window.scrollTo({ top: 0, behavior: "smooth" });
   openArchiveIfActive();
+  saveView({ type: "page", page });
   if (page === "hr") renderLeads();
   if (page === "dashboard") renderDashboard();
   if (page === "bloggers") renderPromos();
@@ -331,6 +366,7 @@ async function loadCoreSections() {
     $("researchLastRun").textContent = "Последняя загрузка: " + dateText(runs.data.started_at) + " · найдено строк: " + runs.data.found_count + " · следующий ресерч: " + dateText(next);
   } else $("researchLastRun").textContent = "Excel ещё не загружали · периодичность: раз в 2 недели";
   renderHome(); renderPromos(); renderShows(); renderCustomTabs();
+  restoreLastView();
   if (state.manager) {
     const leads = await db.from("meta_admin_leads").select("meta_lead_id,full_name,phone,kirgili_answer,study_answer,availability,meta_answers,meta_created_at,received_at,pipeline_status,crm_note").order("received_at", { ascending: false }).limit(300);
     state.leadAccess = !leads.error; state.leads = leads.data || []; renderLeads();
@@ -1353,6 +1389,7 @@ function customRecordCard(record, fields, canManage, position = 0) {
 }
 async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(tab); const canManage = canManageCustomTab(tab);
   state.selectedCustomTab = tab;
+  saveView({ type: "tab", id: tab.id });
   document.querySelectorAll(".page").forEach((node) => node.classList.remove("active"));
   document.querySelectorAll("[data-view]").forEach((node) => node.classList.toggle("active", nestedInBloggers ? node.dataset.view === "bloggers" : node.dataset.view === "custom-" + tab.id));
   openArchiveIfActive();
