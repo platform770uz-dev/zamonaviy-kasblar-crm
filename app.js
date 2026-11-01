@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-19";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-20";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -1264,6 +1264,7 @@ async function renderDashboard() {
     dashboardTile("Поступило", moneyText(moneyInPeriod), "Всего: " + moneyText(moneyTotal), "good"),
     dashboardTile("Долг", moneyText(debtTotal), "Должников: " + debtors.length, debtTotal ? "bad" : ""),
     dashboardTile("Сумма по ученикам", moneyText(priceTotal), "Оплачено " + (priceTotal ? Math.round(Math.min(moneyTotal, priceTotal) / priceTotal * 100) : 0) + "%"),
+    dashboardTile("Опросы заполнены", leadRows.filter((row) => surveyProgress(row.values?.["Опрос"]).filled === 8).length + " / " + leadRows.length, "Нужно уточнить: " + leadRows.filter((row) => leadNeedsClarification(row.values)).length, "bad"),
   );
   page.appendChild(tiles);
 
@@ -1562,6 +1563,210 @@ async function renderScriptPage() {
     page.appendChild(card);
   });
 }
+// ---------- Опрос по звонку (по шаблону из вкладки «Skript va reglament») ----------
+const surveyOptions = {
+  who: ["Ota", "Ona", "Boshqa"],
+  interests: ["Video", "Instagram", "Telegram", "O‘yinlar", "Rasm/dizayn", "Boshqa"],
+  goal: ["Ishonch", "Notiq nutq", "Hunar/daromad", "Bo‘sh vaqt", "Boshqa"],
+  decider: ["Ota", "Ona", "Ikkalasi", "Boshqa"],
+  objection: ["Yo‘q", "Narx", "O‘ylab ko‘raman", "Er/xotin bilan maslahat", "Vaqt yo‘q", "Ishonmayman", "Boshqa joy"],
+  outcome: ["Uchrashuv belgilandi", "To‘lov qildi", "Qayta aloqa", "Rad etdi", "Javob bermadi"],
+};
+const surveyItemNames = ["Kim bilan gaplashildi", "Farzand", "Maqsad", "Qaror qiluvchi", "E’tiroz", "Kelishuv", "To‘lov", "Keyingi qo‘ng‘iroq"];
+// Сколько из 8 пунктов шаблона заполнено; «Javob bermadi» — короткий сценарий: нужен только следующий звонок.
+function surveyProgress(survey) {
+  if (!survey || typeof survey !== "object") return { filled: 0, total: 8, missing: surveyItemNames.slice(), started: false };
+  const done = [];
+  if (survey.outcome === "Javob bermadi") {
+    for (let i = 0; i < 7; i++) done.push(true);
+    done.push(Boolean(survey.nextCallAt));
+  } else {
+    done.push(Boolean(survey.who));
+    done.push(Boolean(survey.childName && survey.childAge));
+    done.push(Boolean((survey.goal && survey.goal.length) || survey.goalText));
+    done.push(Boolean(survey.decider));
+    done.push(Boolean(survey.objection && survey.objection.length));
+    done.push(Boolean(survey.outcome) && (survey.outcome !== "Uchrashuv belgilandi" || Boolean(survey.meetingAt)));
+    done.push(Number(survey.price) > 0 || Boolean(survey.payNA));
+    done.push(Boolean(survey.nextCallAt) || survey.outcome === "To‘lov qildi" || survey.outcome === "Rad etdi");
+  }
+  return { filled: done.filter(Boolean).length, total: 8, missing: surveyItemNames.filter((_, index) => !done[index]), started: true };
+}
+// Лиду нужно уточнение: опроса нет и комментарий короткий, либо опрос заполнен не полностью.
+function leadNeedsClarification(values) {
+  const survey = values?.["Опрос"];
+  if (!survey) return String(values?.["Результат последнего звонка"] || "").trim().length < 40;
+  return surveyProgress(survey).filled < 8;
+}
+function surveyDateText(iso) { return iso ? callbackTimeText(iso) : ""; }
+function composeSurveyText(s) {
+  const dash = "—";
+  const join = (list) => (list && list.length ? list.join(", ") : dash);
+  if (s.outcome === "Javob bermadi") {
+    return ["Javob bermadi." + (s.note ? " " + s.note : ""), "Keyingi qo‘ng‘iroq: " + (surveyDateText(s.nextCallAt) || dash) + "."].join("\n");
+  }
+  const money = (value) => (Number(value) > 0 ? moneyText(Number(value)) : dash);
+  const debt = Number(s.price) > 0 ? moneyText(Math.max(0, Number(s.price) - Number(s.paid || 0))) : dash;
+  return [
+    "Kim bilan: " + (s.who || dash) + ".",
+    "Farzand: " + (s.childName || dash) + ", " + (s.childAge ? s.childAge + " yosh" : "yoshi " + dash) + "; qiziqishi: " + join(s.interests) + ".",
+    "Maqsad: " + join(s.goal) + (s.goalText ? " — «" + s.goalText + "»" : "") + ".",
+    "Qaror qiluvchi: " + (s.decider || dash) + ".",
+    "E’tiroz: " + join(s.objection) + (s.objectionAnswer ? " — javob: " + s.objectionAnswer : "") + ".",
+    "Kelishuv: " + (s.outcome || dash) + (s.meetingAt ? " — " + surveyDateText(s.meetingAt) : "") + ".",
+    "To‘lov: " + (s.payNA ? "muhokama qilinmadi" : "narx " + money(s.price) + ", to‘langan " + money(s.paid) + ", qolgan " + debt + (s.payDue ? ", muddat " + s.payDue : "")) + ".",
+    "Keyingi qo‘ng‘iroq: " + (surveyDateText(s.nextCallAt) || dash) + ".",
+    s.note ? "Izoh: " + s.note : "",
+  ].filter(Boolean).join("\n");
+}
+function surveyChips(options, { multi = false, value = [], onChange = () => {} } = {}) {
+  const wrap = dashboardEl("div", "survey-chips");
+  const selected = new Set(Array.isArray(value) ? value : value ? [value] : []);
+  const buttons = options.map((label) => {
+    const button = dashboardEl("button", "survey-chip", label);
+    button.type = "button";
+    button.onclick = () => {
+      if (selected.has(label)) selected.delete(label); else { if (!multi) selected.clear(); selected.add(label); }
+      sync(); onChange(get());
+    };
+    wrap.appendChild(button);
+    return button;
+  });
+  const sync = () => buttons.forEach((button) => { const on = selected.has(button.textContent); button.classList.toggle("is-on", on); button.setAttribute("aria-pressed", String(on)); });
+  const get = () => (multi ? [...selected] : [...selected][0] || "");
+  sync();
+  return { el: wrap, get };
+}
+function openSurveyDialog(tab, record, onChange) {
+  const values = record.values || {};
+  const previous = values["Опрос"] && typeof values["Опрос"] === "object" ? values["Опрос"] : null;
+  const oldNote = String(values["Результат последнего звонка"] || "").trim();
+  const hint = previous ? null : extractPaymentHint(oldNote);
+  document.getElementById("surveyDialog")?.remove();
+  const dialog = document.createElement("dialog");
+  dialog.id = "surveyDialog"; dialog.className = "callback-dialog survey-dialog";
+  dialog.addEventListener("cancel", () => dialog.remove());
+  const form = dashboardEl("form", "callback-form"); form.method = "dialog"; form.onsubmit = (event) => event.preventDefault();
+  const head = dashboardEl("div"); head.append(dashboardEl("h2", "", "Опрос по звонку"));
+  const lead = dashboardEl("p", "subtle student-lead-box"); fillStudentLead(lead, values); head.appendChild(lead);
+  form.appendChild(head);
+  if (!previous && oldNote) {
+    const box = dashboardEl("details", "survey-old");
+    box.append(dashboardEl("summary", "", "Прежний комментарий"), dashboardEl("p", "", oldNote));
+    form.appendChild(box);
+  }
+  const block = (title) => { const node = dashboardEl("section", "survey-block"); node.appendChild(dashboardEl("h3", "", title)); form.appendChild(node); return node; };
+  const input = (type, value, placeholder, extra = {}) => { const node = document.createElement("input"); node.type = type; node.value = value ?? ""; if (placeholder) node.placeholder = placeholder; node.className = "script-input"; Object.assign(node, extra); return node; };
+  const p = previous || {};
+  const sectionOutcome = block("Результат звонка");
+  const outcome = surveyChips(surveyOptions.outcome, { value: p.outcome, onChange: () => refresh() });
+  sectionOutcome.appendChild(outcome.el);
+  const meetingWrap = dashboardEl("label", "callback-calendar"); meetingWrap.appendChild(dashboardEl("span", "", "Дата и время встречи"));
+  const meeting = input("datetime-local", p.meetingAt ? tashkentInputValue(new Date(p.meetingAt)) : ""); meeting.min = tashkentInputValue(new Date());
+  meetingWrap.appendChild(meeting); sectionOutcome.appendChild(meetingWrap);
+  const full = dashboardEl("div", "survey-full"); form.appendChild(full);
+  const fullBlock = (title) => { const node = dashboardEl("section", "survey-block"); node.appendChild(dashboardEl("h3", "", title)); full.appendChild(node); return node; };
+  const who = surveyChips(surveyOptions.who, { value: p.who, onChange: () => refresh() }); fullBlock("1. Кто говорил").appendChild(who.el);
+  const childBlock = fullBlock("2. Ребёнок");
+  const row = dashboardEl("div", "survey-row");
+  const childName = input("text", p.childName || "", "Ismi"); childName.maxLength = 60;
+  const childAge = input("number", p.childAge || "", "Yoshi"); childAge.min = 3; childAge.max = 25;
+  row.append(childName, childAge); childBlock.appendChild(row);
+  const interests = surveyChips(surveyOptions.interests, { multi: true, value: p.interests || [], onChange: () => refresh() }); childBlock.appendChild(interests.el);
+  const goalBlock = fullBlock("3. Цель");
+  const goal = surveyChips(surveyOptions.goal, { multi: true, value: p.goal || [], onChange: () => refresh() }); goalBlock.appendChild(goal.el);
+  const goalText = input("text", p.goalText || "", "Ota-onaning o‘z so‘zlari bilan"); goalText.maxLength = 200; goalBlock.appendChild(goalText);
+  const decider = surveyChips(surveyOptions.decider, { value: p.decider, onChange: () => refresh() }); fullBlock("4. Кто решает").appendChild(decider.el);
+  const objectionBlock = fullBlock("5. Возражение");
+  const objection = surveyChips(surveyOptions.objection, { multi: true, value: p.objection || [], onChange: () => refresh() }); objectionBlock.appendChild(objection.el);
+  const objectionAnswer = input("text", p.objectionAnswer || "", "Qanday javob berildi?"); objectionAnswer.maxLength = 300; objectionBlock.appendChild(objectionAnswer);
+  const payBlock = fullBlock("7. Оплата");
+  const payRow = dashboardEl("div", "survey-row");
+  const price = input("text", p.price || (hint?.price ?? "") || rememberedStudentPrice() || "", "Narx (so‘m)"); price.inputMode = "numeric";
+  const paid = input("text", p.paid || hint?.paid || "", "To‘langan (so‘m)"); paid.inputMode = "numeric";
+  payRow.append(price, paid); payBlock.appendChild(payRow);
+  [price, paid].forEach((node) => { formatMoneyInput(node); node.addEventListener("blur", () => { formatMoneyInput(node); refresh(); }); });
+  const payDue = input("date", p.payDue || ""); const payDueLabel = dashboardEl("label", "callback-calendar"); payDueLabel.append(dashboardEl("span", "", "Срок оплаты остатка"), payDue); payBlock.appendChild(payDueLabel);
+  const payNALabel = dashboardEl("label", "survey-check"); const payNA = document.createElement("input"); payNA.type = "checkbox"; payNA.checked = Boolean(p.payNA);
+  payNA.onchange = () => refresh(); payNALabel.append(payNA, document.createTextNode(" Оплата не обсуждалась")); payBlock.appendChild(payNALabel);
+  const nextBlock = block("8. Следующий звонок");
+  const nextPresets = dashboardEl("div", "callback-presets");
+  const next = input("datetime-local", p.nextCallAt ? tashkentInputValue(new Date(p.nextCallAt)) : ""); next.min = tashkentInputValue(new Date());
+  [["Через 3 часа", () => new Date(Date.now() + 3 * 3600000)], ["Через 5 часов", () => new Date(Date.now() + 5 * 3600000)], ["Завтра 10:00", () => tashkentDayAt(1, 10)], ["Послезавтра 10:00", () => tashkentDayAt(2, 10)]].forEach(([label, make]) => {
+    const button = dashboardEl("button", "", label); button.type = "button"; button.onclick = () => { next.value = tashkentInputValue(make()); refresh(); }; nextPresets.appendChild(button);
+  });
+  const nextLabel = dashboardEl("label", "callback-calendar"); nextLabel.append(dashboardEl("span", "", "Другая дата и время"), next);
+  nextBlock.append(nextPresets, nextLabel);
+  const noteBlock = block("Заметка оператора");
+  const note = document.createElement("textarea"); note.className = "script-input script-textarea"; note.rows = 3; note.maxLength = 600; note.value = p.note || ""; note.placeholder = "Qo‘shimcha izoh"; noteBlock.appendChild(note);
+  const progress = dashboardEl("p", "survey-progress");
+  const message = dashboardEl("div", "callback-message hidden"); message.setAttribute("role", "status");
+  const actions = dashboardEl("div", "callback-actions");
+  const save = dashboardEl("button", "button primary", "Сохранить опрос"); save.type = "button";
+  const close = dashboardEl("button", "button secondary", "Закрыть"); close.type = "button";
+  actions.append(save, close);
+  form.append(progress, message, actions);
+  dialog.appendChild(form); document.body.appendChild(dialog);
+
+  const collect = () => {
+    const o = outcome.get();
+    const toIso = (node) => (node.value ? new Date(node.value + ":00+05:00").toISOString() : "");
+    return {
+      outcome: o, who: who.get(), childName: childName.value.trim(), childAge: Number(childAge.value) || 0, interests: interests.get(),
+      goal: goal.get(), goalText: goalText.value.trim(), decider: decider.get(), objection: objection.get(), objectionAnswer: objectionAnswer.value.trim(),
+      meetingAt: o === "Uchrashuv belgilandi" ? toIso(meeting) : "", price: moneyInputValue(price), paid: moneyInputValue(paid), payDue: payDue.value, payNA: payNA.checked,
+      nextCallAt: toIso(next), note: note.value.trim(),
+    };
+  };
+  function refresh() {
+    message.classList.add("hidden");
+    const noAnswer = outcome.get() === "Javob bermadi";
+    full.classList.toggle("hidden", noAnswer);
+    meetingWrap.classList.toggle("hidden", outcome.get() !== "Uchrashuv belgilandi");
+    const state = surveyProgress(collect());
+    progress.textContent = "Заполнено " + state.filled + " из " + state.total + (state.missing.length ? " · не хватает: " + state.missing.join(", ") : "");
+    progress.classList.toggle("is-full", state.filled === state.total);
+  }
+  const setBusy = (busy) => dialog.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
+  const say = (text) => { message.textContent = text; message.classList.toggle("hidden", !text); };
+  const finish = () => { dialog.close(); dialog.remove(); };
+  [childName, childAge, goalText, objectionAnswer, meeting, payDue, next, note].forEach((node) => node.addEventListener("input", refresh));
+  close.onclick = finish;
+  save.onclick = async () => {
+    const s = collect();
+    if (!s.outcome) { say("Выберите результат звонка."); return; }
+    if (s.outcome === "Uchrashuv belgilandi" && !s.meetingAt) { say("Укажите дату и время встречи."); return; }
+    if (s.outcome === "Qayta aloqa" && !s.nextCallAt) { say("Укажите время следующего звонка."); return; }
+    if (s.nextCallAt && Date.parse(s.nextCallAt) < Date.now() + 30000) { say("Следующий звонок должен быть в будущем."); return; }
+    if (s.price && s.paid > s.price) { say("Оплачено больше цены: проверьте суммы."); return; }
+    setBusy(true);
+    const at = new Date().toISOString();
+    const survey = { ...s, at, by: excelLeadEditedBy() };
+    const status = String(values["Статус консультации"] || "");
+    let nextStatus = status;
+    if (status !== "student") {
+      if (s.outcome === "Uchrashuv belgilandi") nextStatus = "booked";
+      else if (s.outcome === "Qayta aloqa" || (s.outcome === "Javob bermadi" && s.nextCallAt)) nextStatus = "callback";
+      else if (s.outcome === "Javob bermadi") nextStatus = "no_answer";
+    }
+    const nextValues = { ...values, "Опрос": survey, "Результат последнего звонка": composeSurveyText(s), "Статус консультации": nextStatus, "Последний изменивший": excelLeadEditedBy() };
+    if (s.nextCallAt) nextValues[callbackTimeField] = s.nextCallAt; else delete nextValues[callbackTimeField];
+    await cancelCallbackReminders(record.id);
+    if (s.nextCallAt) {
+      const inserted = await db.from("lead_callbacks").insert({ record_id: record.id, tab_id: tab.id, due_at: s.nextCallAt, lead_name: String(values["Имя"] || "").slice(0, 120), phone: String(values["Телефон"] || "").slice(0, 60) }).select("id").maybeSingle();
+      if (inserted.error || !inserted.data) { setBusy(false); say("Не удалось поставить напоминание. Проверьте права доступа."); return; }
+    }
+    const updatedAt = new Date().toISOString();
+    const updated = await db.from("custom_records").update({ values: nextValues, updated_at: updatedAt }).eq("id", record.id).select("id").maybeSingle();
+    if (updated.error || !updated.data) { setBusy(false); say("Не удалось сохранить. Проверьте права доступа."); return; }
+    record.values = nextValues; record.updated_at = updatedAt;
+    finish(); toast("Опрос сохранён");
+    onChange(nextStatus === "callback" ? "callback" : undefined);
+    if (s.outcome === "To‘lov qildi" && !studentSummary.has(record.id)) openStudentDialog(tab, record, onChange);
+  };
+  refresh();
+  dialog.showModal();
+}
 function customRecordCard(record, fields, canManage, position = 0) {
   const values = record.values || {};
   if (state.selectedCustomTab?.name === excelLeadsTabName) {
@@ -1573,8 +1778,11 @@ function customRecordCard(record, fields, canManage, position = 0) {
     const callResult = String(values["Результат последнего звонка"] || "").trim();
     const lastEditor = String(values["Последний изменивший"] || "").trim();
     const updatedTime = record.updated_at || record.created_at;
+    const surveyState = surveyProgress(values["Опрос"]);
+    const surveyButton = canManage ? '<button class="button secondary lead-survey-action' + (surveyState.started && surveyState.filled === 8 ? ' is-full' : '') + '" type="button" data-record-id="' + escapeHtml(record.id) + '">Опрос' + (surveyState.started ? ' ' + surveyState.filled + '/8' : '') + '</button>' : "";
+    const clarityBadge = leadNeedsClarification(values) ? '<span class="lead-unclear-badge">Нужно уточнить</span>' : "";
     const actions = canManage
-      ? '<div class="excel-lead-actions"><button class="button secondary custom-record-edit" type="button" data-record-id="' + escapeHtml(record.id) + '">Изменить</button><button class="button danger custom-record-delete" type="button" data-record-id="' + escapeHtml(record.id) + '">Удалить</button></div>'
+      ? '<div class="excel-lead-actions">' + surveyButton + '<button class="button secondary custom-record-edit" type="button" data-record-id="' + escapeHtml(record.id) + '">Изменить</button><button class="button danger custom-record-delete" type="button" data-record-id="' + escapeHtml(record.id) + '">Удалить</button></div>'
       : "";
     const consultStatus = String(values["Статус консультации"] || "new");
     const consultStatusClass = consultStatus === "booked" ? " is-consult-booked" : consultStatus === "attended" ? " is-consult-attended" : consultStatus === "no_answer" ? " is-consult-no-answer" : consultStatus === "callback" ? " is-consult-callback" : consultStatus === "student" ? " is-consult-student" : "";
@@ -1596,7 +1804,7 @@ function customRecordCard(record, fields, canManage, position = 0) {
     const callEdit = canManage ? '<button class="excel-lead-call-edit icon-button" type="button" data-record-id="' + escapeHtml(record.id) + '" aria-label="Изменить результат последнего звонка" title="Изменить результат последнего звонка">✎</button>' : "";
     const callMeta = '<div class="excel-lead-meta"><div class="excel-lead-call-row"><div class="excel-lead-call-copy">' + callResultDisplay + aiDisplay + '</div>' + callEdit + '</div><small>Последнее изменение: ' + (lastEditor ? escapeHtml(lastEditor) + ' · ' : '') + escapeHtml(dateTimeText(updatedTime)) + '</small></div>';
     const leadNumber = '<span class="excel-lead-number">' + (position + 1) + '.</span>';
-    const intentBadge = highIntent ? '<span class="lead-intent-badge">Высокое намерение · ' + escapeHtml(leadSubmissionCountText(submissionCount)) + '</span>' : "";
+    const intentBadge = (highIntent ? '<span class="lead-intent-badge">Высокое намерение · ' + escapeHtml(leadSubmissionCountText(submissionCount)) + '</span>' : "") + clarityBadge;
     const rowId = "excel-lead-" + String(record.id).replace(/[^a-zA-Z0-9_-]/g, "");
     return '<article id="' + escapeHtml(rowId) + '" class="crm-card excel-lead-row' + (highIntent ? ' is-high-intent' : '') + consultStatusClass + '"><div class="excel-lead-name">' + leadNumber + '<span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><b>' + escapeHtml(name) + '</b>' + intentBadge + '</div><a class="excel-lead-phone" href="' + escapeHtml(phoneHref(phone)) + '">' + escapeHtml(phone) + '</a><time class="excel-lead-date" datetime="' + escapeHtml(createdTime) + '">' + escapeHtml(dateText(createdTime)) + '</time>' + actions + consultActions + callMeta + '</article>';
   }
@@ -1632,7 +1840,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     $("sourceBack").onclick = () => setPage("bloggers");
   } else {
     const isExcelLeads = tab.name === excelLeadsTabName;
-    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все лиды</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button><button type="button" class="lead-status-column is-student" data-lead-filter="student"><span>Стал учеником</span><b data-count="student">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
+    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все лиды</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button><button type="button" class="lead-status-column is-student" data-lead-filter="student"><span>Стал учеником</span><b data-count="student">0</b></button><button type="button" class="lead-status-column is-unclear" data-lead-filter="unclear"><span>Нужно уточнить</span><b data-count="unclear">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
   }
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo);
@@ -1661,7 +1869,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     const renderLeadStatusColumns = () => {
       const columns = $("leadStatusColumns");
       if (!columns) return;
-      const counts = { all: customRows.length, booked: 0, attended: 0, no_answer: 0, callback: 0, student: 0 };
+      const counts = { all: customRows.length, booked: 0, attended: 0, no_answer: 0, callback: 0, student: 0, unclear: 0 };
       customRows.forEach((record) => {
         const status = String(record.values?.["Статус консультации"] || "new");
         if (status === "booked") counts.booked++;
@@ -1669,6 +1877,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
         if (status === "no_answer") counts.no_answer++;
         if (status === "callback") counts.callback++;
         if (status === "student") counts.student++;
+        if (leadNeedsClarification(record.values)) counts.unclear++;
       });
       columns.querySelectorAll("[data-lead-filter]").forEach((button) => {
         const filter = button.dataset.leadFilter;
@@ -1680,7 +1889,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
       const query = $("customRecordSearch").value.trim().toLocaleLowerCase();
       const visible = customRows.filter((record) => {
         const status = String(record.values?.["Статус консультации"] || "new");
-        const matchesStatus = leadStatusFilter === "all" || status === leadStatusFilter;
+        const matchesStatus = leadStatusFilter === "all" || (leadStatusFilter === "unclear" ? leadNeedsClarification(record.values) : status === leadStatusFilter);
         const matchesQuery = !query || Object.values(record.values || {}).some((value) => String(value ?? "").toLocaleLowerCase().includes(query));
         return matchesStatus && matchesQuery;
       });
@@ -1728,6 +1937,10 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
         const record = recordById.get(button.dataset.recordId);
         if (!record) return;
         openCallbackDialog(tab, record, () => { leadStatusFilter = "callback"; renderCustomRecords(); });
+      });
+      document.querySelectorAll(".lead-survey-action").forEach((button) => button.onclick = () => {
+        const record = recordById.get(button.dataset.recordId);
+        if (record) openSurveyDialog(tab, record, (filter) => { if (filter) leadStatusFilter = filter; renderCustomRecords(); });
       });
       document.querySelectorAll(".lead-student-action").forEach((button) => button.onclick = () => {
         const record = recordById.get(button.dataset.recordId);
