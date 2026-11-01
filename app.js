@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-8";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-9";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {

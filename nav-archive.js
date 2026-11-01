@@ -28,10 +28,10 @@ function wantsArchive(el, map) {
 }
 const isLabel = (node) => node.tagName === "SPAN" && !node.classList.contains("nav-icon") && !node.classList.contains("nav-count") && !node.classList.contains("nav-custom-label");
 
-function sortZone(zoneItems, order, place) {
+function sortZone(zoneItems, order, place, misplaced = () => false) {
   const rank = (el) => { const i = order.indexOf(keyOf(el)); return i < 0 ? Infinity : i; };
   const wanted = [...zoneItems].sort((a, b) => rank(a) - rank(b));
-  if (wanted.some((el, i) => el !== zoneItems[i])) wanted.forEach(place);
+  if (wanted.some((el, i) => el !== zoneItems[i]) || zoneItems.some(misplaced)) wanted.forEach(place);
 }
 
 function applyNames(names) {
@@ -63,7 +63,8 @@ function apply() {
     el.draggable = true;
   }
   const order = readJson(KEY_ORDER, []);
-  sortZone(mainItems(), order, (el) => nav.insertBefore(el, archive));
+  // Пункты меню всегда выше «Архива» (вкладки из базы приходят в конец списка, после него).
+  sortZone(mainItems(), order, (el) => nav.insertBefore(el, archive), (el) => Boolean(archive.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING));
   sortZone(archiveItems(), order, (el) => list.appendChild(el));
   applyNames(readJson(KEY_NAMES, {}));
   document.querySelectorAll(".excel-leads-mobile-nav").forEach((button) => {
@@ -96,7 +97,7 @@ if (nav && archive && list) {
   // Перетаскивание.
   let dragKey = "";
   const clearDrop = () => {
-    archive.classList.remove("drop-target");
+    archive.classList.remove("drop-target", "drop-above");
     nav.classList.remove("drop-main");
     items().forEach((el) => el.classList.remove("drop-before", "drop-after"));
   };
@@ -113,13 +114,23 @@ if (nav && archive && list) {
     event.dataTransfer.setData("text/plain", dragKey);
     event.dataTransfer.effectAllowed = "move";
   });
+  // Верхняя треть строки «Архив» — поставить пункт в меню над архивом, остальное — убрать в архив.
+  const archiveZone = (event) => {
+    const summary = archive.querySelector(".nav-archive-summary");
+    if (!event.target.closest("#navArchive")) return "";
+    if (event.target.closest("#navArchiveList")) return "into";
+    const rect = summary.getBoundingClientRect();
+    return event.clientY < rect.top + rect.height * 0.33 ? "above" : "into";
+  };
   nav.addEventListener("dragover", (event) => {
     if (!dragKey) return;
     event.preventDefault();
     clearDrop();
     const over = overInfo(event);
+    const zone = archiveZone(event);
     if (over) over.el.classList.add(over.after ? "drop-after" : "drop-before");
-    else if (event.target.closest("#navArchive")) archive.classList.add("drop-target");
+    else if (zone === "above") archive.classList.add("drop-above");
+    else if (zone === "into") archive.classList.add("drop-target");
     else nav.classList.add("drop-main");
   });
   nav.addEventListener("drop", (event) => {
@@ -127,7 +138,7 @@ if (nav && archive && list) {
     event.preventDefault();
     const over = overInfo(event);
     if (over) moveItem(dragKey, over.el.parentNode === list, keyOf(over.el), over.after);
-    else moveItem(dragKey, Boolean(event.target.closest("#navArchive")));
+    else moveItem(dragKey, archiveZone(event) === "into");
     dragKey = ""; clearDrop();
   });
   nav.addEventListener("dragend", () => { dragKey = ""; clearDrop(); });
