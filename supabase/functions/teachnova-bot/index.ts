@@ -175,9 +175,73 @@ async function setup() {
   return json({ ok: wh.ok === true, bot: me.result.username, name: name.result?.name ?? "", webhook: wh.description ?? "ok", commands: cmd.ok === true, menu_button: mb.ok === true, description: desc.ok === true, short_description: sdesc.ok === true });
 }
 
+// Eslatmalar «Qayta aloqa»: pg_cron har daqiqada ?remind=1 ni chaqiradi (tg_ichki siri crm_maxfiy dan, tg-bot kabi).
+const MAX_REMIND_ATTEMPTS = 5;
+const tashkent = (iso: string) => new Date(iso).toLocaleString("ru-RU", { timeZone: "Asia/Tashkent", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+async function isInternal(req: Request) {
+  const secret = req.headers.get("x-crm-secret") ?? "";
+  if (!secret) return false;
+  const { data } = await sb.from("crm_maxfiy").select("qiymat").eq("kalit", "tg_ichki").maybeSingle();
+  return !!data?.qiymat && safeEqual(secret, String(data.qiymat));
+}
+
+async function remind(onlyChatId?: number) {
+  const stale = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const { data: due } = await sb.from("lead_callbacks")
+    .select("id,record_id,due_at,lead_name,phone,status,attempts")
+    .lte("due_at", new Date().toISOString())
+    .or(`status.eq.pending,and(status.eq.sending,claimed_at.lt.${stale})`)
+    .order("due_at").limit(20);
+  const { data: people } = await sb.from("tg_chatlar").select("chat_id").in("rol", ["owner", "admin"]).eq("tasdiqlangan", true).eq("bloklangan", false);
+  const recipients = (people ?? []).map((p) => Number(p.chat_id)).filter((id) => !onlyChatId || id === onlyChatId);
+  let sent = 0, cancelled = 0, retry = 0, failed = 0;
+  for (const cb of due ?? []) {
+    // Eslatmani oʻzimizga olamiz: parallel ishga tushgan nusxa qayta yubormaydi.
+    const claim = await sb.from("lead_callbacks")
+      .update({ status: "sending", claimed_at: new Date().toISOString(), attempts: (cb.attempts ?? 0) + 1 })
+      .eq("id", cb.id).eq("status", cb.status).select("id").maybeSingle();
+    if (!claim.data) continue;
+    const { data: record } = await sb.from("custom_records").select("values").eq("id", cb.record_id).maybeSingle();
+    const values = (record?.values ?? {}) as Record<string, unknown>;
+    if (!record || values["Статус консультации"] !== "callback") {
+      await sb.from("lead_callbacks").update({ status: "cancelled" }).eq("id", cb.id);
+      cancelled++;
+      continue;
+    }
+    const name = String(values["Имя"] || cb.lead_name || "Ismsiz");
+    const phone = String(values["Телефон"] || cb.phone || "—");
+    const note = String(values["Результат последнего звонка"] || "").trim().slice(0, 300);
+    const text = `🔔 Qayta aloqa vaqti\n👤 ${name}\n📞 ${phone}\n🕒 Reja: ${tashkent(cb.due_at)}${note ? `\n📝 ${note}` : ""}`;
+    let ok = false;
+    for (const chatId of recipients) {
+      const res = await send(chatId, text, { inline_keyboard: [[{ text: "📊 CRM’ni ochish", web_app: { url: CRM_SITE } }]] });
+      if (res.ok) ok = true;
+    }
+    if (ok) {
+      await sb.from("lead_callbacks").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", cb.id);
+      sent++;
+    } else if ((cb.attempts ?? 0) + 1 >= MAX_REMIND_ATTEMPTS) {
+      await sb.from("lead_callbacks").update({ status: "failed" }).eq("id", cb.id);
+      failed++;
+    } else {
+      await sb.from("lead_callbacks").update({ status: "pending" }).eq("id", cb.id);
+      retry++;
+    }
+  }
+  return { due: due?.length ?? 0, sent, cancelled, retry, failed };
+}
+
 Deno.serve(async (req: Request) => {
   const token = botToken();
   if (new URL(req.url).searchParams.get("setup") === "1") return await setup();
+  if (new URL(req.url).searchParams.get("remind") === "1") {
+    if (req.method !== "POST") return json({ error: "POST only" }, 405);
+    if (!token) return json({ error: "not_configured" }, 503);
+    if (!await isInternal(req)) return json({ error: "unauthorized" }, 401);
+    const body = await req.json().catch(() => ({}));
+    return json(await remind(Number.isSafeInteger(body?.only_chat_id) ? body.only_chat_id : undefined));
+  }
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   if (!token) return json({ error: "not_configured" }, 503);
   const got = req.headers.get("x-telegram-bot-api-secret-token") ?? "";
