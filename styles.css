@@ -368,3 +368,29 @@ a{color:inherit;text-decoration:none}
 .nav-rename-panel .button{flex:1;min-height:38px;font-size:13px}
 .nav-archive.drop-above{box-shadow:0 -2px 0 #078366}
 .nav-archive.drop-below{box-shadow:0 2px 0 #078366}
+/* Qayta aloqa (перезвонить) */
+.lead-status-columns{grid-template-columns:repeat(5,minmax(0,1fr))}
+.lead-status-column.is-callback{border-color:#c9d3f3;background:#f6f8ff;color:#2f4aa3}
+.lead-status-column.is-callback b{background:#dfe6fb;color:#2a418f}
+.lead-status-column.is-callback.is-active{border-color:#6f86d9;background:#edf1ff}
+.lead-status-action.is-callback{border-color:#c4cff2;background:#f1f4ff;color:#2f4aa3}
+.lead-status-action.is-callback.is-selected{border-color:#6f86d9;background:#dfe6fb;box-shadow:inset 0 0 0 1px #6f86d9}
+.lead-consult-status.is-callback{background:#e4e9fb;color:#2f4aa3}
+.excel-lead-row.is-consult-callback{border-color:#c4cff2;background:#f7f9ff}
+.callback-dialog{width:min(420px,calc(100vw - 32px));padding:0;border:1px solid #e1e3e6;border-radius:16px;box-shadow:0 24px 60px rgba(23,24,26,.22)}
+.callback-dialog::backdrop{background:rgba(23,24,26,.4)}
+.callback-form{display:grid;gap:12px;padding:20px}
+.callback-form h2{margin:0;font-size:20px}
+.callback-lead{margin:-6px 0 0;font-size:13px}
+.callback-hint{margin:0;color:#68736e;font-size:13px}
+.callback-presets{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.callback-presets button{min-height:44px;border:1px solid #c4cff2;border-radius:10px;background:#f1f4ff;color:#2f4aa3;font-size:14px;font-weight:700;cursor:pointer}
+.callback-presets button:hover{background:#e4e9fb}
+.callback-calendar{display:grid;gap:6px;font-size:12px;font-weight:650;color:#68736e}
+.callback-calendar input{height:44px;border:1px solid #d9dce0;border-radius:10px;padding:0 10px;font-size:15px}
+.callback-message{padding:9px 12px;border-radius:10px;background:#fff1f0;color:#a63834;font-size:13px}
+.callback-message.hidden{display:none}
+.callback-actions{display:flex;flex-wrap:wrap;gap:8px}
+.callback-actions .button{min-height:44px}
+@media(max-width:760px){.lead-status-columns{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:430px){.lead-status-columns{grid-template-columns:1fr}}

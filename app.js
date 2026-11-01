@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-11";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-12";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -787,6 +787,86 @@ function renderHighIntentLeads(records) {
   panel.innerHTML = '<div class="high-intent-header"><div><p class="eyebrow">ПОВТОРНАЯ ЗАЯВКА</p><h2>Высокое намерение</h2><p class="subtle">Эти родители отправляли заявку больше одного раза.</p></div><span class="high-intent-total">' + highIntent.length + '</span></div><div class="high-intent-list">' + highIntent.map((record) => '<button type="button" class="high-intent-item" data-lead-target="excel-lead-' + String(record.id).replace(/[^a-zA-Z0-9_-]/g, "") + '"><b>' + escapeHtml(record.values?.["Имя"] || "Без имени") + '</b><span>' + escapeHtml(leadSubmissionCountText(record.values?.submission_count)) + ' оставил(а) заявку</span></button>').join("") + '</div>';
   panel.querySelectorAll(".high-intent-item").forEach((button) => button.onclick = () => document.getElementById(button.dataset.leadTarget)?.scrollIntoView({ behavior: "smooth", block: "center" }));
 }
+// «Перезвонить» (Qayta aloqa): время хранится в записи лида и в таблице lead_callbacks; в срок бот шлёт напоминание в Telegram.
+const callbackTimeField = "Время повторной связи";
+const tashkentOffsetMs = 5 * 60 * 60 * 1000;
+function callbackTimeText(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tashkent", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date).map((part) => [part.type, part.value]));
+  return parts.day + "." + parts.month + " " + parts.hour + ":" + parts.minute;
+}
+// «Завтра/послезавтра в 10:00» по Ташкенту (UTC+5, без перехода на летнее время).
+function tashkentDayAt(daysAhead, hour) {
+  const local = new Date(Date.now() + tashkentOffsetMs + daysAhead * 24 * 60 * 60 * 1000);
+  return new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), hour) - tashkentOffsetMs);
+}
+function tashkentInputValue(date) {
+  return new Date(date.getTime() + tashkentOffsetMs).toISOString().slice(0, 16);
+}
+async function cancelCallbackReminders(recordId) {
+  await db.from("lead_callbacks").update({ status: "cancelled" }).eq("record_id", recordId).eq("status", "pending");
+}
+function openCallbackDialog(tab, record, onDone) {
+  document.getElementById("callbackDialog")?.remove();
+  const values = record.values || {};
+  const hasPlan = String(values["Статус консультации"] || "") === "callback" && values[callbackTimeField];
+  const dialog = document.createElement("dialog");
+  dialog.id = "callbackDialog"; dialog.className = "callback-dialog";
+  dialog.innerHTML = '<form method="dialog" class="callback-form"><h2>Перезвонить</h2><p class="subtle callback-lead"></p>'
+    + '<p class="callback-hint">Выберите, когда напомнить. Напоминание придёт в Telegram-бот.</p>'
+    + '<div class="callback-presets"><button type="button" data-hours="3">Через 3 часа</button><button type="button" data-hours="5">Через 5 часов</button><button type="button" data-days="1">Завтра 10:00</button><button type="button" data-days="2">Послезавтра 10:00</button></div>'
+    + '<label class="callback-calendar"><span>Другая дата и время</span><input type="datetime-local" id="callbackWhen"></label>'
+    + '<div class="callback-message hidden" id="callbackMessage" role="status"></div>'
+    + '<div class="callback-actions"><button type="button" class="button primary" id="callbackSave">Сохранить</button>' + (hasPlan ? '<button type="button" class="button danger" id="callbackCancel">Отменить напоминание</button>' : "") + '<button type="button" class="button secondary" id="callbackClose">Закрыть</button></div></form>';
+  dialog.querySelector(".callback-lead").textContent = String(values["Имя"] || "Без имени") + " · " + String(values["Телефон"] || "—");
+  document.body.appendChild(dialog);
+  const when = dialog.querySelector("#callbackWhen");
+  when.min = tashkentInputValue(new Date());
+  if (hasPlan) when.value = tashkentInputValue(new Date(values[callbackTimeField]));
+  const message = dialog.querySelector("#callbackMessage");
+  const say = (text) => { message.textContent = text; message.classList.toggle("hidden", !text); };
+  const finish = () => { dialog.close(); dialog.remove(); };
+  const setBusy = (busy) => dialog.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
+  const save = async (due) => {
+    if (!(due instanceof Date) || Number.isNaN(due.getTime()) || due.getTime() < Date.now() + 30 * 1000) { say("Выберите время в будущем."); return; }
+    setBusy(true);
+    const name = String(values["Имя"] || "").slice(0, 120), phone = String(values["Телефон"] || "").slice(0, 60);
+    await cancelCallbackReminders(record.id);
+    const inserted = await db.from("lead_callbacks").insert({ record_id: record.id, tab_id: tab.id, due_at: due.toISOString(), lead_name: name, phone }).select("id").maybeSingle();
+    if (inserted.error || !inserted.data) { setBusy(false); say("Не удалось поставить напоминание. Проверьте права доступа."); return; }
+    const nextValues = { ...values, "Статус консультации": "callback", [callbackTimeField]: due.toISOString(), "Последний изменивший": excelLeadEditedBy() };
+    const updatedAt = new Date().toISOString();
+    const updated = await db.from("custom_records").update({ values: nextValues, updated_at: updatedAt }).eq("id", record.id).select("id").maybeSingle();
+    if (updated.error || !updated.data) {
+      await db.from("lead_callbacks").update({ status: "cancelled" }).eq("id", inserted.data.id);
+      setBusy(false); say("Не удалось сохранить лид. Проверьте права доступа."); return;
+    }
+    record.values = nextValues; record.updated_at = updatedAt;
+    finish(); toast("Напоминание поставлено: " + callbackTimeText(due.toISOString())); onDone();
+  };
+  dialog.querySelectorAll(".callback-presets button").forEach((button) => button.onclick = () => {
+    save(button.dataset.hours ? new Date(Date.now() + Number(button.dataset.hours) * 60 * 60 * 1000) : tashkentDayAt(Number(button.dataset.days), 10));
+  });
+  dialog.querySelector("#callbackSave").onclick = () => {
+    if (!when.value) { say("Выберите дату и время или нажмите быструю кнопку."); return; }
+    save(new Date(when.value + ":00+05:00"));
+  };
+  dialog.querySelector("#callbackCancel")?.addEventListener("click", async () => {
+    setBusy(true);
+    await cancelCallbackReminders(record.id);
+    const nextValues = { ...values, "Статус консультации": "no_answer", "Последний изменивший": excelLeadEditedBy() };
+    delete nextValues[callbackTimeField];
+    const updatedAt = new Date().toISOString();
+    const updated = await db.from("custom_records").update({ values: nextValues, updated_at: updatedAt }).eq("id", record.id).select("id").maybeSingle();
+    if (updated.error || !updated.data) { setBusy(false); say("Не удалось отменить. Проверьте права доступа."); return; }
+    record.values = nextValues; record.updated_at = updatedAt;
+    finish(); toast("Напоминание отменено"); onDone();
+  });
+  dialog.querySelector("#callbackClose").onclick = finish;
+  dialog.addEventListener("cancel", () => dialog.remove());
+  dialog.showModal();
+}
 function customRecordCard(record, fields, canManage, position = 0) {
   const values = record.values || {};
   if (state.selectedCustomTab?.name === excelLeadsTabName) {
@@ -802,10 +882,14 @@ function customRecordCard(record, fields, canManage, position = 0) {
       ? '<div class="excel-lead-actions"><button class="button secondary custom-record-edit" type="button" data-record-id="' + escapeHtml(record.id) + '">Изменить</button><button class="button danger custom-record-delete" type="button" data-record-id="' + escapeHtml(record.id) + '">Удалить</button></div>'
       : "";
     const consultStatus = String(values["Статус консультации"] || "new");
-    const consultStatusClass = consultStatus === "booked" ? " is-consult-booked" : consultStatus === "attended" ? " is-consult-attended" : consultStatus === "no_answer" ? " is-consult-no-answer" : "";
+    const consultStatusClass = consultStatus === "booked" ? " is-consult-booked" : consultStatus === "attended" ? " is-consult-attended" : consultStatus === "no_answer" ? " is-consult-no-answer" : consultStatus === "callback" ? " is-consult-callback" : "";
+    const callbackAt = String(values[callbackTimeField] || "");
+    const callbackButton = canManage && (consultStatus === "no_answer" || consultStatus === "callback")
+      ? '<button class="lead-status-action is-callback lead-callback-action' + (consultStatus === "callback" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '">Перезвонить' + (consultStatus === "callback" && callbackAt ? " · " + escapeHtml(callbackTimeText(callbackAt)) : "") + '</button>'
+      : "";
     const consultActions = canManage
-      ? '<div class="lead-consult-actions" aria-label="Отметить результат консультации"><span>Консультация:</span><button class="lead-status-action is-booked' + (consultStatus === "booked" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="booked" aria-pressed="' + (consultStatus === "booked") + '">Записался</button><button class="lead-status-action is-attended' + (consultStatus === "attended" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="attended" aria-pressed="' + (consultStatus === "attended") + '">Пришёл</button><button class="lead-status-action is-no-answer' + (consultStatus === "no_answer" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="no_answer" aria-pressed="' + (consultStatus === "no_answer") + '">Не ответил</button></div>'
-      : '<div class="lead-consult-actions"><span class="lead-consult-status ' + (consultStatus === "attended" ? "is-attended" : consultStatus === "booked" ? "is-booked" : consultStatus === "no_answer" ? "is-no-answer" : "") + '">' + (consultStatus === "attended" ? "Пришёл на консультацию" : consultStatus === "booked" ? "Записался на консультацию" : consultStatus === "no_answer" ? "Не ответил на звонок" : "Статус консультации не указан") + '</span></div>';
+      ? '<div class="lead-consult-actions" aria-label="Отметить результат консультации"><span>Консультация:</span><button class="lead-status-action is-booked' + (consultStatus === "booked" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="booked" aria-pressed="' + (consultStatus === "booked") + '">Записался</button><button class="lead-status-action is-attended' + (consultStatus === "attended" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="attended" aria-pressed="' + (consultStatus === "attended") + '">Пришёл</button><button class="lead-status-action is-no-answer' + (consultStatus === "no_answer" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="no_answer" aria-pressed="' + (consultStatus === "no_answer") + '">Не ответил</button>' + callbackButton + '</div>'
+      : '<div class="lead-consult-actions"><span class="lead-consult-status ' + (consultStatus === "attended" ? "is-attended" : consultStatus === "booked" ? "is-booked" : consultStatus === "no_answer" ? "is-no-answer" : consultStatus === "callback" ? "is-callback" : "") + '">' + (consultStatus === "attended" ? "Пришёл на консультацию" : consultStatus === "booked" ? "Записался на консультацию" : consultStatus === "no_answer" ? "Не ответил на звонок" : consultStatus === "callback" ? "Перезвонить" + (callbackAt ? " · " + callbackTimeText(callbackAt) : "") : "Статус консультации не указан") + '</span></div>';
     const callResultDisplay = callResult
       ? '<p><b>Результат последнего звонка:</b> ' + escapeHtml(callResult) + '</p>'
       : '<p class="excel-lead-call-placeholder">Бу ерда қўнғироқ натижалари ёзилади.</p>';
@@ -847,7 +931,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     $("sourceBack").onclick = () => setPage("bloggers");
   } else {
     const isExcelLeads = tab.name === excelLeadsTabName;
-    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все лиды</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
+    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все лиды</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
   }
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo);
@@ -875,12 +959,13 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     const renderLeadStatusColumns = () => {
       const columns = $("leadStatusColumns");
       if (!columns) return;
-      const counts = { all: customRows.length, booked: 0, attended: 0, no_answer: 0 };
+      const counts = { all: customRows.length, booked: 0, attended: 0, no_answer: 0, callback: 0 };
       customRows.forEach((record) => {
         const status = String(record.values?.["Статус консультации"] || "new");
         if (status === "booked") counts.booked++;
         if (status === "attended") counts.attended++;
         if (status === "no_answer") counts.no_answer++;
+        if (status === "callback") counts.callback++;
       });
       columns.querySelectorAll("[data-lead-filter]").forEach((button) => {
         const filter = button.dataset.leadFilter;
@@ -921,8 +1006,10 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
         const selectedStatus = String(record.values?.["Статус консультации"] || "new");
         const nextStatus = selectedStatus === status ? "new" : status;
         const values = { ...(record.values || {}), "Статус консультации": nextStatus, "Последний изменивший": excelLeadEditedBy() };
+        if (selectedStatus === "callback") delete values[callbackTimeField];
         const updatedAt = new Date().toISOString();
         const { data, error } = await db.from("custom_records").update({ values, updated_at: updatedAt }).eq("id", record.id).select("id").maybeSingle();
+        if (!error && data && selectedStatus === "callback") await cancelCallbackReminders(record.id);
         if (error || !data) {
           button.disabled = false;
           toast(error ? "Не удалось обновить статус. Проверьте права доступа." : "Лид не найден или у вас нет прав на изменение.");
@@ -933,6 +1020,11 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
         leadStatusFilter = nextStatus === "new" ? "all" : nextStatus;
         renderCustomRecords();
         toast(nextStatus === "new" ? "Статус консультации отменён" : nextStatus === "attended" ? "Лид отмечен как пришедший на консультацию" : "Лид перенесён в колонку «Записались»");
+      });
+      document.querySelectorAll(".lead-callback-action").forEach((button) => button.onclick = () => {
+        const record = recordById.get(button.dataset.recordId);
+        if (!record) return;
+        openCallbackDialog(tab, record, () => { leadStatusFilter = "callback"; renderCustomRecords(); });
       });
       document.querySelectorAll(".custom-record-delete").forEach((button) => button.onclick = async () => {
         const record = recordById.get(button.dataset.recordId);
