@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-13";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-15";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -878,6 +878,259 @@ function openCallbackDialog(tab, record, onDone) {
   dialog.addEventListener("cancel", () => dialog.remove());
   dialog.showModal();
 }
+// «O'quvchi bo'ldi»: суммы из комментария оператора ("99.000 tolov qilish kerak, 90.000 tolov qildi").
+// Числа без подсказки не угадываем: каждая сумма получает роль (оплачено / цена / остаток) по ближайшему слову.
+const moneyKeywordGroups = [
+  ["paid", /(tolov(ni)? qild|to['’ʻ`]lov(ni)? qild|to['’ʻ`]?lad[ie]|to['’ʻ`]?lag|tashlad|o['’ʻ`]?tkazd|kiritd|berdi|avans|bayana|oldindan|предоплат|оплатил|оплачен|внес|внёс|перевел|аванс|тўлад|тўлаг)/gi],
+  ["remain", /(qolgan|qoldi|qoldiq|qoganini|qarz|долг|остаток|осталось)/gi],
+  ["price", /(kerak|narx|jami|umumiy|aksiy|askiy|akasiy|цена|стоимост|итого|всего)/gi],
+];
+
+function parseMoneyMentions(text) {
+  const source = String(text || "");
+  // Даты и время не деньги: 22.10.2026, 22.10.20265, 17:00
+  const masked = source.replace(/\d{1,2}[./]\d{1,2}[./]\d{2,5}/g, (m) => " ".repeat(m.length)).replace(/\d{1,2}:\d{2}/g, (m) => " ".repeat(m.length));
+  const found = [];
+  const re = /(\d{1,3}(?:[.\s,]\d{3})+|\d+(?:[.,]\d+)?)\s*(mln|million|млн|minglik|ming|minlik|min(?![a-zа-яё])|мин(?![a-zа-яё])|тыс|k(?![a-zа-яё]))?/gi;
+  let match;
+  while ((match = re.exec(masked))) {
+    const raw = match[1];
+    const suffix = (match[2] || "").toLowerCase();
+    let amount;
+    if (/^\d{1,3}([.\s,]\d{3})+$/.test(raw)) amount = Number(raw.replace(/[.\s,]/g, ""));
+    else if (/^\d{2,3}[.,]0{1,3}$/.test(raw)) amount = Number(raw.split(/[.,]/)[0]) * 1000; // «400.00» = 400 000
+    else amount = Number(raw.replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    if (amount < 1000 && suffix) amount *= /^(mln|million|млн)$/.test(suffix) ? 1000000 : 1000; // 400 ming, 90k, 1.5 mln
+    if (amount < 1000 || amount > 100000000) continue;
+    if (/^(19|20)\d{2}$/.test(raw)) continue; // год
+    found.push({ amount: Math.round(amount), start: match.index, end: match.index + match[0].trimEnd().length });
+  }
+  return { source: masked, original: source, found };
+}
+
+function extractPaymentHint(text) {
+  const { source, original, found } = parseMoneyMentions(text);
+  const keywords = [];
+  for (const [kind, pattern] of moneyKeywordGroups) {
+    pattern.lastIndex = 0;
+    let hit;
+    while ((hit = pattern.exec(source))) keywords.push({ kind, start: hit.index, end: hit.index + hit[0].length, used: false });
+  }
+  keywords.sort((a, b) => a.start - b.start);
+  const parts = found.map((item, index) => {
+    const prevEnd = index > 0 ? found[index - 1].end : 0;
+    const nextStart = index + 1 < found.length ? found[index + 1].start : source.length;
+    const free = (k) => !k.used;
+    // 1) слово прямо перед числом («Оплатил 90 000», «tolov qildi 100.000», «narxi 99k»)
+    const adjacent = keywords.filter((k) => free(k) && k.start >= prevEnd && k.end <= item.start && item.start - k.end <= 14).pop();
+    // 2) слово сразу после числа («99.000 tolov qilish kerak»)
+    const after = keywords.find((k) => free(k) && k.start >= item.end && k.end <= nextStart && k.start - item.end <= 45);
+    // 3) слово подальше перед числом
+    const far = keywords.filter((k) => free(k) && k.start >= prevEnd && k.end <= item.start && item.start - k.end <= 32).pop();
+    const hit = adjacent || after || far;
+    if (hit) hit.used = true;
+    const isLik = !hit && /^\s*lik\b/i.test(source.slice(item.end, item.end + 8));
+    return { amount: item.amount, kind: hit ? hit.kind : isLik ? "price" : "", text: original.slice(Math.max(0, item.start - 12), Math.min(original.length, item.end + 24)).replace(/\s+/g, " ").trim() };
+  });
+  const paid = parts.filter((p) => p.kind === "paid").reduce((sum, p) => sum + p.amount, 0);
+  const priceCandidates = parts.filter((p) => p.kind === "price").map((p) => p.amount);
+  const remain = parts.filter((p) => p.kind === "remain").reduce((sum, p) => sum + p.amount, 0);
+  let price = priceCandidates.length ? Math.max(...priceCandidates) : 0;
+  let paidTotal = paid;
+  if (!price && paid && remain) price = paid + remain;
+  if (price && !paidTotal && remain && remain < price) paidTotal = price - remain;
+  const unlabeled = parts.filter((p) => !p.kind);
+  const guess = !price && !paidTotal && unlabeled.length === 1 ? unlabeled[0].amount : 0; // одинокая сумма без слов: только как подсказка цены
+  return { price: price || guess, paid: paidTotal, priceIsGuess: !price && Boolean(guess), parts };
+}
+
+// ---------- «O'quvchi bo'ldi»: карточка ученика, цена и платежи ----------
+const studentSummary = new Map(); // record_id -> { price, paid }
+const studentPriceMemoryKey = "crm.studentPrice.v1";
+function moneyText(value) {
+  return new Intl.NumberFormat("ru-RU").format(Math.round(Number(value) || 0)).replace(/[  ]/g, " ") + " so‘m";
+}
+function moneyInputValue(input) { return Number(String(input.value || "").replace(/\D/g, "")) || 0; }
+function formatMoneyInput(input) {
+  const amount = moneyInputValue(input);
+  input.value = amount ? new Intl.NumberFormat("ru-RU").format(amount).replace(/[  ]/g, " ") : "";
+}
+function rememberStudentPrice(price) { try { localStorage.setItem(studentPriceMemoryKey, String(price)); } catch { /* память браузера недоступна */ } }
+function rememberedStudentPrice() { try { return Number(localStorage.getItem(studentPriceMemoryKey)) || 0; } catch { return 0; } }
+function studentStatusText(record) {
+  const info = studentSummary.get(record.id);
+  if (!info) return "Ученик";
+  const debt = Math.max(0, info.price - info.paid);
+  return debt > 0 ? "Ученик · долг " + moneyText(debt) : "Ученик · оплачено полностью";
+}
+async function loadStudentSummaries(tabId) {
+  studentSummary.clear();
+  const [students, payments] = await Promise.all([
+    db.from("lead_students").select("record_id,price").eq("tab_id", tabId),
+    db.from("student_payments").select("record_id,amount").eq("tab_id", tabId).is("cancelled_at", null),
+  ]);
+  for (const row of students.data || []) studentSummary.set(row.record_id, { price: Number(row.price) || 0, paid: 0 });
+  for (const row of payments.data || []) {
+    const info = studentSummary.get(row.record_id);
+    if (info) info.paid += Number(row.amount) || 0;
+  }
+}
+function studentDialogShell(id, className) {
+  document.getElementById(id)?.remove();
+  const dialog = document.createElement("dialog");
+  dialog.id = id; dialog.className = "callback-dialog " + className;
+  dialog.addEventListener("cancel", () => dialog.remove());
+  return dialog;
+}
+function openStudentDialog(tab, record, onChange) {
+  if (studentSummary.has(record.id)) openStudentCard(tab, record, onChange);
+  else openStudentCreateDialog(tab, record, onChange);
+}
+function openStudentCreateDialog(tab, record, onChange) {
+  const values = record.values || {};
+  const hint = extractPaymentHint(String(values["Результат последнего звонка"] || ""));
+  const dialog = studentDialogShell("studentCreateDialog", "student-dialog");
+  const detected = hint.parts.filter((part) => part.kind).map((part) => (part.kind === "paid" ? "оплачено " : part.kind === "remain" ? "остаток " : "цена ") + moneyText(part.amount));
+  dialog.innerHTML = '<form method="dialog" class="callback-form"><h2>Создание карточки ученика</h2><p class="subtle student-lead"></p>'
+    + '<p class="callback-hint student-hint"></p>'
+    + '<label class="callback-calendar"><span>Цена курса (so‘m)</span><input type="text" inputmode="numeric" id="studentPrice" autocomplete="off"></label>'
+    + '<label class="callback-calendar"><span>Уже оплачено (so‘m)</span><input type="text" inputmode="numeric" id="studentPaid" autocomplete="off"></label>'
+    + '<p class="student-debt"><span>Остаток долга:</span> <b id="studentDebt">—</b></p>'
+    + '<div class="callback-message hidden" id="studentMessage" role="status"></div>'
+    + '<div class="callback-actions"><button type="button" class="button primary" id="studentCreate">Создать карточку</button><button type="button" class="button secondary" id="studentCreateClose">Закрыть</button></div></form>';
+  dialog.querySelector(".student-lead").textContent = String(values["Имя"] || "Без имени") + " · " + String(values["Телефон"] || "—");
+  const hintNode = dialog.querySelector(".student-hint");
+  hintNode.textContent = "";
+  if (detected.length) {
+    const title = document.createElement("b"); title.textContent = "Найдено в комментарии:";
+    hintNode.append(title, document.createTextNode(" " + detected.join("; ")));
+  } else hintNode.textContent = "В комментарии сумм не найдено. Введите вручную.";
+  document.body.appendChild(dialog);
+  const price = dialog.querySelector("#studentPrice"), paid = dialog.querySelector("#studentPaid");
+  const message = dialog.querySelector("#studentMessage"), debt = dialog.querySelector("#studentDebt");
+  price.value = String(hint.price || rememberedStudentPrice() || hint.paid || "");
+  paid.value = hint.paid ? String(hint.paid) : "";
+  formatMoneyInput(price); formatMoneyInput(paid);
+  const say = (text) => { message.textContent = text; message.classList.toggle("hidden", !text); };
+  const refreshDebt = () => { debt.textContent = moneyText(Math.max(0, moneyInputValue(price) - moneyInputValue(paid))); };
+  [price, paid].forEach((input) => { input.addEventListener("input", refreshDebt); input.addEventListener("blur", () => { formatMoneyInput(input); refreshDebt(); }); });
+  refreshDebt();
+  const finish = () => { dialog.close(); dialog.remove(); };
+  const setBusy = (busy) => dialog.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
+  dialog.querySelector("#studentCreateClose").onclick = finish;
+  dialog.querySelector("#studentCreate").onclick = async () => {
+    const priceValue = moneyInputValue(price), paidValue = moneyInputValue(paid);
+    if (!priceValue) { say("Введите цену курса."); return; }
+    if (paidValue > priceValue) { say("Оплачено больше цены: проверьте суммы."); return; }
+    setBusy(true);
+    const created = await db.from("lead_students").upsert({ record_id: record.id, tab_id: tab.id, price: priceValue }, { onConflict: "record_id" }).select("record_id").maybeSingle();
+    if (created.error || !created.data) { setBusy(false); say("Не удалось сохранить. Проверьте права доступа."); return; }
+    if (paidValue > 0) {
+      const payment = await db.from("student_payments").insert({ record_id: record.id, tab_id: tab.id, amount: paidValue, note: detected.length ? "Из комментария оператора" : "Первая оплата" }).select("id").maybeSingle();
+      if (payment.error || !payment.data) { setBusy(false); say("Не удалось сохранить платёж. Проверьте права доступа."); return; }
+    }
+    const nextValues = { ...values, "Статус консультации": "student", "Последний изменивший": excelLeadEditedBy() };
+    delete nextValues[callbackTimeField];
+    const updatedAt = new Date().toISOString();
+    const updated = await db.from("custom_records").update({ values: nextValues, updated_at: updatedAt }).eq("id", record.id).select("id").maybeSingle();
+    if (updated.error || !updated.data) { setBusy(false); say("Не удалось сохранить. Проверьте права доступа."); return; }
+    await cancelCallbackReminders(record.id);
+    record.values = nextValues; record.updated_at = updatedAt;
+    studentSummary.set(record.id, { price: priceValue, paid: paidValue });
+    rememberStudentPrice(priceValue);
+    finish(); toast("Карточка ученика создана");
+    onChange("student");
+    openStudentCard(tab, record, onChange);
+  };
+  dialog.showModal();
+}
+async function openStudentCard(tab, record, onChange) {
+  const values = record.values || {};
+  const dialog = studentDialogShell("studentCardDialog", "student-dialog student-card");
+  dialog.innerHTML = '<form method="dialog" class="callback-form"><h2>Карточка ученика</h2><p class="subtle student-lead"></p>'
+    + '<div class="student-tiles"><div><span>Цена</span><b id="studentTilePrice">—</b></div><div><span>Оплачено</span><b id="studentTilePaid">—</b></div><div class="student-tile-debt"><span>Долг</span><b id="studentTileDebt">—</b></div></div>'
+    + '<div class="student-progress" aria-hidden="true"><i id="studentBar"></i></div>'
+    + '<label class="callback-calendar"><span>Цена курса (so‘m)</span><span class="student-inline"><input type="text" inputmode="numeric" id="studentCardPrice" autocomplete="off"><button type="button" class="button secondary" id="studentSavePrice">Сохранить цену</button></span></label>'
+    + '<h3 class="student-subtitle">Добавить платёж</h3>'
+    + '<div class="student-add"><input type="text" inputmode="numeric" id="studentAmount" placeholder="Summa (so‘m)" autocomplete="off"><input type="text" id="studentNote" maxlength="200" placeholder="Izoh" autocomplete="off"><button type="button" class="button primary" id="studentAdd">Добавить</button></div>'
+    + '<div class="callback-message hidden" id="studentCardMessage" role="status"></div>'
+    + '<h3 class="student-subtitle">История платежей</h3><div id="studentPayments" class="student-payments"></div>'
+    + '<div class="callback-actions"><button type="button" class="button secondary" id="studentCardClose">Закрыть</button></div></form>';
+  dialog.querySelector(".student-lead").textContent = String(values["Имя"] || "Без имени") + " · " + String(values["Телефон"] || "—");
+  document.body.appendChild(dialog);
+  const q = (selector) => dialog.querySelector(selector);
+  const say = (text) => { q("#studentCardMessage").textContent = text; q("#studentCardMessage").classList.toggle("hidden", !text); };
+  const setBusy = (busy) => dialog.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
+  let priceFilled = false;
+  const render = (payments) => {
+    const info = studentSummary.get(record.id) || { price: 0, paid: 0 };
+    const debt = Math.max(0, info.price - info.paid);
+    q("#studentTilePrice").textContent = moneyText(info.price);
+    q("#studentTilePaid").textContent = moneyText(info.paid);
+    q("#studentTileDebt").textContent = debt > 0 ? moneyText(debt) : "Полностью оплачено";
+    q(".student-tile-debt").classList.toggle("is-clear", debt === 0);
+    q("#studentBar").style.width = Math.min(100, info.price ? Math.round(info.paid / info.price * 100) : 0) + "%";
+    if (!priceFilled || document.activeElement !== q("#studentCardPrice")) { priceFilled = true; q("#studentCardPrice").value = String(info.price || ""); formatMoneyInput(q("#studentCardPrice")); }
+    const list = q("#studentPayments");
+    list.textContent = "";
+    if (!payments.length) { const empty = document.createElement("p"); empty.className = "subtle"; empty.textContent = "Платежей пока нет."; list.appendChild(empty); return; }
+    for (const payment of payments) {
+      const row = document.createElement("div");
+      row.className = "student-payment" + (payment.cancelled_at ? " is-cancelled" : "");
+      const when = document.createElement("span"); when.textContent = callbackTimeText(payment.paid_at) || "";
+      const amount = document.createElement("b"); amount.textContent = moneyText(payment.amount);
+      const note = document.createElement("em"); note.textContent = payment.cancelled_at ? "Отменён" : payment.note || "";
+      row.append(when, amount, note);
+      if (!payment.cancelled_at) {
+        const cancel = document.createElement("button");
+        cancel.type = "button"; cancel.className = "student-payment-cancel"; cancel.title = "Отменить платёж"; cancel.setAttribute("aria-label", "Отменить платёж"); cancel.textContent = "✕";
+        cancel.onclick = async () => {
+          if (!window.confirm(state.language === "uz" ? uzText("Отменить этот платёж? Он останется в истории как отменённый.") : "Отменить этот платёж? Он останется в истории как отменённый.")) return;
+          setBusy(true);
+          const result = await db.from("student_payments").update({ cancelled_at: new Date().toISOString() }).eq("id", payment.id).select("id").maybeSingle();
+          setBusy(false);
+          if (result.error || !result.data) { say("Не удалось сохранить. Проверьте права доступа."); return; }
+          toast("Платёж отменён"); await reload(); onChange();
+        };
+        row.appendChild(cancel);
+      }
+      list.appendChild(row);
+    }
+  };
+  const reload = async () => {
+    const [payments, student] = await Promise.all([
+      db.from("student_payments").select("id,amount,paid_at,note,cancelled_at").eq("record_id", record.id).order("paid_at", { ascending: false }),
+      db.from("lead_students").select("price").eq("record_id", record.id).maybeSingle(),
+    ]);
+    const rows = payments.data || [];
+    studentSummary.set(record.id, { price: Number(student.data?.price) || 0, paid: rows.filter((row) => !row.cancelled_at).reduce((sum, row) => sum + Number(row.amount), 0) });
+    render(rows);
+  };
+  [q("#studentCardPrice"), q("#studentAmount")].forEach((input) => input.addEventListener("blur", () => formatMoneyInput(input)));
+  q("#studentCardClose").onclick = () => { dialog.close(); dialog.remove(); };
+  q("#studentSavePrice").onclick = async () => {
+    const price = moneyInputValue(q("#studentCardPrice"));
+    if (!price) { say("Введите цену курса."); return; }
+    setBusy(true);
+    const result = await db.from("lead_students").update({ price, updated_at: new Date().toISOString() }).eq("record_id", record.id).select("record_id").maybeSingle();
+    setBusy(false);
+    if (result.error || !result.data) { say("Не удалось сохранить. Проверьте права доступа."); return; }
+    say(""); rememberStudentPrice(price); toast("Цена сохранена"); await reload(); onChange();
+  };
+  q("#studentAdd").onclick = async () => {
+    const amount = moneyInputValue(q("#studentAmount"));
+    if (!amount) { say("Введите сумму платежа."); return; }
+    setBusy(true);
+    const result = await db.from("student_payments").insert({ record_id: record.id, tab_id: tab.id, amount, note: q("#studentNote").value.trim().slice(0, 200) || null }).select("id").maybeSingle();
+    setBusy(false);
+    if (result.error || !result.data) { say("Не удалось сохранить платёж. Проверьте права доступа."); return; }
+    say(""); q("#studentAmount").value = ""; q("#studentNote").value = "";
+    toast("Платёж добавлен"); await reload(); onChange();
+  };
+  dialog.showModal();
+  await reload();
+}
 function customRecordCard(record, fields, canManage, position = 0) {
   const values = record.values || {};
   if (state.selectedCustomTab?.name === excelLeadsTabName) {
@@ -893,14 +1146,17 @@ function customRecordCard(record, fields, canManage, position = 0) {
       ? '<div class="excel-lead-actions"><button class="button secondary custom-record-edit" type="button" data-record-id="' + escapeHtml(record.id) + '">Изменить</button><button class="button danger custom-record-delete" type="button" data-record-id="' + escapeHtml(record.id) + '">Удалить</button></div>'
       : "";
     const consultStatus = String(values["Статус консультации"] || "new");
-    const consultStatusClass = consultStatus === "booked" ? " is-consult-booked" : consultStatus === "attended" ? " is-consult-attended" : consultStatus === "no_answer" ? " is-consult-no-answer" : consultStatus === "callback" ? " is-consult-callback" : "";
+    const consultStatusClass = consultStatus === "booked" ? " is-consult-booked" : consultStatus === "attended" ? " is-consult-attended" : consultStatus === "no_answer" ? " is-consult-no-answer" : consultStatus === "callback" ? " is-consult-callback" : consultStatus === "student" ? " is-consult-student" : "";
     const callbackAt = String(values[callbackTimeField] || "");
     const callbackButton = canManage && (consultStatus === "no_answer" || consultStatus === "callback")
       ? '<button class="lead-status-action is-callback lead-callback-action' + (consultStatus === "callback" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '">Перезвонить' + (consultStatus === "callback" && callbackAt ? " · " + escapeHtml(callbackTimeText(callbackAt)) : "") + '</button>'
       : "";
+    const studentButton = canManage
+      ? '<button class="lead-status-action is-student lead-student-action' + (consultStatus === "student" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '">' + (consultStatus === "student" ? "Карточка ученика" : "Стал учеником") + '</button>'
+      : "";
     const consultActions = canManage
-      ? '<div class="lead-consult-actions" aria-label="Отметить результат консультации"><span>Консультация:</span><button class="lead-status-action is-booked' + (consultStatus === "booked" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="booked" aria-pressed="' + (consultStatus === "booked") + '">Записался</button><button class="lead-status-action is-attended' + (consultStatus === "attended" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="attended" aria-pressed="' + (consultStatus === "attended") + '">Пришёл</button><button class="lead-status-action is-no-answer' + (consultStatus === "no_answer" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="no_answer" aria-pressed="' + (consultStatus === "no_answer") + '">Не ответил</button>' + callbackButton + '</div>'
-      : '<div class="lead-consult-actions"><span class="lead-consult-status ' + (consultStatus === "attended" ? "is-attended" : consultStatus === "booked" ? "is-booked" : consultStatus === "no_answer" ? "is-no-answer" : consultStatus === "callback" ? "is-callback" : "") + '">' + (consultStatus === "attended" ? "Пришёл на консультацию" : consultStatus === "booked" ? "Записался на консультацию" : consultStatus === "no_answer" ? "Не ответил на звонок" : consultStatus === "callback" ? "Перезвонить" + (callbackAt ? " · " + callbackTimeText(callbackAt) : "") : "Статус консультации не указан") + '</span></div>';
+      ? '<div class="lead-consult-actions" aria-label="Отметить результат консультации"><span>Консультация:</span><button class="lead-status-action is-booked' + (consultStatus === "booked" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="booked" aria-pressed="' + (consultStatus === "booked") + '">Записался</button><button class="lead-status-action is-attended' + (consultStatus === "attended" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="attended" aria-pressed="' + (consultStatus === "attended") + '">Пришёл</button><button class="lead-status-action is-no-answer' + (consultStatus === "no_answer" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="no_answer" aria-pressed="' + (consultStatus === "no_answer") + '">Не ответил</button>' + callbackButton + studentButton + '</div>'
+      : '<div class="lead-consult-actions"><span class="lead-consult-status ' + (consultStatus === "attended" ? "is-attended" : consultStatus === "booked" ? "is-booked" : consultStatus === "no_answer" ? "is-no-answer" : consultStatus === "callback" ? "is-callback" : consultStatus === "student" ? "is-student" : "") + '">' + (consultStatus === "attended" ? "Пришёл на консультацию" : consultStatus === "booked" ? "Записался на консультацию" : consultStatus === "no_answer" ? "Не ответил на звонок" : consultStatus === "callback" ? "Перезвонить" + (callbackAt ? " · " + callbackTimeText(callbackAt) : "") : consultStatus === "student" ? studentStatusText(record) : "Статус консультации не указан") + '</span></div>';
     const callResultDisplay = callResult
       ? '<p><b>Результат последнего звонка:</b> ' + escapeHtml(callResult) + '</p>'
       : '<p class="excel-lead-call-placeholder">Бу ерда қўнғироқ натижалари ёзилади.</p>';
@@ -944,7 +1200,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     $("sourceBack").onclick = () => setPage("bloggers");
   } else {
     const isExcelLeads = tab.name === excelLeadsTabName;
-    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все лиды</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
+    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все лиды</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button><button type="button" class="lead-status-column is-student" data-lead-filter="student"><span>Стал учеником</span><b data-count="student">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
   }
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo);
@@ -954,6 +1210,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
   }
   const result = await db.from("custom_records").select("*").eq("tab_id", tab.id).order("created_at", { ascending: false });
   if (result.error) { if (!nestedInBloggers) $("customRecordList").textContent = result.error.message; return; }
+  if (tab.name === excelLeadsTabName) await loadStudentSummaries(tab.id); else studentSummary.clear();
   const fields = Array.isArray(tab.fields) ? tab.fields : [];
   const sourceRows = nestedInBloggers ? state.promos.filter(isFargonaTezkorPromo) : [];
   const sourceUrls = new Set(sourceRows.map((row) => String(row.permalink || "").replace(/\/$/, "").toLowerCase()));
@@ -972,13 +1229,14 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     const renderLeadStatusColumns = () => {
       const columns = $("leadStatusColumns");
       if (!columns) return;
-      const counts = { all: customRows.length, booked: 0, attended: 0, no_answer: 0, callback: 0 };
+      const counts = { all: customRows.length, booked: 0, attended: 0, no_answer: 0, callback: 0, student: 0 };
       customRows.forEach((record) => {
         const status = String(record.values?.["Статус консультации"] || "new");
         if (status === "booked") counts.booked++;
         if (status === "attended") counts.attended++;
         if (status === "no_answer") counts.no_answer++;
         if (status === "callback") counts.callback++;
+        if (status === "student") counts.student++;
       });
       columns.querySelectorAll("[data-lead-filter]").forEach((button) => {
         const filter = button.dataset.leadFilter;
@@ -1038,6 +1296,11 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
         const record = recordById.get(button.dataset.recordId);
         if (!record) return;
         openCallbackDialog(tab, record, () => { leadStatusFilter = "callback"; renderCustomRecords(); });
+      });
+      document.querySelectorAll(".lead-student-action").forEach((button) => button.onclick = () => {
+        const record = recordById.get(button.dataset.recordId);
+        if (!record) return;
+        openStudentDialog(tab, record, (filter) => { if (filter) leadStatusFilter = filter; renderCustomRecords(); });
       });
       document.querySelectorAll(".custom-record-delete").forEach((button) => button.onclick = async () => {
         const record = recordById.get(button.dataset.recordId);
