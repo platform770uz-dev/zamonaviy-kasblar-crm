@@ -367,3 +367,4 @@ a{color:inherit;text-decoration:none}
 .nav-rename-panel div{display:flex;gap:8px}
 .nav-rename-panel .button{flex:1;min-height:38px;font-size:13px}
 .nav-archive.drop-above{box-shadow:0 -2px 0 #078366}
+.nav-archive.drop-below{box-shadow:0 2px 0 #078366}

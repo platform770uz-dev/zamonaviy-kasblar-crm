@@ -1,9 +1,12 @@
 // Боковое меню: «Архив», порядок пунктов и свои названия. Всё делается мышью:
-// перетаскивание пункта (на «Архив», в меню, вверх-вниз) и правая кнопка («В архив», «Переименовать»).
-// Выбор хранится в браузере (localStorage). По умолчанию в меню остаётся «Загрузка лидов через Excel».
+// перетаскивание пункта (на «Архив», в меню, вверх-вниз, выше и ниже «Архива»; сам «Архив» тоже двигается)
+// и правая кнопка («В архив», «Переименовать»). Выбор хранится в браузере (localStorage).
+// По умолчанию в меню остаётся «Загрузка лидов через Excel», остальное лежит в «Архиве».
 const KEY_ARCHIVE = "crm.navArchive.v1";
 const KEY_ORDER = "crm.navOrder.v1";
 const KEY_NAMES = "crm.navNames.v1";
+const ARCH = "__archive__"; // положение самой папки «Архив» в общем порядке
+const END = "__end__"; // «в конец меню»
 const nav = document.querySelector(".side-nav");
 const archive = document.getElementById("navArchive");
 const list = document.getElementById("navArchiveList");
@@ -18,9 +21,10 @@ function readJson(key, fallback) {
 function writeJson(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* память браузера недоступна */ }
 }
-const keyOf = (el) => el.dataset.view || el.id || "";
+const keyOf = (el) => (el === archive ? ARCH : el.dataset.view || el.id || "");
 const items = () => [...nav.querySelectorAll(".nav-item")].filter((el) => el !== newTab && keyOf(el));
-const mainItems = () => [...nav.querySelectorAll(":scope > .nav-item")].filter((el) => el !== newTab && keyOf(el));
+// Основное меню: пункты и папка «Архив» в том порядке, как они стоят в панели.
+const mainSeq = () => [...nav.children].filter((el) => el === archive || (el.classList.contains("nav-item") && el !== newTab && keyOf(el)));
 const archiveItems = () => [...list.querySelectorAll(":scope > .nav-item")].filter((el) => keyOf(el));
 function wantsArchive(el, map) {
   const saved = map[keyOf(el)];
@@ -28,10 +32,15 @@ function wantsArchive(el, map) {
 }
 const isLabel = (node) => node.tagName === "SPAN" && !node.classList.contains("nav-icon") && !node.classList.contains("nav-count") && !node.classList.contains("nav-custom-label");
 
-function sortZone(zoneItems, order, place, misplaced = () => false) {
-  const rank = (el) => { const i = order.indexOf(keyOf(el)); return i < 0 ? Infinity : i; };
+// Новые пункты (ещё без сохранённого места) идут в конец меню, но выше «Архива», пока тот не двигали.
+function sortZone(zoneItems, order, place) {
+  const rank = (el) => {
+    const i = order.indexOf(keyOf(el));
+    if (i >= 0) return i;
+    return el === archive ? 1e9 : 1e8;
+  };
   const wanted = [...zoneItems].sort((a, b) => rank(a) - rank(b));
-  if (wanted.some((el, i) => el !== zoneItems[i]) || zoneItems.some(misplaced)) wanted.forEach(place);
+  if (wanted.some((el, i) => el !== zoneItems[i])) wanted.forEach(place);
 }
 
 function applyNames(names) {
@@ -59,12 +68,13 @@ function apply() {
   for (const el of items()) {
     const toArchive = wantsArchive(el, map);
     if (toArchive && el.parentNode !== list) list.appendChild(el);
-    if (!toArchive && el.parentNode !== nav) nav.insertBefore(el, archive);
+    if (!toArchive && el.parentNode !== nav) nav.insertBefore(el, newTab);
     el.draggable = true;
   }
+  const summary = archive.querySelector(".nav-archive-summary");
+  if (summary) summary.draggable = true;
   const order = readJson(KEY_ORDER, []);
-  // Пункты меню всегда выше «Архива» (вкладки из базы приходят в конец списка, после него).
-  sortZone(mainItems(), order, (el) => nav.insertBefore(el, archive), (el) => Boolean(archive.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING));
+  sortZone(mainSeq(), order, (el) => nav.insertBefore(el, newTab));
   sortZone(archiveItems(), order, (el) => list.appendChild(el));
   applyNames(readJson(KEY_NAMES, {}));
   document.querySelectorAll(".excel-leads-mobile-nav").forEach((button) => {
@@ -73,23 +83,30 @@ function apply() {
   });
 }
 
-// Переносит пункт в меню или архив и ставит его рядом с refKey (до или после); без refKey — в конец.
+// Ставит пункт (или саму папку «Архив») в меню или в архив рядом с refKey (до или после).
+// Без refKey: в архив — в конец архива; в меню — прямо над «Архивом». refKey END — в конец меню.
 function moveItem(key, toArchive, refKey = "", after = false) {
-  const map = readJson(KEY_ARCHIVE, {});
-  map[key] = toArchive;
-  writeJson(KEY_ARCHIVE, map);
+  if (key !== ARCH) {
+    const map = readJson(KEY_ARCHIVE, {});
+    map[key] = toArchive;
+    writeJson(KEY_ARCHIVE, map);
+  }
   apply();
-  const main = mainItems().map(keyOf).filter((k) => k !== key);
+  const main = mainSeq().map(keyOf).filter((k) => k !== key);
   const arch = archiveItems().map(keyOf).filter((k) => k !== key);
   const zone = toArchive ? arch : main;
-  const at = refKey && zone.includes(refKey) ? zone.indexOf(refKey) + (after ? 1 : 0) : zone.length;
+  let at;
+  if (refKey === END) at = zone.length;
+  else if (refKey && zone.includes(refKey)) at = zone.indexOf(refKey) + (after ? 1 : 0);
+  else if (!toArchive) at = main.includes(ARCH) ? main.indexOf(ARCH) : main.length;
+  else at = zone.length;
   zone.splice(at, 0, key);
   writeJson(KEY_ORDER, main.concat(arch));
   apply();
   if (toArchive && list.querySelector(".nav-item.active")) archive.open = true;
 }
 
-if (nav && archive && list) {
+if (nav && archive && list && newTab) {
   apply();
   // Пункты добавляются позже (вкладки из базы, панели результатов), поэтому следим за меню.
   new MutationObserver(apply).observe(nav, { childList: true, subtree: true });
@@ -97,31 +114,37 @@ if (nav && archive && list) {
   // Перетаскивание.
   let dragKey = "";
   const clearDrop = () => {
-    archive.classList.remove("drop-target", "drop-above");
+    archive.classList.remove("drop-target", "drop-above", "drop-below");
     nav.classList.remove("drop-main");
     items().forEach((el) => el.classList.remove("drop-before", "drop-after"));
   };
   const overInfo = (event) => {
     const over = event.target.closest(".nav-item");
     if (!over || over === newTab || !keyOf(over) || keyOf(over) === dragKey) return null;
+    // Папку «Архив» нельзя положить внутрь самой себя.
+    if (dragKey === ARCH && over.parentNode === list) return null;
     const rect = over.getBoundingClientRect();
     return { el: over, after: event.clientY > rect.top + rect.height / 2 };
   };
+  // Строка «Архив»: верхняя треть — поставить выше, нижняя — ниже, середина — убрать в архив / вынуть из архива.
+  const archiveZone = (event) => {
+    if (!event.target.closest("#navArchive")) return "";
+    if (event.target.closest("#navArchiveList")) return "list";
+    const rect = archive.querySelector(".nav-archive-summary").getBoundingClientRect();
+    if (event.clientY < rect.top + rect.height * 0.3) return "above";
+    if (event.clientY > rect.bottom - rect.height * 0.3) return "below";
+    return "into";
+  };
+  const draggedEl = () => items().find((el) => keyOf(el) === dragKey);
   nav.addEventListener("dragstart", (event) => {
-    const el = event.target.closest?.(".nav-item");
-    if (!el || !keyOf(el)) return;
-    dragKey = keyOf(el);
+    const el = event.target.closest?.(".nav-item, .nav-archive-summary");
+    if (!el) return;
+    const key = el.classList.contains("nav-archive-summary") ? ARCH : keyOf(el);
+    if (!key) return;
+    dragKey = key;
     event.dataTransfer.setData("text/plain", dragKey);
     event.dataTransfer.effectAllowed = "move";
   });
-  // Верхняя треть строки «Архив» — поставить пункт в меню над архивом, остальное — убрать в архив.
-  const archiveZone = (event) => {
-    const summary = archive.querySelector(".nav-archive-summary");
-    if (!event.target.closest("#navArchive")) return "";
-    if (event.target.closest("#navArchiveList")) return "list";
-    const rect = summary.getBoundingClientRect();
-    return event.clientY < rect.top + rect.height * 0.33 ? "above" : "into";
-  };
   // Слушаем всю боковую панель: пункт можно бросить и на пустое место под меню.
   const dropArea = document.getElementById("sidebar") || nav;
   dropArea.addEventListener("dragover", (event) => {
@@ -130,24 +153,31 @@ if (nav && archive && list) {
     clearDrop();
     const over = overInfo(event);
     const zone = archiveZone(event);
-    const dragged = items().find((el) => keyOf(el) === dragKey);
     if (over) over.el.classList.add(over.after ? "drop-after" : "drop-before");
-    else if (zone === "above" || (zone === "into" && dragged && dragged.parentNode === list)) archive.classList.add("drop-above");
-    else if (zone === "into" || zone === "list") archive.classList.add("drop-target");
+    else if (dragKey === ARCH) {
+      if (!zone) nav.classList.add("drop-main");
+    } else if (zone === "above") archive.classList.add("drop-above");
+    else if (zone === "below") archive.classList.add("drop-below");
+    else if (zone === "into") {
+      const fromArchive = draggedEl()?.parentNode === list;
+      archive.classList.add(fromArchive ? "drop-above" : "drop-target");
+    } else if (zone === "list") archive.classList.add("drop-target");
     else nav.classList.add("drop-main");
   });
   dropArea.addEventListener("drop", (event) => {
     if (!dragKey) return;
     event.preventDefault();
     const over = overInfo(event);
-    const dragged = items().find((el) => keyOf(el) === dragKey);
-    const fromArchive = Boolean(dragged && dragged.parentNode === list);
-    if (over) moveItem(dragKey, over.el.parentNode === list, keyOf(over.el), over.after);
-    // Строка «Архив»: пункт из архива вынимается в меню, пункт из меню убирается в архив.
-    else {
-      const zone = archiveZone(event);
-      moveItem(dragKey, zone === "list" || (zone === "into" && !fromArchive));
-    }
+    const zone = archiveZone(event);
+    if (dragKey === ARCH) {
+      if (over) moveItem(ARCH, false, keyOf(over.el), over.after);
+      else if (!zone) moveItem(ARCH, false, END);
+    } else if (over) moveItem(dragKey, over.el.parentNode === list, keyOf(over.el), over.after);
+    else if (zone === "above") moveItem(dragKey, false, ARCH, false);
+    else if (zone === "below") moveItem(dragKey, false, ARCH, true);
+    else if (zone === "into") moveItem(dragKey, draggedEl()?.parentNode !== list);
+    else if (zone === "list") moveItem(dragKey, true);
+    else moveItem(dragKey, false, END);
     dragKey = ""; clearDrop();
   });
   nav.addEventListener("dragend", () => { dragKey = ""; clearDrop(); });
