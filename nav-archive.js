@@ -118,27 +118,36 @@ if (nav && archive && list) {
   const archiveZone = (event) => {
     const summary = archive.querySelector(".nav-archive-summary");
     if (!event.target.closest("#navArchive")) return "";
-    if (event.target.closest("#navArchiveList")) return "into";
+    if (event.target.closest("#navArchiveList")) return "list";
     const rect = summary.getBoundingClientRect();
     return event.clientY < rect.top + rect.height * 0.33 ? "above" : "into";
   };
-  nav.addEventListener("dragover", (event) => {
+  // Слушаем всю боковую панель: пункт можно бросить и на пустое место под меню.
+  const dropArea = document.getElementById("sidebar") || nav;
+  dropArea.addEventListener("dragover", (event) => {
     if (!dragKey) return;
     event.preventDefault();
     clearDrop();
     const over = overInfo(event);
     const zone = archiveZone(event);
+    const dragged = items().find((el) => keyOf(el) === dragKey);
     if (over) over.el.classList.add(over.after ? "drop-after" : "drop-before");
-    else if (zone === "above") archive.classList.add("drop-above");
-    else if (zone === "into") archive.classList.add("drop-target");
+    else if (zone === "above" || (zone === "into" && dragged && dragged.parentNode === list)) archive.classList.add("drop-above");
+    else if (zone === "into" || zone === "list") archive.classList.add("drop-target");
     else nav.classList.add("drop-main");
   });
-  nav.addEventListener("drop", (event) => {
+  dropArea.addEventListener("drop", (event) => {
     if (!dragKey) return;
     event.preventDefault();
     const over = overInfo(event);
+    const dragged = items().find((el) => keyOf(el) === dragKey);
+    const fromArchive = Boolean(dragged && dragged.parentNode === list);
     if (over) moveItem(dragKey, over.el.parentNode === list, keyOf(over.el), over.after);
-    else moveItem(dragKey, archiveZone(event) === "into");
+    // Строка «Архив»: пункт из архива вынимается в меню, пункт из меню убирается в архив.
+    else {
+      const zone = archiveZone(event);
+      moveItem(dragKey, zone === "list" || (zone === "into" && !fromArchive));
+    }
     dragKey = ""; clearDrop();
   });
   nav.addEventListener("dragend", () => { dragKey = ""; clearDrop(); });
