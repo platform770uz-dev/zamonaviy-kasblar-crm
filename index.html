@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f7f8">
   <title>Zamonaviy Kasblar — CRM</title>
-  <link rel="stylesheet" href="./styles.css?v=polish-17">
+  <link rel="stylesheet" href="./styles.css?v=polish-19">
 </head>
 <body>
   <div class="app-shell">
@@ -16,6 +16,7 @@
       <div class="nav-label">ISH JOYI</div>
       <nav class="side-nav" aria-label="Asosiy bo‘limlar">
         <button class="nav-item" data-view="dashboard" data-excel="1"><span class="nav-icon">▦</span><span>Дашборд</span></button>
+        <button class="nav-item" data-view="script" data-excel="1"><span class="nav-icon">§</span><span>Скрипт</span></button>
         <details class="nav-archive" id="navArchive">
           <summary class="nav-archive-summary"><span class="nav-icon">▤</span><span>Архив</span><span class="nav-archive-arrow" aria-hidden="true">›</span></summary>
           <div class="nav-archive-list" id="navArchiveList">
@@ -75,6 +76,7 @@
 </section></section>
 
         <section class="page" id="dashboardPage"></section>
+        <section class="page" id="scriptPage"></section>
 
         <section class="page" id="leadsPage">
           <div class="page-heading"><div><p class="eyebrow">HR</p><h1 data-i18n="hrTitle">HR-лиды по вакансии</h1><p class="subtle" data-i18n="hrSubtitle">Ответы кандидатов и этап найма.</p></div></div>
@@ -159,7 +161,7 @@
   <div class="toast hidden" id="toast" role="status"></div>
   <script>window.SUPABASE_CONFIG={url:"https://uzivivmrixstxjvzkksz.supabase.co",publishableKey:"sb_publishable_8z5WQbInjqHDvigfDSOcuQ_FOq7LQWJ"};</script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script type="module" src="./app.js?v=polish-18"></script>
+  <script type="module" src="./app.js?v=polish-19"></script>
   <script type="module" src="./yba-results-panel.js?v=payment-receipt-1"></script>
   <script type="module" src="./intellekt-lab-results.js?v=20261026-2"></script>
   <script type="module" src="./nav-archive.js?v=polish-13"></script>

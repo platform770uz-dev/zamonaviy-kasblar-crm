@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-18";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-19";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -129,7 +129,7 @@ function statusPill(status) {
 // После обновления страницы (F5) возвращаем открытый раздел: запоминаем его в браузере.
 const viewMemoryKey = "crm.lastView.v1";
 const viewMemory = { ready: false, restored: false };
-const rememberablePages = new Set(["bloggers", "hr", "shows", "autopilot", "dashboard"]);
+const rememberablePages = new Set(["bloggers", "hr", "shows", "autopilot", "dashboard", "script"]);
 function saveView(view) {
   if (!viewMemory.ready) return;
   try { localStorage.setItem(viewMemoryKey, JSON.stringify(view)); } catch { /* память браузера недоступна */ }
@@ -175,6 +175,7 @@ function setPage(page) {
   saveView({ type: "page", page });
   if (page === "hr") renderLeads();
   if (page === "dashboard") renderDashboard();
+  if (page === "script") renderScriptPage();
   if (page === "bloggers") renderPromos();
   if (page === "shows") renderShows();
   if (page === "autopilot") renderAutopilot();
@@ -681,7 +682,7 @@ function isFargonaTezkorTab(tab) { return /^fargona\s+tezkor$/i.test(String(tab?
   const sidebarNav = document.querySelector(".side-nav");
   document.querySelectorAll(".custom-tab-nav,.custom-tab-page,.excel-leads-mobile-nav").forEach((node) => node.remove());
   for (const tab of state.tabs) {
-    if (isFargonaTezkorTab(tab)) continue;
+    if (isFargonaTezkorTab(tab) || isScriptTab(tab)) continue;
     const nav = document.createElement("button"); nav.className = "nav-item custom-tab-nav"; nav.dataset.view = "custom-" + tab.id; nav.dataset.bound = "1";
     nav.innerHTML = '<span class="nav-icon">' + escapeHtml(tab.icon || "▤") + '</span><span>' + escapeHtml(tab.name) + '</span>';
     // Куда попадёт пункт (меню или «Архив»), решает nav-archive.js; Excel-лиды по умолчанию остаются в меню.
@@ -1332,6 +1333,234 @@ async function renderDashboard() {
   const lists = dashboardEl("div", "dash-two");
   lists.append(debts, recent);
   page.appendChild(lists);
+}
+// ---------- Skript va reglament: скрипт продаж и регламент (правится прямо в CRM) ----------
+const scriptTabName = "Skript va reglament";
+const scriptDefault = {
+  "meta": {
+    "version": "1.0 — qoralama (loyiha)",
+    "note": "Yangi lidlar uchun amal qiladi. Skript va reglament joriy etilguniga qadar kelgan lidlar eski tartibda qoladi. [TO‘LDIRING] belgisi turgan joylarni rahbar to‘ldiradi."
+  },
+  "sections": [
+    [
+      "Konstitutsiya: 10 qoida",
+      "Bizning maqsadimiz: har bir lid bilan aniq natijaga chiqish — uchrashuv, to‘lov yoki aniq qayta aloqa vaqti. «Keyinroq» degan javob bilan ishni tugatmaymiz.\n\n1. Tezlik. Yangi lidga 5 daqiqa ichida qo‘ng‘iroq qilamiz (ish vaqtida). 15 daqiqadan keyin lid sovib ketadi.\n2. Bitta qo‘ng‘iroq — bitta aniq keyingi qadam: uchrashuv kuni va soati, to‘lov sanasi yoki qayta aloqa vaqti. Vaqtsiz kelishuv kelishuv emas.\n3. Avval so‘raymiz, keyin gapiramiz. Suhbatning kamida yarmini ota-ona gapiradi.\n4. Faqat haqiqatni aytamiz. Narx, muddat, natija haqida to‘qib va’da bermaymiz. Bilmasak: «Aniqlab, soat 17:00 gacha aytaman».\n5. Bola emas, ota-ona qaror qiladi. Qaror qiluvchi kimligini bilib olamiz, kerak bo‘lsa ikkalasi bilan gaplashamiz.\n6. E’tirozni rad etmaymiz: tushunamiz → aniqlaymiz → javob beramiz → keyingi qadamga o‘tamiz.\n7. Javob bermagan lidni tashlab qo‘ymaymiz: 3 kunda 3 urinish (8-bo‘limga qarang).\n8. Har bir qo‘ng‘iroqdan keyin 10 daqiqa ichida CRMga natija yoziladi (10-bo‘lim shabloni).\n9. Pul masalasi ochiq: narx, to‘langan summa, qolgan qarz va muddat har doim yozilgan bo‘ladi.\n10. Tanqidga ochiqmiz. AI-murabbiy har bir yozuvni baholaydi va kamchilikni ko‘rsatadi; maqsad — ko‘proq o‘quvchi, kamroq yo‘qotilgan lid."
+    ],
+    [
+      "Qo‘ng‘iroqdan oldin (2 daqiqa)",
+      "- Lid anketasini oching: ism, ariza vaqti, qaysi formadan kelgan, avvalgi izohlar.\n- Agar lid takroriy bo‘lsa («Yuqori niyat» belgisi) — ota-ona bir necha marta ariza qoldirgan, tez va diqqat bilan qo‘ng‘iroq qiling.\n- Qo‘ng‘iroq maqsadini aniq belgilang: bugun nimaga erishamiz? (uchrashuv / to‘lov / qaror).\n- Qo‘lingizda bo‘lsin: kurs dasturi, jadval, narx va aksiya shartlari [TO‘LDIRING], bo‘sh joylar soni.\n- Tinch joy, ochiq CRM, qalam va qog‘oz."
+    ],
+    [
+      "1-bosqich. Salomlashish va ruxsat (10–15 soniya)",
+      "Maqsad: kim ekanligimizni ayting, qo‘ng‘iroq sababini eslating va gaplashish uchun ruxsat oling.\n\n> «Assalomu alaykum, [Ism] aka/opa? Men Yosh Blogerlar Akademiyasidan [Ismingiz]man. Siz [sana] kuni farzandingizning blogerlik kursi bo‘yicha ariza qoldirgan edingiz. Hozir 2 daqiqa gaplashish qulaymi?»\n\n- Qulay bo‘lmasa: «Qachon qo‘ng‘iroq qilsam bo‘ladi — bugun soat nechada?» — aniq vaqt oling va CRMda «Qayta aloqa» qo‘ying.\n- Yolg‘iz gapirmang: salomdan keyin to‘xtab, javobni kuting."
+    ],
+    [
+      "2-bosqich. Aniqlashtiruvchi savollar (3–5 daqiqa)",
+      "Maqsad: oilaning haqiqiy ehtiyojini, qaror qiluvchini va to‘siqlarni bilish. Javoblarni darhol yozib boring.\n\nMajburiy savollar:\n1. Farzandingizning ismi va yoshi?\n2. U hozir telefon, video, Instagram/Telegram bilan qiziqadimi? Nima qiladi?\n3. Nega blogerlik kursini ko‘rmoqchisiz? Nimaga erishsin deysiz? (ishonch, so‘zlash, hunar, bo‘sh vaqtni foydali o‘tkazish...)\n4. Avval shunga o‘xshash kursga qatnashganmi? Nima yoqdi / yoqmadi?\n5. Qaror qabul qilishda kim ishtirok etadi (ota, ona, boshqalar)?\n6. Qachon boshlashni xohlaysiz? Haftasiga qaysi kunlari/soatlari qulay?\n\nChuqurlashtirish:\n- «Buni batafsilroq aytib bera olasizmi?»\n- «Bu siz uchun nima uchun muhim?»\n- «Agar hal bo‘lmasa, nima o‘zgaradi?»\n\nEslatma: narxni ota-ona so‘ramaguncha aytmang; so‘rasa — avval qiymatni, keyin narxni ayting."
+    ],
+    [
+      "3-bosqich. Qisqa taqdimot (30–60 soniya)",
+      "Maqsad: kursni aynan shu oilaning javoblariga bog‘lab, 3 ta foyda ko‘rsatish. Uzun ma’ruza qilmang.\n\n> «Siz [farzand ismi] [2-savol javobi] bilan qiziqishini va [3-savol javobi] ni xohlayotganingizni aytdingiz. Bizning kursda aynan shu uchun: [1-foyda], [2-foyda], [3-foyda] bor.»\n\nKurs bo‘yicha faktlar (rahbar to‘ldiradi):\n- Dastur va natijalar: [TO‘LDIRING]\n- Davomiyligi va jadval: [TO‘LDIRING]\n- Joy va guruh hajmi: [TO‘LDIRING]\n- Narx va aksiya shartlari, muddati: [TO‘LDIRING]\n\nQoida: taqdimotdan keyin savol bering: «Bu sizga mosmi?» — va javobni kuting."
+    ],
+    [
+      "4-bosqich. Yopish: aniq keyingi qadam",
+      "Maqsad: suhbatni har doim aniq qadam bilan tugatish. Ikki variantli tanlov bering.\n\n> «Keling, birinchi uchrashuvni belgilaymiz: ertaga soat 15:00 yoki payshanba soat 11:00 sizga qulayroqmi?»\n\nUchrashuv kelishilsa:\n- Kun, soat va manzilni takrorlang; kim keladi (ota yoki ona + farzand).\n- CRMda status: «Yozilgan». Eslatma qo‘ying: kelishilgan vaqtdan 2 soat oldin tasdiqlovchi qo‘ng‘iroq yoki xabar.\n\nTo‘lov kelishilsa:\n- Summa, usul (naqd / karta), sana va soatni aniq yozing. Qisman to‘lov bo‘lsa — qolgan summa va muddatni ham.\n\nQaror qilinmasa:\n- «Qaysi masala hal bo‘lsa, qaror qilasiz?» — to‘siqni aniqlang.\n- Aniq qayta aloqa vaqtini oling («3 soatdan keyin» emas, «ertaga 11:00»).\n- CRMda «Qayta aloqa» qo‘ying."
+    ],
+    [
+      "E’tirozlar bilan ishlash",
+      "Tartib har doim bir xil: 1) tushuning, 2) aniqlang, 3) javob bering, 4) keyingi qadamga qaytaring. Bahslashmang.\n\n«Qimmat»\n> «Tushunaman, bu muhim qaror. Siz nimaga solishtiryapsiz?» → qiymatni ayting (natija, dastur, nazorat) → «Agar narx muammo bo‘lmasa, kurs sizga mosmi?» → to‘lov usullari [TO‘LDIRING].\n\n«O‘ylab ko‘raman»\n> «Albatta. Qaysi jihatni o‘ylamoqchisiz — narx, jadval yoki kurs mazmuni?» → aniq to‘siqni hal qiling → qayta aloqaning aniq vaqtini oling.\n\n«Er/xotinim bilan maslahatlashaman»\n> «Juda yaxshi. Ikkalangiz birga uchrashuvga kelsangiz, savollarga to‘liq javob beramiz. Qaysi kun ikkalangizga qulay?»\n\n«Bolamning vaqti yo‘q»\n> «Dars kunlari va vaqtini ayting — jadvalga mos variant bor-yo‘qligini ko‘ramiz.» Jadval variantlari: [TO‘LDIRING].\n\n«Ishonmayman / bola uddalay olmasa»\n> «Tushunaman. Shuning uchun birinchi uchrashuvda farzandingiz bilan tanishamiz va uning imkoniyatini ko‘rasiz.» (faqat haqiqatan mavjud bo‘lgan shartlarni ayting)\n\n«Boshqa joyga qaradik»\n> «Yaxshi. Nimaga e’tibor berdingiz? Nimasi yoqdi?» → farqimizni haqiqiy faktlar bilan ayting."
+    ],
+    [
+      "Javob bermagan lid: 3 urinish tizimi",
+      "Maqsad: lidni yo‘qotmaslik, lekin bezovta qilmaslik.\n\n- 1-urinish: darhol. Javob bo‘lmasa — CRMda «Javob bermagan», izohga urinish vaqtini yozing.\n- Xabar (Telegram/SMS) darhol: «Assalomu alaykum! Yosh Blogerlar Akademiyasidan yozmoqdaman. Farzandingizning blogerlik kursi bo‘yicha qo‘ng‘iroq qildim. Qachon gaplashish qulay?»\n- 2-urinish: 3 soatdan keyin (CRMda «Qayta aloqa» → «3 soatdan keyin»).\n- 3-urinish: ertasi kuni 10:00 va yana bir marta 17:00 (boshqa vaqt oralig‘ida).\n- 3 kun ichida 3 urinish va 1 xabar. Javob bo‘lmasa — izohga «3 urinish bajarildi» deb yozing va lidni arxivlang. Lid keyin o‘zi yozsa, qaytadan ochiladi.\n\nMuhim: har bir urinish izohda sana va vaqti bilan yozilgan bo‘lishi shart."
+    ],
+    [
+      "Uchrashuvdan keyin va to‘lov",
+      "Keldi:\n- Uchrashuv natijasini yozing: nima ko‘rsatildi, ota-ona va farzand reaktsiyasi, qaror.\n- To‘lovni darhol taklif qiling: «Bugun joyni band qilib qo‘ysak bo‘ladimi?» — summa va usulni ayting.\n\nTo‘lov bo‘ldi:\n- CRMda «O‘quvchi bo‘ldi» → kartada narx va to‘langan summani kiriting.\n- Qisman to‘lov: qolgan summa va aniq muddatni yozing, shu sanaga eslatma qo‘ying.\n\nKelmadi:\n- Darhol qo‘ng‘iroq: «Nima bo‘ldi, yangi vaqt belgilaymizmi?» Statusni «Qayta aloqa»ga o‘tkazing."
+    ],
+    [
+      "Qo‘ng‘iroqdan keyin CRMga yozish shabloni",
+      "Har bir qo‘ng‘iroqdan keyin 10 daqiqa ichida «Oxirgi qo‘ng‘iroq natijasi» maydoniga yozing. Har bandni to‘ldiring — AI-murabbiy yetishmayotgan bandni tanqid qiladi.\n\n1) Kim bilan gaplashildi: ota / ona / boshqa.\n2) Farzand: ism, yosh, qiziqishi.\n3) Maqsad (nega kerak) — ota-onaning o‘z so‘zlari bilan.\n4) Qaror qiluvchi kim.\n5) E’tiroz: nima va nima javob berildi.\n6) Kelishuv: aniq qadam + kun va soat.\n7) To‘lov: narx / to‘langan / qolgan / muddat.\n8) Keyingi qo‘ng‘iroq: sana va soat.\n\nMisol: «Ona bilan. Ali, 10 yosh, video tushishga qiziqadi. Maqsad: kamerada tortinmasin. Qaror: ota-ona birga. E’tiroz: narx — uchrashuvda ko‘rishga kelishildi. Kelishuv: ertaga 15:00 uchrashuv. To‘lov: hali yo‘q. Keyingi qo‘ng‘iroq: ertaga 12:00 tasdiqlash.»"
+    ],
+    [
+      "Man etiladi",
+      "- Narx, muddat yoki natija haqida to‘qib va’da berish.\n- Bosim o‘tkazish, ota-onani aldash, «oxirgi joy» deb yolg‘on gapirish.\n- Aniq vaqtsiz «keyinroq qo‘ng‘iroq qilaman» deb tugatish.\n- Natijani CRMga yozmasdan keyingi qo‘ng‘iroqqa o‘tish.\n- Ota-onaning shaxsiy ma’lumotlarini begonalarga yoki ochiq chatlarga yuborish.\n- Raqibni yomonlash."
+    ],
+    [
+      "Nazorat va AI-murabbiy",
+      "- Har bir yangi natija yozuvi AI-murabbiy tomonidan baholanadi: lid harorati, aniq qadam va tanqid (nima yetishmadi).\n- Rahbar haftasiga bir marta ko‘radi: nechta lid, nechta uchrashuv, nechta o‘quvchi, qancha pul, qancha qarz (Dashboard).\n- Ko‘rsatkichlar: 5 daqiqada qo‘ng‘iroq qilingan lidlar ulushi, har bir lidda aniq keyingi qadam bo‘lgani, to‘liq to‘ldirilgan natija yozuvlari ulushi, lid → o‘quvchi konversiyasi.\n- Reglament o‘zgarsa, yangi versiya shu sahifada yangilanadi va bosib chiqariladi."
+    ]
+  ]
+};
+function isScriptTab(tab) { return tab?.name === scriptTabName; }
+async function ensureScriptTab() {
+  const existing = state.tabs.find(isScriptTab);
+  if (existing || !state.crmRole) return existing || null;
+  const made = await db.from("custom_tabs").insert({
+    name: scriptTabName, icon: "§",
+    fields: [{ name: "Раздел", type: "text" }, { name: "Порядок", type: "text" }, { name: "Текст", type: "textarea" }],
+    viewer_roles: ["owner", "manager", "admin"], editor_roles: ["owner", "manager", "admin"],
+  }).select("*").single();
+  if (made.error || !made.data) return null;
+  state.tabs.push(made.data);
+  const rows = [{ "Раздел": "__meta", "Версия": scriptDefault.meta.version, "Заметка": scriptDefault.meta.note }]
+    .concat(scriptDefault.sections.map((section, index) => ({ "Раздел": section[0], "Порядок": String(index + 1), "Текст": section[1] })));
+  await db.from("custom_records").insert(rows.map((values) => ({ tab_id: made.data.id, values })));
+  renderCustomTabs();
+  return made.data;
+}
+function scriptInline(parent, text) {
+  String(text).split(/(\*\*[^*]+\*\*)/g).forEach((part) => {
+    if (/^\*\*[^*]+\*\*$/.test(part)) { const strong = document.createElement("strong"); strong.textContent = part.slice(2, -2); parent.appendChild(strong); }
+    else if (part) parent.appendChild(document.createTextNode(part));
+  });
+}
+// Мини-разметка: «- » список, «1. » нумерованный список, «> » фраза для разговора, пустая строка — новый абзац.
+function renderScriptBody(text) {
+  const box = document.createElement("div");
+  box.className = "script-body";
+  const lines = String(text || "").split("\n");
+  let block = null, kind = "";
+  const flush = () => { if (block) box.appendChild(block); block = null; kind = ""; };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (!line.trim()) { flush(); continue; }
+    let match;
+    if ((match = /^\s*[-•]\s+(.*)$/.exec(line))) {
+      if (kind !== "ul") { flush(); block = document.createElement("ul"); kind = "ul"; }
+      const item = document.createElement("li"); scriptInline(item, match[1]); block.appendChild(item);
+    } else if ((match = /^\s*\d+[.)]\s+(.*)$/.exec(line))) {
+      if (kind !== "ol") { flush(); block = document.createElement("ol"); kind = "ol"; }
+      const item = document.createElement("li"); scriptInline(item, match[1]); block.appendChild(item);
+    } else if ((match = /^\s*>\s?(.*)$/.exec(line))) {
+      if (kind !== "quote") { flush(); block = document.createElement("blockquote"); kind = "quote"; }
+      if (block.childNodes.length) block.appendChild(document.createElement("br"));
+      scriptInline(block, match[1]);
+    } else {
+      if (kind !== "p") { flush(); block = document.createElement("p"); kind = "p"; }
+      if (block.childNodes.length) block.appendChild(document.createElement("br"));
+      scriptInline(block, line.trim());
+    }
+  }
+  flush();
+  return box;
+}
+function openScriptEditor(tab, record, onDone, isMeta = false) {
+  document.getElementById("scriptEditDialog")?.remove();
+  const values = record?.values || {};
+  const dialog = document.createElement("dialog");
+  dialog.id = "scriptEditDialog"; dialog.className = "callback-dialog script-dialog";
+  dialog.addEventListener("cancel", () => dialog.remove());
+  const form = document.createElement("form"); form.method = "dialog"; form.className = "callback-form";
+  const title = document.createElement("h2"); title.textContent = isMeta ? "Изменить версию" : record ? "Изменить раздел" : "Добавить раздел";
+  form.appendChild(title);
+  const field = (label, control) => { const wrap = document.createElement("label"); wrap.className = "callback-calendar"; const span = document.createElement("span"); span.textContent = label; wrap.append(span, control); form.appendChild(wrap); return control; };
+  const input = (value) => { const node = document.createElement("input"); node.type = "text"; node.maxLength = 200; node.value = value || ""; node.className = "script-input"; return node; };
+  const area = (value, rows) => { const node = document.createElement("textarea"); node.rows = rows; node.value = value || ""; node.className = "script-input script-textarea"; return node; };
+  let first, second;
+  if (isMeta) { first = field("Версия", input(values["Версия"])); second = field("Заметка", area(values["Заметка"], 5)); }
+  else { first = field("Название раздела", input(values["Раздел"])); second = field("Текст раздела", area(values["Текст"], 16)); }
+  if (!isMeta) { const hint = document.createElement("p"); hint.className = "callback-hint"; hint.textContent = "Формат: «- » список, «1. » нумерация, «> » фраза для разговора, пустая строка — новый абзац."; form.appendChild(hint); }
+  const message = document.createElement("div"); message.className = "callback-message hidden"; message.setAttribute("role", "status"); form.appendChild(message);
+  const actions = document.createElement("div"); actions.className = "callback-actions";
+  const save = document.createElement("button"); save.type = "button"; save.className = "button primary"; save.textContent = "Сохранить";
+  const close = document.createElement("button"); close.type = "button"; close.className = "button secondary"; close.textContent = "Закрыть";
+  actions.append(save, close); form.appendChild(actions);
+  dialog.appendChild(form); document.body.appendChild(dialog);
+  const finish = () => { dialog.close(); dialog.remove(); };
+  close.onclick = finish;
+  save.onclick = async () => {
+    const headline = first.value.trim();
+    if (!headline) { message.textContent = isMeta ? "Укажите версию." : "Укажите название раздела."; message.classList.remove("hidden"); return; }
+    save.disabled = true;
+    let nextValues;
+    if (isMeta) nextValues = { ...values, "Раздел": "__meta", "Версия": headline.slice(0, 120), "Заметка": second.value.trim().slice(0, 1000) };
+    else nextValues = { ...values, "Раздел": headline.slice(0, 200), "Текст": second.value.slice(0, 12000), "Порядок": values["Порядок"] || String(onDone.nextOrder || 1) };
+    const result = record
+      ? await db.from("custom_records").update({ values: nextValues, updated_at: new Date().toISOString() }).eq("id", record.id).select("id").maybeSingle()
+      : await db.from("custom_records").insert({ tab_id: tab.id, values: nextValues }).select("id").maybeSingle();
+    save.disabled = false;
+    if (result.error || !result.data) { message.textContent = "Не удалось сохранить. Проверьте права доступа."; message.classList.remove("hidden"); return; }
+    finish(); toast("Раздел сохранён"); onDone();
+  };
+  dialog.showModal();
+}
+async function renderScriptPage() {
+  const page = $("scriptPage");
+  if (!page) return;
+  page.textContent = "";
+  const loading = document.createElement("div"); loading.className = "loading-row"; loading.textContent = "Загрузка…"; page.appendChild(loading);
+  const tab = await ensureScriptTab();
+  if (!tab) { loading.remove(); const note = document.createElement("div"); note.className = "message error"; note.textContent = "Не удалось загрузить скрипт. Проверьте права доступа."; page.appendChild(note); return; }
+  const result = await db.from("custom_records").select("id,values,created_at").eq("tab_id", tab.id).order("created_at", { ascending: true });
+  loading.remove();
+  if (result.error) { const note = document.createElement("div"); note.className = "message error"; note.textContent = "Не удалось загрузить скрипт. Проверьте права доступа."; page.appendChild(note); return; }
+  const canEdit = canManageCustomTab(tab);
+  const records = result.data || [];
+  const meta = records.find((record) => record.values?.["Раздел"] === "__meta");
+  const sections = records.filter((record) => record.values?.["Раздел"] !== "__meta").sort((a, b) => (Number(a.values?.["Порядок"]) || 0) - (Number(b.values?.["Порядок"]) || 0));
+  const refresh = () => renderScriptPage();
+  const node = (tag, className, text) => { const element = document.createElement(tag); if (className) element.className = className; if (text !== undefined) element.textContent = text; return element; };
+  const head = node("div", "script-head");
+  const titles = node("div");
+  titles.append(node("p", "eyebrow", "РЕГЛАМЕНТ"), node("h1", "", "Скрипт и регламент"));
+  const badges = node("div", "script-badges");
+  badges.append(node("span", "script-version", "Версия: " + String(meta?.values?.["Версия"] || "—")));
+  titles.appendChild(badges);
+  if (meta?.values?.["Заметка"]) titles.appendChild(node("p", "subtle script-note", String(meta.values["Заметка"])));
+  const actions = node("div", "script-actions");
+  const print = node("button", "button secondary", "Печать"); print.type = "button"; print.onclick = () => window.print();
+  actions.appendChild(print);
+  if (canEdit) {
+    const editMeta = node("button", "button secondary", "Изменить версию"); editMeta.type = "button";
+    editMeta.onclick = () => openScriptEditor(tab, meta || null, refresh, true);
+    const add = node("button", "button primary", "Добавить раздел"); add.type = "button";
+    const nextOrder = sections.reduce((max, record) => Math.max(max, Number(record.values?.["Порядок"]) || 0), 0) + 1;
+    add.onclick = () => { const done = () => refresh(); done.nextOrder = nextOrder; openScriptEditor(tab, null, done); };
+    actions.append(editMeta, add);
+  }
+  head.append(titles, actions);
+  page.appendChild(head);
+  if (!sections.length) { page.appendChild(node("div", "empty-state", "Разделов пока нет.")); return; }
+  const toc = node("nav", "script-toc");
+  toc.appendChild(node("b", "", "Содержание"));
+  const list = node("ol");
+  sections.forEach((record, index) => {
+    const item = document.createElement("li"), link = node("a", "", String(record.values["Раздел"]));
+    link.href = "#script-section-" + index;
+    link.onclick = (event) => { event.preventDefault(); document.getElementById("script-section-" + index)?.scrollIntoView({ behavior: "smooth", block: "start" }); };
+    item.appendChild(link); list.appendChild(item);
+  });
+  toc.appendChild(list); page.appendChild(toc);
+  sections.forEach((record, index) => {
+    const card = node("article", "script-section"); card.id = "script-section-" + index;
+    const top = node("div", "script-section-top");
+    top.appendChild(node("h2", "", (index + 1) + ". " + String(record.values["Раздел"])));
+    if (canEdit) {
+      const tools = node("div", "script-tools");
+      const tool = (label, title, handler, disabled) => { const button = node("button", "script-tool", label); button.type = "button"; button.title = title; button.setAttribute("aria-label", title); button.disabled = Boolean(disabled); button.onclick = handler; tools.appendChild(button); };
+      const swap = async (other) => {
+        const a = record.values["Порядок"], b = other.values["Порядок"];
+        const first = await db.from("custom_records").update({ values: { ...record.values, "Порядок": String(b) } }).eq("id", record.id).select("id").maybeSingle();
+        const second = await db.from("custom_records").update({ values: { ...other.values, "Порядок": String(a) } }).eq("id", other.id).select("id").maybeSingle();
+        if (first.error || second.error) toast("Не удалось сохранить. Проверьте права доступа.");
+        refresh();
+      };
+      tool("▲", "Выше", () => swap(sections[index - 1]), index === 0);
+      tool("▼", "Ниже", () => swap(sections[index + 1]), index === sections.length - 1);
+      tool("✎", "Изменить", () => openScriptEditor(tab, record, refresh));
+      tool("✕", "Удалить", async () => {
+        if (!window.confirm(state.language === "uz" ? uzText("Удалить этот раздел скрипта? Это действие нельзя отменить.") : "Удалить этот раздел скрипта? Это действие нельзя отменить.")) return;
+        const removed = await db.from("custom_records").delete().eq("id", record.id).select("id").maybeSingle();
+        if (removed.error || !removed.data) { toast("Не удалось удалить. Проверьте права доступа."); return; }
+        toast("Раздел удалён"); refresh();
+      });
+      top.appendChild(tools);
+    }
+    card.appendChild(top);
+    card.appendChild(renderScriptBody(record.values["Текст"]));
+    page.appendChild(card);
+  });
 }
 function customRecordCard(record, fields, canManage, position = 0) {
   const values = record.values || {};
