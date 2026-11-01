@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-12";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-13";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -807,6 +807,17 @@ function tashkentInputValue(date) {
 async function cancelCallbackReminders(recordId) {
   await db.from("lead_callbacks").update({ status: "cancelled" }).eq("record_id", recordId).eq("status", "pending");
 }
+// ИИ-комментарий пишет сервер через несколько секунд после сохранения результата звонка: проверяем и обновляем список.
+function watchAiComment(recordId, tab, before) {
+  [6000, 12000, 20000, 30000].forEach((delay) => setTimeout(async () => {
+    if (state.selectedCustomTab?.id !== tab.id || watchAiComment.done === recordId + before) return;
+    const { data } = await db.from("custom_records").select("values").eq("id", recordId).maybeSingle();
+    if (data && String(data.values?.["ИИ-комментарий"] || "") !== before) {
+      watchAiComment.done = recordId + before;
+      await showCustomTab(tab);
+    }
+  }, delay));
+}
 function openCallbackDialog(tab, record, onDone) {
   document.getElementById("callbackDialog")?.remove();
   const values = record.values || {};
@@ -893,8 +904,10 @@ function customRecordCard(record, fields, canManage, position = 0) {
     const callResultDisplay = callResult
       ? '<p><b>Результат последнего звонка:</b> ' + escapeHtml(callResult) + '</p>'
       : '<p class="excel-lead-call-placeholder">Бу ерда қўнғироқ натижалари ёзилади.</p>';
+    const aiComment = callResult ? String(values["ИИ-комментарий"] || "").trim() : "";
+    const aiDisplay = aiComment ? '<p class="excel-lead-ai"><b>ИИ-комментарий:</b> ' + escapeHtml(aiComment) + '</p>' : "";
     const callEdit = canManage ? '<button class="excel-lead-call-edit icon-button" type="button" data-record-id="' + escapeHtml(record.id) + '" aria-label="Изменить результат последнего звонка" title="Изменить результат последнего звонка">✎</button>' : "";
-    const callMeta = '<div class="excel-lead-meta"><div class="excel-lead-call-row"><div class="excel-lead-call-copy">' + callResultDisplay + '</div>' + callEdit + '</div><small>Последнее изменение: ' + (lastEditor ? escapeHtml(lastEditor) + ' · ' : '') + escapeHtml(dateTimeText(updatedTime)) + '</small></div>';
+    const callMeta = '<div class="excel-lead-meta"><div class="excel-lead-call-row"><div class="excel-lead-call-copy">' + callResultDisplay + aiDisplay + '</div>' + callEdit + '</div><small>Последнее изменение: ' + (lastEditor ? escapeHtml(lastEditor) + ' · ' : '') + escapeHtml(dateTimeText(updatedTime)) + '</small></div>';
     const leadNumber = '<span class="excel-lead-number">' + (position + 1) + '.</span>';
     const intentBadge = highIntent ? '<span class="lead-intent-badge">Высокое намерение · ' + escapeHtml(leadSubmissionCountText(submissionCount)) + '</span>' : "";
     const rowId = "excel-lead-" + String(record.id).replace(/[^a-zA-Z0-9_-]/g, "");
@@ -1129,6 +1142,8 @@ $("customRecordForm").onsubmit = async (event) => {
   const formValues = Object.fromEntries([...document.querySelectorAll("#customRecordFields [data-field-name]")].map((input) => [input.dataset.fieldName, input.value.trim()]));
   const record = state.selectedCustomRecord;
   const tab = state.selectedCustomTab;
+  const callResultChanged = Boolean(record && tab?.name === excelLeadsTabName && formValues["Результат последнего звонка"] && formValues["Результат последнего звонка"] !== String(record.values?.["Результат последнего звонка"] || "").trim());
+  const aiBefore = String(record?.values?.["ИИ-комментарий"] || "");
   const values = tab?.name === excelLeadsTabName ? { ...(record?.values || {}), ...formValues, "Последний изменивший": excelLeadEditedBy() } : formValues;
   const updatedAt = new Date().toISOString();
   const result = record
@@ -1139,6 +1154,7 @@ $("customRecordForm").onsubmit = async (event) => {
   state.selectedCustomRecord = null;
   $("customRecordDialog").close();
   await showCustomTab(tab);
+  if (callResultChanged) watchAiComment(record.id, tab, aiBefore);
 };
 $("customTabForm").onsubmit = async (event) => {
   event.preventDefault(); const rows = $("customTabFields").value.split("\n").map((line) => line.trim()).filter(Boolean);

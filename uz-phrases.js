@@ -90,6 +90,7 @@ export const uzPhrases = {
   "Не удалось сохранить лид. Проверьте права доступа.": "Lidni saqlab bo‘lmadi. Kirish huquqlarini tekshiring.",
   "Не удалось отменить. Проверьте права доступа.": "Bekor qilib bo‘lmadi. Kirish huquqlarini tekshiring.",
   "Напоминание отменено": "Eslatma bekor qilindi",
+  "ИИ-комментарий:": "AI izohi:",
   "Архив": "Arxiv", "В архив": "Arxivga o‘tkazish", "Вернуть из архива": "Arxivdan chiqarish", "Переименовать": "Nomini o‘zgartirish", "Сбросить": "Asl holiga qaytarish",
   "Запись удалена": "Yozuv o‘chirildi", "Не удалось удалить запись. Проверьте права доступа.": "Yozuvni o‘chirib bo‘lmadi. Kirish huquqlarini tekshiring.",
   "Не удалось сохранить изменения. Проверьте права доступа.": "O‘zgarishlarni saqlab bo‘lmadi. Kirish huquqlarini tekshiring.",
