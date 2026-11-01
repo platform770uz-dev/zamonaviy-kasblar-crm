@@ -79,6 +79,11 @@ export const uzPhrases = {
   "Запись удалена": "Yozuv o‘chirildi", "Не удалось удалить запись. Проверьте права доступа.": "Yozuvni o‘chirib bo‘lmadi. Kirish huquqlarini tekshiring.",
   "Не удалось сохранить изменения. Проверьте права доступа.": "O‘zgarishlarni saqlab bo‘lmadi. Kirish huquqlarini tekshiring.",
   "Удалить эту запись из CRM? Это действие нельзя отменить.": "Bu yozuv CRMdan o‘chirilsinmi? Bu amalni bekor qilib bo‘lmaydi.",
+  "Удалить вкладку": "Bo‘limni o‘chirish", "Вкладка удалена": "Bo‘lim o‘chirildi",
+  "Эта вкладка принимает лиды из Meta. Её нельзя удалить.": "Bu bo‘lim Meta’dan kelgan lidlarni qabul qiladi. Uni o‘chirib bo‘lmaydi.",
+  "Не удалось проверить вкладку. Попробуйте ещё раз.": "Bo‘limni tekshirib bo‘lmadi. Qayta urinib ko‘ring.",
+  "Не удалось удалить вкладку. Проверьте права доступа.": "Bo‘limni o‘chirib bo‘lmadi. Kirish huquqlarini tekshiring.",
+  "Вкладка не найдена или у вас нет прав на удаление.": "Bo‘lim topilmadi yoki o‘chirish huquqingiz yo‘q.",
   "Читаю Excel…": "Excel o‘qilmoqda…", "Читаю первый лист Excel…": "Excelning birinchi varag‘i o‘qilmoqda…", "Размер файла больше 5 МБ.": "Fayl hajmi 5 MB dan katta.",
   "В файле нет строк с данными.": "Faylda ma’lumotli qatorlar yo‘q.", "Не удалось прочитать Excel.": "Excelni o‘qib bo‘lmadi.",
   "Модуль Excel пока недоступен": "Excel moduli hozircha mavjud emas",
@@ -106,6 +111,8 @@ export const uzPhrases = {
 };
 
 export const uzPatterns = [
+  [/^Удалить вкладку «(.+)» и все её записи \((\d+)\)\? Это действие нельзя отменить\.$/, "«$1» bo‘limi va uning barcha yozuvlari ($2) o‘chirilsinmi? Bu amalni bekor qilib bo‘lmaydi."],
+  [/^Последнее подтверждение: записи вкладки «(.+)» будут удалены навсегда\. Продолжить\?$/, "Oxirgi tasdiq: «$1» bo‘limining yozuvlari butunlay o‘chiriladi. Davom etasizmi?"],
   [/^(\d+) записей$/, "$1 ta yozuv"],
   [/^(\d+) из (\d+) записей$/, "$1 / $2 ta yozuv"],
   [/^(\d+) из (\d+) полей$/, "$1 / $2 ta maydon"],
