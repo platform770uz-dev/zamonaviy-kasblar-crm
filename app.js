@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-6";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-7";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -587,7 +587,7 @@ $("mobileMore").onclick = () => {
   const sheet = $("mobileMoreSheet");
   if (!sheet.classList.contains("hidden")) { closeMobileMore(); return; }
   sheet.innerHTML = "";
-  document.querySelectorAll("#navArchiveList .nav-item:not(.hidden)").forEach((source) => {
+  document.querySelectorAll(".side-nav .nav-item:not(#newCustomTab):not(.hidden)").forEach((source) => {
     const item = document.createElement("button");
     item.type = "button"; item.className = "mobile-more-item" + (source.classList.contains("active") ? " active" : ""); item.setAttribute("role", "menuitem");
     const icon = source.querySelector(".nav-icon"), label = [...source.children].find((node) => !node.classList.contains("nav-icon") && !node.classList.contains("nav-count"));
@@ -646,8 +646,9 @@ function isFargonaTezkorTab(tab) { return /^fargona\s+tezkor$/i.test(String(tab?
     if (isFargonaTezkorTab(tab)) continue;
     const nav = document.createElement("button"); nav.className = "nav-item custom-tab-nav"; nav.dataset.view = "custom-" + tab.id; nav.dataset.bound = "1";
     nav.innerHTML = '<span class="nav-icon">' + escapeHtml(tab.icon || "▤") + '</span><span>' + escapeHtml(tab.name) + '</span>';
-    // «Загрузка лидов через Excel» остаётся в меню, остальные созданные вкладки уходят в «Архив».
-    if (tab.name === excelLeadsTabName) sidebarNav.insertBefore(nav, $("navArchive")); else $("navArchiveList").appendChild(nav);
+    // Куда попадёт пункт (меню или «Архив»), решает nav-archive.js; Excel-лиды по умолчанию остаются в меню.
+    if (tab.name === excelLeadsTabName) nav.dataset.excel = "1";
+    sidebarNav.insertBefore(nav, $("newCustomTab"));
     nav.onclick = () => showCustomTab(tab);
     if (tab.name === excelLeadsTabName) {
       const mobileNav = document.createElement("button"); mobileNav.className = "mobile-nav-item excel-leads-mobile-nav"; mobileNav.dataset.view = "custom-" + tab.id; mobileNav.dataset.bound = "1";
