@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-15";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-16";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -131,6 +131,7 @@ function openArchiveIfActive() {
   if ($("navArchiveList").querySelector(".nav-item.active")) $("navArchive").open = true;
 }
 function setPage(page) {
+  if (page === "dashboard" && !state.manager) { toast("Дашборд доступен только руководителю"); page = "bloggers"; }
   if (page === "hr" && !state.manager) { toast("HR-лиды доступны только руководителю"); page = "bloggers"; }
   const pageId = ({ bloggers: "homePage", hr: "leadsPage", shows: "ordersPage" })[page] || page + "Page";
   document.querySelectorAll(".page").forEach((node) => node.classList.toggle("active", node.id === pageId));
@@ -138,6 +139,7 @@ function setPage(page) {
   window.scrollTo({ top: 0, behavior: "smooth" });
   openArchiveIfActive();
   if (page === "hr") renderLeads();
+  if (page === "dashboard") renderDashboard();
   if (page === "bloggers") renderPromos();
   if (page === "shows") renderShows();
   if (page === "autopilot") renderAutopilot();
@@ -207,7 +209,7 @@ function orderCard(order, index, compact) {
 function renderHome() {
   $("leadCountNav").textContent = state.manager ? String(state.leads.length) : "";
   $("showCountNav").textContent = String(state.shows.length);
-  document.querySelectorAll('[data-view="hr"]').forEach((hr) => hr.classList.toggle("hidden", !state.manager));
+  document.querySelectorAll('[data-view="hr"],[data-view="dashboard"]').forEach((item) => item.classList.toggle("hidden", !state.manager));
 }
 function renderLeads() {
   if (!state.manager || !state.leadAccess) {
@@ -1130,6 +1132,156 @@ async function openStudentCard(tab, record, onChange) {
   };
   dialog.showModal();
   await reload();
+}
+// ---------- Дашборд: лиды, ученики, деньги, долги ----------
+const dashboardState = { period: "all" };
+const dashboardStatusLabels = [
+  ["new", "Без статуса"], ["no_answer", "Не ответили"], ["callback", "Перезвонить"],
+  ["booked", "Записались"], ["attended", "Пришли"], ["student", "Стали учениками"],
+];
+function dashboardEl(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+function dashboardSince(period) {
+  if (period === "today") return tashkentDayAt(0, 0).getTime();
+  if (period === "7") return Date.now() - 7 * 24 * 60 * 60 * 1000;
+  if (period === "30") return Date.now() - 30 * 24 * 60 * 60 * 1000;
+  return 0;
+}
+function tashkentDateKey(date) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tashkent" }).format(date);
+}
+function dashboardTile(label, value, sub, tone) {
+  const tile = dashboardEl("div", "dash-tile" + (tone ? " is-" + tone : ""));
+  tile.append(dashboardEl("span", "dash-tile-label", label), dashboardEl("b", "dash-tile-value", value), dashboardEl("small", "dash-tile-sub", sub));
+  return tile;
+}
+async function renderDashboard() {
+  const page = $("dashboardPage");
+  if (!page) return;
+  const tab = state.tabs.find((item) => item.name === excelLeadsTabName);
+  page.textContent = "";
+  const head = dashboardEl("div", "dash-head");
+  const titles = dashboardEl("div");
+  titles.append(dashboardEl("p", "eyebrow", "CRM · EXCEL"), dashboardEl("h1", "", "Дашборд"), dashboardEl("p", "subtle", "Лиды, ученики, поступления и долги по вкладке «Загрузка лидов через Excel»."));
+  const controls = dashboardEl("div", "dash-controls");
+  for (const [value, label] of [["today", "Сегодня"], ["7", "7 дней"], ["30", "30 дней"], ["all", "Всё время"]]) {
+    const button = dashboardEl("button", "dash-period" + (dashboardState.period === value ? " is-active" : ""), label);
+    button.type = "button";
+    button.onclick = () => { dashboardState.period = value; renderDashboard(); };
+    controls.appendChild(button);
+  }
+  const refresh = dashboardEl("button", "icon-button", "↻");
+  refresh.type = "button"; refresh.setAttribute("aria-label", "Обновить"); refresh.onclick = () => renderDashboard();
+  controls.appendChild(refresh);
+  head.append(titles, controls);
+  page.appendChild(head);
+  if (!tab) { page.appendChild(dashboardEl("div", "empty-state", "Вкладка «Загрузка лидов через Excel» не найдена.")); return; }
+  const loading = dashboardEl("div", "loading-row", "Загрузка…");
+  page.appendChild(loading);
+  const [records, students, payments] = await Promise.all([
+    db.from("custom_records").select("id,values,created_at").eq("tab_id", tab.id),
+    db.from("lead_students").select("record_id,price,created_at").eq("tab_id", tab.id),
+    db.from("student_payments").select("id,record_id,amount,paid_at,note").eq("tab_id", tab.id).is("cancelled_at", null),
+  ]);
+  loading.remove();
+  if (records.error || students.error || payments.error) { page.appendChild(dashboardEl("div", "message error", "Не удалось загрузить данные. Проверьте права доступа.")); return; }
+  const since = dashboardSince(dashboardState.period);
+  const leadRows = records.data || [], studentRows = students.data || [], paymentRows = payments.data || [];
+  const recordById = new Map(leadRows.map((row) => [row.id, row]));
+  const leadTime = (row) => Date.parse(row.values?.created_time || row.created_at || "") || 0;
+  const leadsInPeriod = leadRows.filter((row) => leadTime(row) >= since).length;
+  const studentsInPeriod = studentRows.filter((row) => Date.parse(row.created_at) >= since).length;
+  const paidByRecord = new Map();
+  for (const row of paymentRows) paidByRecord.set(row.record_id, (paidByRecord.get(row.record_id) || 0) + Number(row.amount));
+  const moneyInPeriod = paymentRows.filter((row) => Date.parse(row.paid_at) >= since).reduce((sum, row) => sum + Number(row.amount), 0);
+  const moneyTotal = paymentRows.reduce((sum, row) => sum + Number(row.amount), 0);
+  const priceTotal = studentRows.reduce((sum, row) => sum + Number(row.price), 0);
+  const debtors = studentRows.map((row) => ({ row, record: recordById.get(row.record_id), price: Number(row.price), paid: paidByRecord.get(row.record_id) || 0 }))
+    .map((item) => ({ ...item, debt: Math.max(0, item.price - item.paid) })).filter((item) => item.debt > 0).sort((a, b) => b.debt - a.debt);
+  const debtTotal = debtors.reduce((sum, item) => sum + item.debt, 0);
+  const conversion = leadRows.length ? Math.round(studentRows.length / leadRows.length * 1000) / 10 : 0;
+
+  const tiles = dashboardEl("div", "dash-tiles");
+  tiles.append(
+    dashboardTile("Лиды", String(leadsInPeriod), "Всего: " + leadRows.length),
+    dashboardTile("Ученики", String(studentsInPeriod), "Всего: " + studentRows.length, "good"),
+    dashboardTile("Конверсия", conversion + "%", "Лид → ученик"),
+    dashboardTile("Поступило", moneyText(moneyInPeriod), "Всего: " + moneyText(moneyTotal), "good"),
+    dashboardTile("Долг", moneyText(debtTotal), "Должников: " + debtors.length, debtTotal ? "bad" : ""),
+    dashboardTile("Сумма по ученикам", moneyText(priceTotal), "Оплачено " + (priceTotal ? Math.round(Math.min(moneyTotal, priceTotal) / priceTotal * 100) : 0) + "%"),
+  );
+  page.appendChild(tiles);
+
+  // Воронка лидов (по текущему статусу)
+  const counts = Object.fromEntries(dashboardStatusLabels.map(([key]) => [key, 0]));
+  for (const row of leadRows) {
+    const status = String(row.values?.["Статус консультации"] || "new");
+    counts[status in counts ? status : "new"]++;
+  }
+  const funnel = dashboardEl("section", "dash-card");
+  funnel.appendChild(dashboardEl("h2", "", "Воронка лидов"));
+  const maxCount = Math.max(1, ...Object.values(counts));
+  for (const [key, label] of dashboardStatusLabels) {
+    const row = dashboardEl("div", "dash-bar-row");
+    const bar = dashboardEl("div", "dash-bar"), fill = dashboardEl("i", "is-" + key);
+    fill.style.width = Math.round(counts[key] / maxCount * 100) + "%";
+    bar.appendChild(fill);
+    row.append(dashboardEl("span", "", label), bar, dashboardEl("b", "", String(counts[key])));
+    funnel.appendChild(row);
+  }
+  // Поступления по дням (14 дней)
+  const days = [];
+  for (let i = 13; i >= 0; i--) days.push(tashkentDateKey(new Date(Date.now() - i * 24 * 60 * 60 * 1000)));
+  const perDay = new Map(days.map((key) => [key, 0]));
+  for (const row of paymentRows) { const key = tashkentDateKey(new Date(row.paid_at)); if (perDay.has(key)) perDay.set(key, perDay.get(key) + Number(row.amount)); }
+  const chart = dashboardEl("section", "dash-card");
+  chart.appendChild(dashboardEl("h2", "", "Поступления по дням"));
+  const maxDay = Math.max(1, ...perDay.values());
+  const columns = dashboardEl("div", "dash-columns");
+  for (const [key, amount] of perDay) {
+    const column = dashboardEl("div", "dash-column");
+    const fill = dashboardEl("i"); fill.style.height = Math.max(amount ? 4 : 0, Math.round(amount / maxDay * 100)) + "%";
+    fill.title = key.slice(5).split("-").reverse().join(".") + " · " + moneyText(amount);
+    column.append(fill, dashboardEl("small", "", key.slice(8)));
+    columns.appendChild(column);
+  }
+  chart.appendChild(columns);
+  const twoCols = dashboardEl("div", "dash-two");
+  twoCols.append(funnel, chart);
+  page.appendChild(twoCols);
+
+  // Долги
+  const debts = dashboardEl("section", "dash-card");
+  debts.appendChild(dashboardEl("h2", "", "Крупнейшие долги"));
+  if (!debtors.length) debts.appendChild(dashboardEl("p", "subtle", "Долгов нет."));
+  for (const item of debtors.slice(0, 10)) {
+    const row = dashboardEl("button", "dash-row"); row.type = "button";
+    const who = dashboardEl("span", "dash-row-main");
+    who.append(dashboardEl("b", "", String(item.record?.values?.["Имя"] || "Без имени")), dashboardEl("small", "", String(item.record?.values?.["Телефон"] || "—")));
+    row.append(who, dashboardEl("span", "dash-row-sub", moneyText(item.paid) + " / " + moneyText(item.price)), dashboardEl("b", "dash-row-debt", moneyText(item.debt)));
+    row.onclick = () => { if (item.record) openStudentCard(tab, item.record, () => renderDashboard()); };
+    debts.appendChild(row);
+  }
+  // Последние платежи
+  const recent = dashboardEl("section", "dash-card");
+  recent.appendChild(dashboardEl("h2", "", "Последние платежи"));
+  const lastPayments = [...paymentRows].sort((a, b) => Date.parse(b.paid_at) - Date.parse(a.paid_at)).slice(0, 8);
+  if (!lastPayments.length) recent.appendChild(dashboardEl("p", "subtle", "Платежей пока нет."));
+  for (const payment of lastPayments) {
+    const record = recordById.get(payment.record_id);
+    const row = dashboardEl("div", "dash-row is-static");
+    const who = dashboardEl("span", "dash-row-main");
+    who.append(dashboardEl("b", "", String(record?.values?.["Имя"] || "Без имени")), dashboardEl("small", "", callbackTimeText(payment.paid_at) + (payment.note ? " · " + payment.note : "")));
+    row.append(who, dashboardEl("b", "dash-row-paid", moneyText(payment.amount)));
+    recent.appendChild(row);
+  }
+  const lists = dashboardEl("div", "dash-two");
+  lists.append(debts, recent);
+  page.appendChild(lists);
 }
 function customRecordCard(record, fields, canManage, position = 0) {
   const values = record.values || {};
