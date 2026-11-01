@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-7";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-8";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -590,7 +590,7 @@ $("mobileMore").onclick = () => {
   document.querySelectorAll(".side-nav .nav-item:not(#newCustomTab):not(.hidden)").forEach((source) => {
     const item = document.createElement("button");
     item.type = "button"; item.className = "mobile-more-item" + (source.classList.contains("active") ? " active" : ""); item.setAttribute("role", "menuitem");
-    const icon = source.querySelector(".nav-icon"), label = [...source.children].find((node) => !node.classList.contains("nav-icon") && !node.classList.contains("nav-count"));
+    const icon = source.querySelector(".nav-icon"), label = source.querySelector(":scope > .nav-custom-label") || [...source.children].find((node) => !node.classList.contains("nav-icon") && !node.classList.contains("nav-count"));
     item.innerHTML = '<span>' + escapeHtml(icon?.textContent || "▤") + '</span><b>' + escapeHtml(label?.textContent || source.textContent.trim()) + '</b>';
     item.onclick = () => { closeMobileMore(); source.click(); };
     sheet.appendChild(item);

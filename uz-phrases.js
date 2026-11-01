@@ -76,7 +76,7 @@ export const uzPhrases = {
   "Лид отмечен как пришедший на консультацию": "Lid konsultatsiyaga kelgan deb belgilandi", "Лид перенесён в колонку «Записались»": "Lid «Yozilganlar» ustuniga o‘tkazildi",
   "Статус консультации отменён": "Konsultatsiya holati bekor qilindi",
   "Не удалось обновить статус. Проверьте права доступа.": "Holatni yangilab bo‘lmadi. Kirish huquqlarini tekshiring.",
-  "Архив": "Arxiv", "В архив": "Arxivga o‘tkazish", "Вернуть из архива": "Arxivdan chiqarish",
+  "Архив": "Arxiv", "В архив": "Arxivga o‘tkazish", "Вернуть из архива": "Arxivdan chiqarish", "Переименовать": "Nomini o‘zgartirish", "Сбросить": "Asl holiga qaytarish",
   "Запись удалена": "Yozuv o‘chirildi", "Не удалось удалить запись. Проверьте права доступа.": "Yozuvni o‘chirib bo‘lmadi. Kirish huquqlarini tekshiring.",
   "Не удалось сохранить изменения. Проверьте права доступа.": "O‘zgarishlarni saqlab bo‘lmadi. Kirish huquqlarini tekshiring.",
   "Удалить эту запись из CRM? Это действие нельзя отменить.": "Bu yozuv CRMdan o‘chirilsinmi? Bu amalni bekor qilib bo‘lmaydi.",
