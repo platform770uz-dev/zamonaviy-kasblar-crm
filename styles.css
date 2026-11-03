@@ -529,3 +529,27 @@ a{color:inherit;text-decoration:none}
 .survey-progress{margin:0;padding:10px 12px;border-radius:10px;background:#fff3df;color:#925316;font-size:13px;font-weight:650}
 .survey-progress.is-full{background:#e9f8ef;color:#1b6b43}
 .survey-full.hidden,.callback-calendar.hidden{display:none}
+
+/* ИИ-совет по лиду: следующий шаг, что уточнить, состояние + процент оставшегося уточнения */
+.lead-advice{display:grid;gap:10px;margin:10px 0 0;padding:12px 14px;border:1px solid #e3def9;border-radius:14px;background:linear-gradient(180deg,#fbfaff,#f4f1ff)}
+.lead-advice-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 14px}
+.lead-advice-title{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#5a4fcf}
+.lead-advice-title::before{content:"✦";font-size:13px}
+.lead-advice-progress{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#5b5f6b}
+.lead-advice-progress.is-done{color:#1b6b43}
+.lead-advice-bar{width:96px;height:7px;border:0;border-radius:99px;overflow:hidden;background:#e4e0f7;appearance:none;-webkit-appearance:none}
+.lead-advice-bar::-webkit-progress-bar{background:#e4e0f7;border-radius:99px}
+.lead-advice-bar::-webkit-progress-value{background:#078366;border-radius:99px}
+.lead-advice-bar::-moz-progress-bar{background:#078366;border-radius:99px}
+.lead-advice-row{display:grid;grid-template-columns:128px minmax(0,1fr);gap:4px 12px;align-items:start}
+.lead-advice-label{padding-top:2px;font-size:12px;font-weight:750;color:#6b6f80}
+.lead-advice-row p{margin:0;font-size:14px;line-height:1.5;color:#2c2f3a;overflow-wrap:anywhere}
+.lead-advice-row.is-next{padding:10px 12px;border:1px solid #bfe5d6;border-radius:10px;background:#e8f6f0}
+.lead-advice-row.is-next .lead-advice-label{color:#0d6a52}
+.lead-advice-row.is-next p{font-weight:650;color:#0d5c47}
+.lead-advice-row.is-state p::before{content:"";display:inline-block;width:9px;height:9px;margin-right:7px;border-radius:50%;background:#b9bcc8;vertical-align:baseline}
+.lead-advice-row.is-state.is-hot p::before{background:#e5484d}
+.lead-advice-row.is-state.is-warm p::before{background:#f0a020}
+.lead-advice-row.is-state.is-cold p::before{background:#4c8dff}
+.lead-advice-row.is-plain{grid-template-columns:1fr}
+@media(max-width:600px){.lead-advice-row{grid-template-columns:1fr}.lead-advice-bar{width:72px}}

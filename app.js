@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-20";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-21";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -1767,6 +1767,35 @@ function openSurveyDialog(tab, record, onChange) {
   refresh();
   dialog.showModal();
 }
+// ИИ-совет для администратора: три короткие строки (следующий шаг, что уточнить, состояние лида)
+// и полоса «сколько ещё осталось уточнить» по опросу из 8 пунктов. Старые советы (Qadam/Baho/Tanqid) читаются так же.
+function leadAdviceHtml(text, survey) {
+  const kinds = [
+    { re: /^(?:Keyingi qadam|Qadam)\s*:\s*(.+)$/i, kind: "next", title: "Следующий шаг" },
+    { re: /^(?:So[‘’ʻ'`´]?rang|Tanqid)\s*:\s*(.+)$/i, kind: "ask", title: "Что уточнить" },
+    { re: /^(?:Holat|Baho)\s*:\s*(.+)$/i, kind: "state", title: "Состояние" },
+  ];
+  const rows = [];
+  for (const raw of String(text || "").split(/\n+/)) {
+    const line = raw.replace(/\*\*/g, "").trim();
+    if (!line) continue;
+    const found = kinds.find((item) => item.re.test(line));
+    rows.push(found ? { kind: found.kind, title: found.title, text: line.replace(found.re, "$1").trim() } : { kind: "plain", title: "", text: line });
+  }
+  const order = { next: 0, ask: 1, state: 2, plain: 3 };
+  rows.sort((a, b) => order[a.kind] - order[b.kind]);
+  const total = Number(survey?.total) || 8, filled = Math.min(total, Number(survey?.filled) || 0);
+  const left = Math.round((total - filled) / total * 100);
+  const progressText = filled >= total ? "Всё уточнено ✓" : "Уточнено " + filled + " из " + total + " · осталось " + left + "%";
+  const rowHtml = rows.map((row) => {
+    const temperature = row.kind === "state" ? (/^issiq/i.test(row.text) ? " is-hot" : /^iliq/i.test(row.text) ? " is-warm" : /^sovuq/i.test(row.text) ? " is-cold" : "") : "";
+    const label = row.title ? '<span class="lead-advice-label">' + escapeHtml(row.title) + '</span>' : "";
+    return '<div class="lead-advice-row is-' + row.kind + temperature + '">' + label + '<p>' + escapeHtml(row.text) + '</p></div>';
+  }).join("");
+  return '<div class="lead-advice"><div class="lead-advice-head"><span class="lead-advice-title">ИИ-совет</span>'
+    + '<span class="lead-advice-progress' + (filled >= total ? ' is-done' : '') + '"><span>' + escapeHtml(progressText) + '</span><progress class="lead-advice-bar" value="' + filled + '" max="' + total + '"></progress></span></div>'
+    + rowHtml + '</div>';
+}
 function customRecordCard(record, fields, canManage, position = 0) {
   const values = record.values || {};
   if (state.selectedCustomTab?.name === excelLeadsTabName) {
@@ -1800,7 +1829,7 @@ function customRecordCard(record, fields, canManage, position = 0) {
       ? '<p><b>Результат последнего звонка:</b> ' + escapeHtml(callResult) + '</p>'
       : '<p class="excel-lead-call-placeholder">Бу ерда қўнғироқ натижалари ёзилади.</p>';
     const aiComment = callResult ? String(values["ИИ-комментарий"] || "").trim() : "";
-    const aiDisplay = aiComment ? '<p class="excel-lead-ai"><b>ИИ-комментарий:</b> ' + escapeHtml(aiComment) + '</p>' : "";
+    const aiDisplay = aiComment ? leadAdviceHtml(aiComment, surveyState) : "";
     const callEdit = canManage ? '<button class="excel-lead-call-edit icon-button" type="button" data-record-id="' + escapeHtml(record.id) + '" aria-label="Изменить результат последнего звонка" title="Изменить результат последнего звонка">✎</button>' : "";
     const callMeta = '<div class="excel-lead-meta"><div class="excel-lead-call-row"><div class="excel-lead-call-copy">' + callResultDisplay + aiDisplay + '</div>' + callEdit + '</div><small>Последнее изменение: ' + (lastEditor ? escapeHtml(lastEditor) + ' · ' : '') + escapeHtml(dateTimeText(updatedTime)) + '</small></div>';
     const leadNumber = '<span class="excel-lead-number">' + (position + 1) + '.</span>';
