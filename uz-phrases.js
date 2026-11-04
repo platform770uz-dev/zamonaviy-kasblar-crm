@@ -70,7 +70,7 @@ export const uzPhrases = {
   "Консультация:": "Konsultatsiya:", "Записался": "Yozildi", "Пришёл": "Keldi", "Не ответил": "Javob bermadi", "Изменить": "Tahrirlash", "Удалить": "O‘chirish",
   "Результат последнего звонка": "So‘nggi qo‘ng‘iroq natijasi", "Статус консультации": "Konsultatsiya holati", "Последний изменивший": "Oxirgi o‘zgartirgan",
   "Высокое намерение": "Yuqori qiziqish", "ПОВТОРНАЯ ЗАЯВКА": "TAKRORIY ARIZA", "Эти родители отправляли заявку больше одного раза.": "Bu ota-onalar arizani bir martadan ortiq yuborgan.",
-  "ЗАПИСЬ": "YOZUV", "Без имени": "Ismsiz", "Новая запись": "Yangi yozuv", "Администратор": "Administrator",
+  "ЗАПИСЬ": "YOZUV", "Имя": "Ism", "Вакансия": "Vakansiya", "Ответы формы": "Forma javoblari", "Без имени": "Ismsiz", "Новая запись": "Yangi yozuv", "Администратор": "Administrator",
   "Пришёл на консультацию": "Konsultatsiyaga keldi", "Записался на консультацию": "Konsultatsiyaga yozildi", "Не ответил на звонок": "Qo‘ng‘iroqqa javob bermadi",
   "Статус консультации не указан": "Konsultatsiya holati ko‘rsatilmagan", "Источник не указан": "Manba ko‘rsatilmagan", "Не указан": "Ko‘rsatilmagan",
   "Лид отмечен как пришедший на консультацию": "Lid konsultatsiyaga kelgan deb belgilandi", "Лид перенесён в колонку «Записались»": "Lid «Yozilganlar» ustuniga o‘tkazildi",

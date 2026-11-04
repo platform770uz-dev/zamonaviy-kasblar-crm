@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-21";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-22";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -1841,12 +1841,27 @@ function customRecordCard(record, fields, canManage, position = 0) {
   const title = titleField ? values[titleField.name] : Object.values(values).find((value) => String(value || "").trim());
   const filled = fields.filter((field) => String(values[field.name] ?? "").trim()).length;
   const updated = record.updated_at || record.created_at;
+  const tidyAnswer = (text) => { const t = String(text ?? "").replace(/_+/g, " ").replace(/\s+/g, " ").trim(); return t ? t.charAt(0).toUpperCase() + t.slice(1) : "—"; };
+  const answersHtml = (raw) => {
+    if (!raw.startsWith("{")) return "";
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { return ""; }
+    const entries = Object.entries(parsed || {});
+    if (!entries.length || typeof parsed !== "object") return "";
+    return '<dl class="custom-record-answers">' + entries.map(([q, a]) => '<div><dt>' + escapeHtml(tidyAnswer(q)) + '</dt><dd>' + escapeHtml(tidyAnswer(a)) + '</dd></div>').join("") + '</dl>';
+  };
   const cells = fields.map((field) => {
     const raw = String(values[field.name] ?? "").trim();
-    const content = /^https?:\/\//i.test(raw)
-      ? '<a class="custom-record-link" href="' + escapeHtml(raw) + '" target="_blank" rel="noopener noreferrer">Открыть ссылку ↗</a>'
-      : escapeHtml(raw || "—");
-    return '<div class="custom-record-field' + (raw ? "" : " is-empty") + '"><span>' + escapeHtml(field.name) + '</span><strong>' + content + '</strong></div>';
+    const answers = answersHtml(raw);
+    const isPhone = /телефон|telefon|phone/i.test(field.name) && /^\+?[\d\s()-]{7,}$/.test(raw);
+    const content = answers
+      ? answers
+      : /^https?:\/\//i.test(raw)
+        ? '<a class="custom-record-link" href="' + escapeHtml(raw) + '" target="_blank" rel="noopener noreferrer">Открыть ссылку ↗</a>'
+        : isPhone
+          ? '<a class="custom-record-link" href="' + escapeHtml(phoneHref(raw)) + '">' + escapeHtml(raw) + '</a>'
+          : escapeHtml(raw || "—");
+    return '<div class="custom-record-field' + (raw ? "" : " is-empty") + (answers ? " is-wide" : "") + '"><span>' + escapeHtml(field.name) + '</span>' + (answers ? '<div class="custom-record-strong">' + content + '</div>' : '<strong>' + content + '</strong>') + '</div>';
   }).join("");
   const actions = canManage
     ? '<div class="custom-record-actions"><button class="button secondary custom-record-edit" type="button" data-record-id="' + escapeHtml(record.id) + '">Изменить</button><button class="button danger custom-record-delete" type="button" data-record-id="' + escapeHtml(record.id) + '">Удалить</button></div>'

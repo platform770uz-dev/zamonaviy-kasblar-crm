@@ -553,3 +553,18 @@ a{color:inherit;text-decoration:none}
 .lead-advice-row.is-state.is-cold p::before{background:#4c8dff}
 .lead-advice-row.is-plain{grid-template-columns:1fr}
 @media(max-width:600px){.lead-advice-row{grid-template-columns:1fr}.lead-advice-bar{width:72px}}
+
+/* polish-22: vacancy answers + mobile phone */
+.custom-record-field.is-wide{grid-column:1/-1}
+.custom-record-answers{margin:0;display:grid;gap:8px}
+.custom-record-answers div{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:4px 14px;padding:8px 0;border-top:1px solid #edf0ef}
+.custom-record-answers div:first-child{padding-top:0;border-top:0}
+.custom-record-answers dt{margin:0;color:#5f6863;font-size:12px;font-weight:600;line-height:1.4}
+.custom-record-answers dd{margin:0;color:#087f61;font-size:13px;font-weight:700;line-height:1.4;overflow-wrap:anywhere}
+a.custom-record-link{color:#087f61;font-weight:650;text-decoration:none}
+@media(max-width:600px){.custom-record-answers div{grid-template-columns:1fr}}
+@media(max-width:760px){
+  .excel-lead-row{grid-template-columns:auto minmax(0,1fr)}
+  .excel-lead-phone{white-space:nowrap;align-self:center}
+  .excel-lead-actions{flex-wrap:wrap;justify-content:flex-end}
+}
