@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-23";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-24";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -857,7 +857,8 @@ function watchAiComment(recordId, tab, before) {
     const { data } = await db.from("custom_records").select("values").eq("id", recordId).maybeSingle();
     if (data && String(data.values?.["ИИ-комментарий"] || "") !== before) {
       watchAiComment.done = recordId + before;
-      await showCustomTab(tab);
+      // В списке лидов совет подтягивается на месте: экран не мигает и не прыгает наверх, пока оператор читает очередь.
+      if (leadsLiveRefresh) await leadsLiveRefresh(); else await showCustomTab(tab, { filter: lastLeadFilter });
     }
   }, delay));
 }
@@ -1008,16 +1009,145 @@ function studentStatusText(record) {
   return debt > 0 ? "Ученик · долг " + moneyText(debt) : "Ученик · оплачено полностью";
 }
 async function loadStudentSummaries(tabId) {
-  studentSummary.clear();
   const [students, payments] = await Promise.all([
     db.from("lead_students").select("record_id,price").eq("tab_id", tabId),
     db.from("student_payments").select("record_id,amount").eq("tab_id", tabId).is("cancelled_at", null),
   ]);
+  // Заменяем разом после загрузки: список лидов сам обновляется раз в минуту и не должен видеть пустую карту учеников.
+  studentSummary.clear();
   for (const row of students.data || []) studentSummary.set(row.record_id, { price: Number(row.price) || 0, paid: 0 });
   for (const row of payments.data || []) {
     const info = studentSummary.get(row.record_id);
     if (info) info.paid += Number(row.amount) || 0;
   }
+}
+// ---------- ИИ-очередь звонков: главный экран лидов (кнопка «ИИ maslahat», функция lead-queue) ----------
+// Последняя партия: до 20 лидов по порядку, почему звонить сейчас и что сказать. baseline партии — подпись итога звонка
+// и статус каждого лида на момент составления: по нему видно, кому уже позвонили и какие заявки пришли позже.
+let callQueue = null; // { id, createdAt, by, ai, baseline: { record_id: "подпись|статус" }, items: Map(record_id -> { rank, reason, say }) }
+let lastLeadFilter = "queue"; // какой режим лидов открыт: после сохранения итога звонка остаёмся в нём
+let callQueueBusy = false; // идёт пересчёт: кнопка остаётся выключенной, даже если список перерисовался
+let leadsLiveTimer = null; // раз в минуту открытый список лидов сам подтягивает новые заявки и чужие изменения
+let leadsLiveRefresh = null; // то же обновление по требованию (без перезагрузки страницы), пока список лидов открыт
+const leadsLiveEveryMs = 60000;
+function stopLeadsLive() { if (leadsLiveTimer) clearInterval(leadsLiveTimer); leadsLiveTimer = null; leadsLiveRefresh = null; }
+// Те же подпись и baseline, что noteSig и baselineOf в supabase/functions/lead-queue — менять обе стороны вместе.
+function callQueueNoteSig(text) {
+  const s = String(text ?? "").trim();
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, "0") + ":" + s.length;
+}
+function callQueueBaseline(values) {
+  const v = values || {};
+  return callQueueNoteSig(v["Результат последнего звонка"]) + "|" + String(v["Статус консультации"] || "new");
+}
+async function loadCallQueue(tabId) {
+  const latest = await db.from("lead_call_batches").select("id,ai,created_by_name,created_at").eq("tab_id", tabId).eq("ready", true).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (latest.error) return; // связь моргнула или таблицы ещё нет — оставляем то, что было
+  if (!latest.data) { callQueue = null; return; }
+  if (callQueue?.id === latest.data.id) return; // эта партия уже загружена
+  const [full, items] = await Promise.all([
+    db.from("lead_call_batches").select("baseline").eq("id", latest.data.id).maybeSingle(),
+    db.from("lead_call_queue").select("record_id,rank,reason,say").eq("batch_id", latest.data.id).order("rank", { ascending: true }),
+  ]);
+  if (full.error || items.error || !full.data) return;
+  callQueue = {
+    id: latest.data.id,
+    createdAt: latest.data.created_at,
+    by: latest.data.created_by_name || "",
+    ai: latest.data.ai === true,
+    baseline: full.data.baseline && typeof full.data.baseline === "object" ? full.data.baseline : {},
+    items: new Map((items.data || []).map((row) => [String(row.record_id), { rank: Number(row.rank) || 0, reason: row.reason || "", say: row.say || "" }])),
+  };
+}
+// Между пересчётами ИИ работают правила: новая заявка (лида не было, когда составляли очередь), повторная заявка и
+// наступившее время перезвона встают наверх очереди. Тексты — как RULE_SAY в функции lead-queue: по-узбекски, как у ИИ.
+const leadLiveSay = {
+  fresh: "Tanishing, farzandning yoshi va qiziqishini so‘rang, sinov darsiga taklif qiling",
+  repeat: "Qayta ariza qoldirgan — qiziqishi yuqori, sinov darsiga yozing",
+  callback: "Va’da qilingan qo‘ng‘iroq: qaror qilishdimi, savollari bormi — so‘rang",
+};
+function leadAdviceNextStep(advice) {
+  for (const raw of String(advice || "").split(/\n+/)) {
+    const found = /^\s*(?:Keyingi qadam|Qadam)\s*:\s*(.+)$/i.exec(raw.replace(/\*/g, ""));
+    if (found) return found[1].trim();
+  }
+  return "";
+}
+function leadLiveItem(record, nowMs) {
+  const values = record.values || {};
+  const status = String(values["Статус консультации"] || "new");
+  const note = String(values["Результат последнего звонка"] || "").trim();
+  const nextStep = note ? leadAdviceNextStep(values["ИИ-комментарий"]) : "";
+  const batchMs = callQueue ? Date.parse(callQueue.createdAt) : NaN;
+  // 1. Наступило время перезвона, и после этого лид никто не трогал. Если перезвон был просрочен уже тогда, когда ИИ
+  //    составлял очередь, и лид в неё попал — место ему дал ИИ.
+  if (status === "callback") {
+    const due = Date.parse(String(values[callbackTimeField] || ""));
+    const touched = Date.parse(record.updated_at || "") || 0;
+    if (Number.isFinite(due) && due <= nowMs && touched <= due && (!callQueue?.items.has(String(record.id)) || due > batchMs)) {
+      return { live: "callback", at: due, reason: "Qayta aloqa vaqti keldi: " + callbackTimeText(values[callbackTimeField]), say: nextStep || leadLiveSay.callback };
+    }
+  }
+  const latest = Date.parse(values.latest_submission_time || values.created_time || "") || Date.parse(record.created_at || "") || 0;
+  const base = callQueue?.baseline?.[record.id];
+  // 2. Новая заявка: лида не было, когда составляли очередь (или очереди ещё нет), и ему ещё не звонили.
+  if (base === undefined) {
+    if (!note && status === "new" && (callQueue || nowMs - latest < 7 * 86400000)) return { live: "fresh", at: latest, reason: "Yangi ariza — hali qo‘ng‘iroq qilinmagan", say: leadLiveSay.fresh };
+    return null;
+  }
+  // 3. Повторная заявка после составления очереди, и с тех пор лиду не звонили.
+  const count = Number(values.submission_count) || 1;
+  if (count >= 2 && latest > batchMs && base === callQueueBaseline(values)) {
+    return { live: "repeat", at: latest, reason: "Yana ariza qoldirdi (" + count + " marta) — qiziqishi yuqori", say: nextStep || leadLiveSay.repeat };
+  }
+  return null;
+}
+function renderCallQueuePanel(tab, show, stats) {
+  const panel = $("callQueuePanel");
+  if (!panel) return;
+  panel.classList.toggle("hidden", !show);
+  if (!show) { panel.innerHTML = ""; return; }
+  const canBuild = canManageCustomTab(tab);
+  const today = callbackTimeText(new Date().toISOString()).slice(0, 5);
+  const stale = Boolean(callQueue) && callbackTimeText(callQueue.createdAt).slice(0, 5) !== today;
+  const button = canBuild ? '<button class="button ' + (!callQueue || stale ? "primary" : "secondary") + ' call-queue-build" id="callQueueBuild" type="button"' + (callQueueBusy ? ' disabled>ИИ составляет очередь… около минуты' : '>🤖 ИИ maslahat') + '</button>' : "";
+  panel.classList.toggle("is-busy", callQueueBusy);
+  const info = callQueue
+    ? '<p class="call-queue-meta"><span>Составлена</span> <time datetime="' + escapeHtml(callQueue.createdAt) + '">' + escapeHtml(callbackTimeText(callQueue.createdAt)) + '</time>' + (callQueue.by ? ' · <span class="call-queue-by">' + escapeHtml(callQueue.by) + '</span>' : '') + ' · <span>' + (callQueue.ai ? "ИИ" : "по правилам") + '</span></p>'
+      + '<div class="call-queue-progress"><span>Позвонили</span><b>' + stats.done + ' / ' + stats.total + '</b><progress value="' + stats.done + '" max="' + Math.max(1, stats.total) + '"></progress></div>'
+      + (stale ? '<p class="call-queue-stale">' + (canBuild ? "Очередь составлена не сегодня. Нажмите «ИИ maslahat», чтобы обновить." : "Очередь составлена не сегодня.") + '</p>' : '')
+    : '<p class="call-queue-meta">' + (canBuild ? "Очередь ещё не составлена. ИИ составляет её сам к 13:00 (пн–сб). Составить сейчас — кнопка «ИИ maslahat»." : "Очередь ещё не составлена. ИИ составляет её сам к 13:00 (пн–сб).") + '</p>';
+  panel.innerHTML = '<div class="call-queue-head"><div class="call-queue-info">' + info + '</div>' + button + '</div>';
+  const build = $("callQueueBuild");
+  if (build) build.onclick = () => buildCallQueue(tab, build);
+}
+async function buildCallQueue(tab, button) {
+  if (callQueueBusy) return;
+  callQueueBusy = true;
+  button.disabled = true;
+  button.textContent = "ИИ составляет очередь… около минуты";
+  $("callQueuePanel")?.classList.add("is-busy");
+  let data = null, failure = "";
+  try {
+    const result = await db.functions.invoke("lead-queue", { body: { action: "build" } });
+    data = result.data;
+    if (result.error) failure = result.error.context?.status === 403 ? "forbidden" : "failed";
+  } catch { failure = "failed"; }
+  if (!failure && !data?.ok) failure = String(data?.error || "failed");
+  callQueueBusy = false;
+  if (failure) {
+    const current = $("callQueueBuild");
+    if (current) { current.disabled = false; current.textContent = "🤖 ИИ maslahat"; }
+    $("callQueuePanel")?.classList.remove("is-busy");
+    toast(failure === "too_soon" ? "Очередь только что пересчитали — подождите минуту" : failure === "forbidden" ? "Нет прав на пересчёт очереди" : failure === "empty" ? "Сейчас некому звонить: подходящих лидов нет" : "Не удалось составить очередь. Попробуйте ещё раз.");
+    return;
+  }
+  await showCustomTab(tab, { filter: "queue" });
+  toast(data.ai ? "Очередь готова: " + data.count + " лидов. Операторам уйдёт в Telegram"
+    : data.ai_error === "billing" ? "Баланс ИИ закончился — очередь по правилам: " + data.count + " лидов"
+    : "ИИ недоступен — очередь по правилам: " + data.count + " лидов");
 }
 // Имя и телефон ученика: телефон — нажимаемая ссылка для звонка.
 function fillStudentLead(node, values) {
@@ -1773,7 +1903,8 @@ function openSurveyDialog(tab, record, onChange) {
 }
 // ИИ-совет для администратора: три короткие строки (следующий шаг, что уточнить, состояние лида)
 // и полоса «сколько ещё осталось уточнить» по опросу из 8 пунктов. Старые советы (Qadam/Baho/Tanqid) читаются так же.
-function leadAdviceHtml(text, survey) {
+// В очереди ИИ это один блок: «почему сейчас» и «что сказать» из очереди идут первыми и заменяют прошлый «следующий шаг».
+function leadAdviceHtml(text, survey, queue = null) {
   const kinds = [
     { re: /^(?:Keyingi qadam|Qadam)\s*:\s*(.+)$/i, kind: "next", title: "Следующий шаг" },
     { re: /^(?:So[‘’ʻ'`´]?rang|Tanqid)\s*:\s*(.+)$/i, kind: "ask", title: "Что уточнить" },
@@ -1786,21 +1917,25 @@ function leadAdviceHtml(text, survey) {
     const found = kinds.find((item) => item.re.test(line));
     rows.push(found ? { kind: found.kind, title: found.title, text: line.replace(found.re, "$1").trim() } : { kind: "plain", title: "", text: line });
   }
-  const order = { next: 0, ask: 1, state: 2, plain: 3 };
-  rows.sort((a, b) => order[a.kind] - order[b.kind]);
+  if (queue) rows.push({ kind: "why", title: "Почему сейчас", text: queue.reason }, { kind: "say", title: "Что сказать", text: queue.say });
+  const order = { why: 0, say: 1, next: 2, ask: 3, state: 4, plain: 5 };
+  const shown = rows.filter((row) => row.text && !(queue && row.kind === "next")).sort((a, b) => order[a.kind] - order[b.kind]);
   const total = Number(survey?.total) || 8, filled = Math.min(total, Number(survey?.filled) || 0);
   const left = Math.round((total - filled) / total * 100);
   const progressText = filled >= total ? "Всё уточнено ✓" : "Уточнено " + filled + " из " + total + " · осталось " + left + "%";
-  const rowHtml = rows.map((row) => {
+  // Лиду ещё не звонили и опрос не начат — полоса «уточнено 0 из 8» только отвлекает.
+  const progressHtml = text || survey?.started
+    ? '<span class="lead-advice-progress' + (filled >= total ? ' is-done' : '') + '"><span>' + escapeHtml(progressText) + '</span><progress class="lead-advice-bar" value="' + filled + '" max="' + total + '"></progress></span>'
+    : "";
+  const rowHtml = shown.map((row) => {
     const temperature = row.kind === "state" ? (/^issiq/i.test(row.text) ? " is-hot" : /^iliq/i.test(row.text) ? " is-warm" : /^sovuq/i.test(row.text) ? " is-cold" : "") : "";
     const label = row.title ? '<span class="lead-advice-label">' + escapeHtml(row.title) + '</span>' : "";
     return '<div class="lead-advice-row is-' + row.kind + temperature + '">' + label + '<p>' + escapeHtml(row.text) + '</p></div>';
   }).join("");
-  return '<div class="lead-advice"><div class="lead-advice-head"><span class="lead-advice-title">ИИ-совет</span>'
-    + '<span class="lead-advice-progress' + (filled >= total ? ' is-done' : '') + '"><span>' + escapeHtml(progressText) + '</span><progress class="lead-advice-bar" value="' + filled + '" max="' + total + '"></progress></span></div>'
+  return '<div class="lead-advice' + (queue ? ' is-queue-advice' : '') + '"><div class="lead-advice-head"><span class="lead-advice-title">ИИ-совет</span>' + progressHtml + '</div>'
     + rowHtml + '</div>';
 }
-function customRecordCard(record, fields, canManage, position = 0) {
+function customRecordCard(record, fields, canManage, position = 0, queue = null) {
   const values = record.values || {};
   if (state.selectedCustomTab?.name === excelLeadsTabName) {
     const name = values["Имя"] || "Без имени";
@@ -1815,7 +1950,14 @@ function customRecordCard(record, fields, canManage, position = 0) {
     const consultStatus = String(values["Статус консультации"] || "new");
     const recordId = escapeHtml(record.id);
     const rowId = "excel-lead-" + String(record.id).replace(/[^a-zA-Z0-9_-]/g, "");
-    const leadNumber = '<span class="excel-lead-number">' + (position + 1) + '.</span>';
+    // queue.badge — лид показан в общем списке, от очереди только значок; иначе это карточка самой очереди ИИ.
+    const inQueueView = Boolean(queue) && !queue.badge;
+    // В очереди вместо порядкового номера — место в очереди: ⚡ у новых заявок и перезвонов, ✓ у отработанных.
+    const leadNumber = inQueueView
+      ? '<span class="excel-lead-number queue-rank' + (queue.done ? ' is-done' : queue.live ? ' is-live' : '') + '" title="' + (queue.done ? 'Уже позвонили' : queue.live ? 'Звонить сейчас' : 'Место в очереди') + '">' + (queue.done ? '✓' : queue.live ? '⚡' : escapeHtml(String(queue.rank))) + '</span>'
+      : '<span class="excel-lead-number">' + (position + 1) + '.</span>';
+    const queueClass = inQueueView ? " is-queue-item" + (queue.done ? " is-queue-done" : "") + (queue.live ? " is-queue-live" : "") + (queue.next ? " is-next-call" : "") : "";
+    const queueBadge = queue?.badge ? '<span class="lead-queue-badge">' + (queue.live ? "⚡ Звонить сейчас" : "🔥 В очереди · " + escapeHtml(String(queue.rank))) + '</span>' : "";
     const phoneLink = '<a class="excel-lead-phone" href="' + escapeHtml(phoneHref(phone)) + '" aria-label="Позвонить: ' + escapeHtml(phone) + '">' + escapeHtml(phone) + '</a>';
     const dateHtml = '<time class="excel-lead-date" datetime="' + escapeHtml(createdTime) + '">' + escapeHtml(dateText(createdTime)) + '</time>';
     // «⋯»: редкие действия (изменить имя и телефон, удалить) спрятаны в меню, чтобы «Удалить» не нажать случайно.
@@ -1852,10 +1994,15 @@ function customRecordCard(record, fields, canManage, position = 0) {
       ? '<p><b>Результат последнего звонка:</b> ' + escapeHtml(callResult) + '</p>'
       : '<p class="excel-lead-call-placeholder">Итог звонка ещё не записан</p>';
     const aiComment = callResult ? String(values["ИИ-комментарий"] || "").trim() : "";
-    const aiDisplay = aiComment ? leadAdviceHtml(aiComment, surveyState) : "";
+    // В очереди — один блок ИИ сразу под телефоном: подсказка очереди вместе с «что уточнить» и «состояние» из прошлого
+    // совета. После звонка подсказка очереди устарела: остаётся свежий совет. В общем списке — как раньше, под итогом звонка.
+    const queueAdvice = !inQueueView ? ""
+      : queue.done ? '<div class="lead-queue-advice">' + (aiComment ? leadAdviceHtml(aiComment, surveyState) : "") + '<p class="lead-queue-done">✓ Позвонили после составления очереди</p></div>'
+      : '<div class="lead-queue-advice">' + leadAdviceHtml(aiComment, surveyState, queue) + '</div>';
+    const aiDisplay = !inQueueView && aiComment ? leadAdviceHtml(aiComment, surveyState) : "";
     const callMeta = '<div class="excel-lead-meta"><div class="excel-lead-call-row"><div class="excel-lead-call-copy">' + callResultDisplay + aiDisplay + '</div></div><small>Последнее изменение: ' + (lastEditor ? escapeHtml(lastEditor) + ' · ' : '') + escapeHtml(dateTimeText(updatedTime)) + '</small></div>';
-    const intentBadge = (highIntent ? '<span class="lead-intent-badge">Высокое намерение · ' + escapeHtml(leadSubmissionCountText(submissionCount)) + '</span>' : "") + clarityBadge;
-    return '<article id="' + escapeHtml(rowId) + '" class="crm-card excel-lead-row' + (highIntent ? ' is-high-intent' : '') + consultStatusClass + '"><div class="excel-lead-name">' + leadNumber + '<span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><span class="excel-lead-title"><b>' + escapeHtml(name) + '</b>' + (intentBadge ? '<span class="excel-lead-badges">' + intentBadge + '</span>' : '') + '</span></div>' + phoneLink + dateHtml + actions + consultActions + callMeta + '</article>';
+    const intentBadge = queueBadge + (highIntent ? '<span class="lead-intent-badge">Высокое намерение · ' + escapeHtml(leadSubmissionCountText(submissionCount)) + '</span>' : "") + clarityBadge;
+    return '<article id="' + escapeHtml(rowId) + '" class="crm-card excel-lead-row' + (highIntent ? ' is-high-intent' : '') + consultStatusClass + queueClass + '"><div class="excel-lead-name">' + leadNumber + '<span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><span class="excel-lead-title"><b>' + escapeHtml(name) + '</b>' + (intentBadge ? '<span class="excel-lead-badges">' + intentBadge + '</span>' : '') + '</span></div>' + phoneLink + dateHtml + actions + queueAdvice + consultActions + callMeta + '</article>';
   }
   const titleField = fields.find((field) => /лид|имя|name/i.test(field.name) && String(values[field.name] || "").trim());
   const title = titleField ? values[titleField.name] : Object.values(values).find((value) => String(value || "").trim());
@@ -1895,6 +2042,7 @@ document.addEventListener("click", (event) => {
   });
 });
 async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFargonaTezkorTab(tab); const canManage = canManageCustomTab(tab);
+  stopLeadsLive();
   state.selectedCustomTab = tab;
   saveView({ type: "tab", id: tab.id });
   document.querySelectorAll(".page").forEach((node) => node.classList.remove("active"));
@@ -1910,7 +2058,7 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
     $("sourceBack").onclick = () => setPage("bloggers");
   } else {
     const isExcelLeads = tab.name === excelLeadsTabName;
-    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все лиды</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button><button type="button" class="lead-status-column is-unclear" data-lead-filter="unclear"><span>Нужно уточнить</span><b data-count="unclear">0</b></button><button type="button" class="lead-status-column is-student" data-lead-filter="student"><span>Ученики</span><b data-count="student">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<button type="button" id="studentSearchHint" class="student-search-hint hidden"></button><div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
+    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><div id="leadModeSwitch" class="lead-mode-switch" role="tablist" aria-label="Режим работы с лидами"><button type="button" class="lead-mode is-queue" data-lead-mode="queue" role="tab"><span>🔥 Очередь ИИ</span><b data-mode-count="queue">0</b></button><button type="button" class="lead-mode" data-lead-mode="all" role="tab"><span>Все лиды</span><b data-mode-count="all">0</b></button></div><section id="callQueuePanel" class="call-queue-panel hidden" aria-live="polite"></section><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button><button type="button" class="lead-status-column is-unclear" data-lead-filter="unclear"><span>Нужно уточнить</span><b data-count="unclear">0</b></button><button type="button" class="lead-status-column is-student" data-lead-filter="student"><span>Ученики</span><b data-count="student">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<button type="button" id="studentSearchHint" class="student-search-hint hidden"></button><div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
   }
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo);
@@ -1920,7 +2068,7 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
   }
   const result = await db.from("custom_records").select("*").eq("tab_id", tab.id).order("created_at", { ascending: false });
   if (result.error) { if (!nestedInBloggers) $("customRecordList").textContent = result.error.message; return; }
-  if (tab.name === excelLeadsTabName) await loadStudentSummaries(tab.id); else studentSummary.clear();
+  if (tab.name === excelLeadsTabName) await Promise.all([loadStudentSummaries(tab.id), loadCallQueue(tab.id)]); else { studentSummary.clear(); callQueue = null; }
   const fields = Array.isArray(tab.fields) ? tab.fields : [];
   const sourceRows = nestedInBloggers ? state.promos.filter(isFargonaTezkorPromo) : [];
   const sourceUrls = new Set(sourceRows.map((row) => String(row.permalink || "").replace(/\/$/, "").toLowerCase()));
@@ -1935,13 +2083,49 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
   } else {
     const recordById = new Map(customRows.map((record) => [String(record.id), record]));
     let leadSortAscending = false;
-    let leadStatusFilter = options.filter === "student" ? "student" : "all";
+    const leadFilters = ["queue", "all", "booked", "attended", "no_answer", "callback", "unclear", "student"];
+    // Лиды открываются на очереди ИИ: порядок работы задаёт она. «Все лиды» — соседний режим для поиска и просмотра.
+    let leadStatusFilter = tab.name !== excelLeadsTabName ? "all" : leadFilters.includes(options.filter) ? options.filter : "queue";
     // Ученики (есть карточка ученика или статус «student») лежат только под кнопкой «Ученики»: в остальных списках их нет.
     const studentsSeparate = tab.name === excelLeadsTabName;
     const isStudentRecord = (record) => studentsSeparate && (String(record.values?.["Статус консультации"] || "") === "student" || studentSummary.has(record.id));
-    const renderLeadStatusColumns = () => {
+    // Очередь на сейчас: сверху новые заявки и наступившие перезвоны (правила), потом партия ИИ по порядку,
+    // внизу — кому уже позвонили после составления очереди (baseline лида изменился).
+    const queueView = () => {
+      const nowMs = Date.now();
+      const live = [], undone = [], done = [];
+      if (tab.name === excelLeadsTabName) customRows.forEach((record) => {
+        if (isStudentRecord(record)) return;
+        const liveItem = leadLiveItem(record, nowMs);
+        if (liveItem) { live.push({ record, rank: 0, done: false, ...liveItem }); return; }
+        const item = callQueue?.items.get(String(record.id));
+        if (!item) return;
+        const base = callQueue.baseline?.[record.id];
+        const called = base !== undefined && base !== callQueueBaseline(record.values);
+        (called ? done : undone).push({ record, live: "", done: called, ...item });
+      });
+      // Новые и повторные заявки — самые свежие первыми; за ними перезвоны — самый давний срок первым.
+      live.sort((a, b) => (Number(a.live === "callback") - Number(b.live === "callback")) || (a.live === "callback" ? a.at - b.at : b.at - a.at));
+      undone.sort((a, b) => a.rank - b.rank);
+      done.sort((a, b) => a.rank - b.rank);
+      const entries = [...live, ...undone, ...done];
+      return { entries, waiting: live.length + undone.length, total: undone.length + done.length, done: done.length, byId: new Map(entries.map((entry) => [entry.record.id, entry])) };
+    };
+    // Отпечаток того, что сейчас на экране: автообновление перерисовывает список, только если он изменился.
+    let lastLiveSignature = "";
+    const leadsSignature = () => {
+      const nowMs = Date.now();
+      return (callQueue?.id || "") + "|" + customRows.map((record) => {
+        const student = studentSummary.get(record.id);
+        return record.id + ":" + callQueueNoteSig(JSON.stringify(record.values || {})) + ":" + (leadLiveItem(record, nowMs)?.live || "") + ":" + (student ? student.price + "/" + student.paid : "");
+      }).join(",");
+    };
+    // В очереди оператор меняет статусы и пишет итоги — после этого остаёмся в очереди, а не прыгаем в колонку статуса.
+    const followFilter = (filter) => { if (leadStatusFilter !== "queue" && filter) leadStatusFilter = filter; };
+    const renderLeadStatusColumns = (queue) => {
       const columns = $("leadStatusColumns");
       if (!columns) return;
+      const inQueue = leadStatusFilter === "queue";
       const counts = { all: 0, booked: 0, attended: 0, no_answer: 0, callback: 0, student: 0, unclear: 0 };
       customRows.forEach((record) => {
         if (isStudentRecord(record)) { counts.student++; return; }
@@ -1953,6 +2137,16 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
         if (status === "callback") counts.callback++;
         if (leadNeedsClarification(record.values)) counts.unclear++;
       });
+      // Переключатель режимов: очередь ИИ (главная) или весь список. В очереди фильтры и поиск не нужны.
+      document.querySelectorAll("#leadModeSwitch [data-lead-mode]").forEach((button) => {
+        const active = (button.dataset.leadMode === "queue") === inQueue;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-selected", String(active));
+        button.querySelector("[data-mode-count]").textContent = String(button.dataset.leadMode === "queue" ? queue.waiting : counts.all);
+      });
+      page.classList.toggle("is-queue-mode", inQueue);
+      columns.classList.toggle("hidden", inQueue);
+      page.querySelector(".custom-record-toolbar")?.classList.toggle("hidden", inQueue);
       columns.querySelectorAll("[data-lead-filter]").forEach((button) => {
         const filter = button.dataset.leadFilter;
         button.classList.toggle("is-active", filter === leadStatusFilter);
@@ -1966,9 +2160,12 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
       document.querySelectorAll("#mobileNav .excel-leads-mobile-nav").forEach((node) => node.classList.toggle("active", node.classList.contains("students-mobile-nav") === (leadStatusFilter === "student")));
     };
     const renderCustomRecords = () => {
-      const query = $("customRecordSearch").value.trim().toLocaleLowerCase();
+      const inQueue = leadStatusFilter === "queue";
+      const queue = queueView();
+      // В очереди поиска нет: искать человека — во «Все лиды».
+      const query = inQueue ? "" : $("customRecordSearch").value.trim().toLocaleLowerCase();
       const matchesQuery = (record) => !query || Object.values(record.values || {}).some((value) => String(value ?? "").toLocaleLowerCase().includes(query));
-      const inFilter = customRows.filter((record) => {
+      const inFilter = inQueue ? queue.entries.map((entry) => entry.record) : customRows.filter((record) => {
         const student = isStudentRecord(record);
         if (leadStatusFilter === "student") return student;
         if (student) return false;
@@ -1976,12 +2173,18 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
         return leadStatusFilter === "all" || (leadStatusFilter === "unclear" ? leadNeedsClarification(record.values) : status === leadStatusFilter);
       });
       const visible = inFilter.filter(matchesQuery);
-      renderLeadStatusColumns();
-      if (tab.name === excelLeadsTabName) visible.sort((a, b) => {
+      if (tab.name === excelLeadsTabName) lastLeadFilter = leadStatusFilter;
+      renderLeadStatusColumns(queue);
+      // Очередь уже стоит по порядку. Остальные списки — по дате создания лида.
+      if (!inQueue && tab.name === excelLeadsTabName) visible.sort((a, b) => {
         const aTime = Date.parse(a.values?.created_time || a.created_at || "") || 0, bTime = Date.parse(b.values?.created_time || b.created_at || "") || 0;
         return leadSortAscending ? aTime - bTime : bTime - aTime;
       });
-      if (tab.name === excelLeadsTabName) renderHighIntentLeads(leadStatusFilter === "student" ? [] : visible);
+      if (tab.name === excelLeadsTabName) {
+        renderHighIntentLeads(leadStatusFilter === "student" || inQueue ? [] : visible);
+        renderCallQueuePanel(tab, inQueue, { total: queue.total, done: queue.done });
+        page.querySelector(".excel-lead-list-head")?.classList.toggle("hidden", inQueue);
+      }
       // Поиск по лидам подсказывает, если такой человек уже среди учеников (они в этом списке не показываются).
       const studentHint = $("studentSearchHint");
       if (studentHint) {
@@ -1991,7 +2194,29 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
         studentHint.onclick = () => { leadStatusFilter = "student"; renderCustomRecords(); };
       }
       $("customRecordCount").textContent = query ? visible.length + " из " + inFilter.length + " записей" : inFilter.length + " записей";
-      $("customRecordList").innerHTML = visible.map((record, index) => customRecordCard(record, fields, canManage, index)).join("") || '<div class="empty-state">' + (query ? "По этому запросу записей нет." : "Записей пока нет.") + '</div>';
+      let listHtml = "";
+      if (inQueue) {
+        // Первый необзвоненный — «Следующий звонок»; дальше остальная очередь; внизу — кому уже позвонили.
+        const next = queue.entries.find((entry) => !entry.done);
+        listHtml = queue.entries.map((entry, index) => {
+          const previous = queue.entries[index - 1];
+          const heading = entry === next ? '<h2 class="queue-section is-next">Следующий звонок</h2>'
+            : !entry.done && previous === next ? '<h2 class="queue-section">Дальше в очереди · ' + (queue.waiting - 1) + '</h2>'
+            : entry.done && (!previous || !previous.done) ? '<h2 class="queue-section">Уже позвонили · ' + queue.done + '</h2>'
+            : "";
+          return heading + customRecordCard(entry.record, fields, canManage, index, { ...entry, next: entry === next });
+        }).join("");
+        // Очереди ещё нет — это объясняет панель над списком. Очередь есть, но звонить больше некому — подсказываем.
+        if (callQueue && !next) listHtml = '<div class="empty-state queue-finished">Всем из очереди уже позвонили. Нажмите «ИИ maslahat», чтобы составить новую.</div>' + listHtml;
+      } else {
+        // В общем списке лид из очереди помечен значком: видно, что ИИ уже поставил его на звонок.
+        listHtml = visible.map((record, index) => {
+          const entry = queue.byId.get(record.id);
+          return customRecordCard(record, fields, canManage, index, entry && !entry.done ? { ...entry, badge: true } : null);
+        }).join("") || '<div class="empty-state">' + (query ? "По этому запросу записей нет." : "Записей пока нет.") + '</div>';
+      }
+      $("customRecordList").innerHTML = listHtml;
+      lastLiveSignature = leadsSignature();
       if (String(tab.name).trim().toLowerCase() === "blogerlik leadlari bolalar") attachYbaInviteActions(visible);
       document.querySelectorAll(".custom-record-edit").forEach((button) => button.onclick = () => {
         const record = recordById.get(button.dataset.recordId);
@@ -2020,23 +2245,23 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
         }
         record.values = values;
         record.updated_at = updatedAt;
-        leadStatusFilter = nextStatus === "new" ? "all" : nextStatus;
+        followFilter(nextStatus === "new" ? "all" : nextStatus);
         renderCustomRecords();
-        toast(nextStatus === "new" ? "Статус консультации отменён" : nextStatus === "attended" ? "Лид отмечен как пришедший на консультацию" : "Лид перенесён в колонку «Записались»");
+        toast(nextStatus === "new" ? "Статус консультации отменён" : nextStatus === "attended" ? "Лид отмечен как пришедший на консультацию" : nextStatus === "no_answer" ? "Отмечено: не ответил на звонок" : "Лид перенесён в колонку «Записались»");
       });
       document.querySelectorAll(".lead-callback-action").forEach((button) => button.onclick = () => {
         const record = recordById.get(button.dataset.recordId);
         if (!record) return;
-        openCallbackDialog(tab, record, () => { leadStatusFilter = "callback"; renderCustomRecords(); });
+        openCallbackDialog(tab, record, () => { followFilter("callback"); renderCustomRecords(); });
       });
       document.querySelectorAll(".lead-survey-action").forEach((button) => button.onclick = () => {
         const record = recordById.get(button.dataset.recordId);
-        if (record) openSurveyDialog(tab, record, (filter) => { if (filter) leadStatusFilter = filter; renderCustomRecords(); });
+        if (record) openSurveyDialog(tab, record, (filter) => { followFilter(filter); renderCustomRecords(); });
       });
       document.querySelectorAll(".lead-student-action").forEach((button) => button.onclick = () => {
         const record = recordById.get(button.dataset.recordId);
         if (!record) return;
-        openStudentDialog(tab, record, (filter) => { if (filter) leadStatusFilter = filter; renderCustomRecords(); });
+        openStudentDialog(tab, record, (filter) => { followFilter(filter); renderCustomRecords(); });
       });
       document.querySelectorAll(".custom-record-delete").forEach((button) => button.onclick = async () => {
         const record = recordById.get(button.dataset.recordId);
@@ -2045,12 +2270,15 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
         const { data, error } = await db.from("custom_records").delete().eq("id", record.id).select("id").maybeSingle();
         if (error || !data) { button.disabled = false; toast(error ? "Не удалось удалить запись. Проверьте права доступа." : "Запись не найдена или у вас нет прав на удаление."); return; }
         toast("Запись удалена");
-        await showCustomTab(tab);
+        await showCustomTab(tab, { filter: lastLeadFilter });
       });
     };
     $("customRecordSearch").oninput = renderCustomRecords;
     $("leadStatusColumns")?.querySelectorAll("[data-lead-filter]").forEach((button) => {
       button.onclick = () => { leadStatusFilter = button.dataset.leadFilter; renderCustomRecords(); };
+    });
+    page.querySelectorAll("#leadModeSwitch [data-lead-mode]").forEach((button) => {
+      button.onclick = () => { leadStatusFilter = button.dataset.leadMode === "queue" ? "queue" : "all"; renderCustomRecords(); };
     });
     $("excelLeadDateSort")?.addEventListener("click", () => {
       leadSortAscending = !leadSortAscending;
@@ -2060,6 +2288,36 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
       renderCustomRecords();
     });
     renderCustomRecords();
+    if (tab.name === excelLeadsTabName) {
+      // Раз в минуту открытый список сам подтягивает новые заявки и чужие изменения: новая заявка и наступивший перезвон
+      // встают наверх очереди без кнопок. Не мешаем, пока открыто окно или меню, идёт набор текста или пересчёт очереди.
+      let loading = false;
+      // Кнопка действия выключена, пока её запрос в пути (статус, удаление): в этот момент список не подменяем.
+      const busy = () => callQueueBusy || Boolean(document.querySelector("dialog[open], details.lead-more[open]")) || Boolean(page.querySelector("#customRecordList button:disabled"));
+      const refreshLeads = async () => {
+        if (state.selectedCustomTab?.id !== tab.id || !page.isConnected || !page.classList.contains("active")) { stopLeadsLive(); return; }
+        const focused = document.activeElement;
+        if (loading || busy() || document.hidden || (focused && /^(INPUT|TEXTAREA|SELECT)$/.test(focused.tagName))) return;
+        loading = true;
+        try {
+          const liveBefore = new Set(queueView().entries.filter((entry) => entry.live).map((entry) => entry.record.id));
+          const fresh = await db.from("custom_records").select("*").eq("tab_id", tab.id).order("created_at", { ascending: false });
+          if (fresh.error) return;
+          await Promise.all([loadStudentSummaries(tab.id), loadCallQueue(tab.id)]);
+          // Пока шла загрузка, могли уйти со страницы, открыть окно или нажать кнопку — тогда ничего не трогаем.
+          if (state.selectedCustomTab?.id !== tab.id || !page.isConnected || busy()) return;
+          customRows.splice(0, customRows.length, ...(fresh.data || []));
+          recordById.clear();
+          customRows.forEach((record) => recordById.set(String(record.id), record));
+          if (leadsSignature() === lastLiveSignature) return;
+          renderCustomRecords();
+          const arrived = queueView().entries.filter((entry) => entry.live && !liveBefore.has(entry.record.id));
+          if (arrived.length) toast(arrived.some((entry) => entry.live !== "callback") ? "⚡ Новая заявка — наверху очереди" : "⏰ Пора перезвонить — лид наверху очереди");
+        } finally { loading = false; }
+      };
+      leadsLiveRefresh = refreshLeads;
+      leadsLiveTimer = setInterval(refreshLeads, leadsLiveEveryMs);
+    }
     $("customAddRecord")?.addEventListener("click", () => openCustomRecordDialog(tab, tab.name === excelLeadsTabName ? excelLeadEditFields(fields) : fields));
     if (tab.name === excelLeadsTabName && canManage) {
       $("excelLeadUpload").onclick = () => $("excelLeadFile").click();
@@ -2128,7 +2386,7 @@ async function importExcelLeads(event, tab, existingRows) {
       else { const created = { id: saved.data.id, tab_id: tab.id, values, created_at: updatedAt, updated_at: updatedAt }; existingRows.unshift(created); byPhone.set(digits, created); added++; }
     }
     const summary = "Excel обработан: добавлено " + added + ", обновлено " + updated + ", пропущено " + skipped + ". Файл не сохранялся в CRM." + (issues.length ? " Примеры: " + issues.slice(0, 3).join("; ") : "");
-    await showCustomTab(tab);
+    await showCustomTab(tab, { filter: "all" }); // после загрузки Excel показываем весь список: там видно, что добавилось
     showMessage("excelLeadImportMessage", summary, skipped ? "error" : "success");
   } catch (error) {
     showMessage("excelLeadImportMessage", error.message || "Не удалось прочитать Excel.", "error");
@@ -2152,7 +2410,7 @@ $("customRecordForm").onsubmit = async (event) => {
   if (result.error || !result.data) { showMessage("customRecordMessage", result.error?.message || "Не удалось сохранить изменения. Проверьте права доступа.", "error"); return; }
   state.selectedCustomRecord = null;
   $("customRecordDialog").close();
-  await showCustomTab(tab);
+  await showCustomTab(tab, { filter: lastLeadFilter });
   if (callResultChanged) watchAiComment(record.id, tab, aiBefore);
 };
 $("customTabForm").onsubmit = async (event) => {

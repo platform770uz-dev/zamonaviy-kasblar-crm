@@ -225,6 +225,28 @@ export const uzPhrases = {
   "Отметить результат консультации": "Konsultatsiya natijasini belgilash", "@username или название": "@username yoki nomi",
   "Если Chrome не подключён, Instagram выдаёт ошибку или подтверждённых находок нет — попросите сообщить причину. Пустой Excel создавать не нужно. При CAPTCHA, входе или блокировке остановитесь.": "Agar Chrome ulanmagan bo‘lsa, Instagram xato bersa yoki tasdiqlangan topilmalar bo‘lmasa, sababini aytishni so‘rang. Bo‘sh Excel yaratish shart emas. CAPTCHA, kirish yoki bloklanishda to‘xtang.",
   "После загрузки Excel профили и публикации автоматически появятся в разделе «Блогеры», сгруппированные по профилю-источнику.": "Excel yuklangandan so‘ng profillar va postlar «Blogerlar» bo‘limida manba profili bo‘yicha guruhlangan holda avtomatik paydo bo‘ladi.",
+  // ИИ-очередь звонков — главный экран лидов (кнопка «ИИ maslahat»)
+  "🔥 Очередь ИИ": "🔥 AI navbati", "Все": "Barchasi", "Режим работы с лидами": "Lidlar bilan ishlash rejimi",
+  "🤖 ИИ maslahat": "🤖 AI maslahat",
+  "ИИ составляет очередь… около минуты": "AI navbat tuzmoqda… taxminan bir daqiqa",
+  "Составлена": "Tuzildi", "ИИ": "AI", "по правилам": "qoidalar bo‘yicha", "Позвонили": "Qo‘ng‘iroq qilindi",
+  "Очередь составлена не сегодня. Нажмите «ИИ maslahat», чтобы обновить.": "Navbat bugun tuzilmagan. Yangilash uchun «AI maslahat»ni bosing.",
+  "Очередь составлена не сегодня.": "Navbat bugun tuzilmagan.",
+  "Очередь ещё не составлена. ИИ составляет её сам к 13:00 (пн–сб). Составить сейчас — кнопка «ИИ maslahat».": "Navbat hali tuzilmagan. AI uni o‘zi soat 13:00 ga tuzadi (dushanba–shanba). Hozir tuzish uchun «AI maslahat»ni bosing.",
+  "Очередь ещё не составлена. ИИ составляет её сам к 13:00 (пн–сб).": "Navbat hali tuzilmagan. AI uni o‘zi soat 13:00 ga tuzadi (dushanba–shanba).",
+  "Очередь только что пересчитали — подождите минуту": "Navbat hozirgina yangilandi — bir daqiqa kuting",
+  "Нет прав на пересчёт очереди": "Navbatni yangilashga huquq yo‘q",
+  "Сейчас некому звонить: подходящих лидов нет": "Hozir qo‘ng‘iroq qilinadigan mos lid yo‘q",
+  "Не удалось составить очередь. Попробуйте ещё раз.": "Navbatni tuzib bo‘lmadi. Qayta urinib ko‘ring.",
+  "Уже позвонили": "Qo‘ng‘iroq qilingan", "Звонить сейчас": "Hozir qo‘ng‘iroq qiling", "Место в очереди": "Navbatdagi o‘rni",
+  "Почему сейчас": "Nega hozir", "Что сказать": "Nima deyish kerak",
+  "✓ Позвонили после составления очереди": "✓ Navbat tuzilgandan keyin qo‘ng‘iroq qilingan",
+  "Следующий звонок": "Keyingi qo‘ng‘iroq",
+  "Всем из очереди уже позвонили. Нажмите «ИИ maslahat», чтобы составить новую.": "Navbatdagilarning barchasiga qo‘ng‘iroq qilindi. Yangisini tuzish uchun «AI maslahat»ni bosing.",
+  "⚡ Звонить сейчас": "⚡ Hozir qo‘ng‘iroq qiling",
+  "Отмечено: не ответил на звонок": "Belgilandi: qo‘ng‘iroqqa javob bermadi",
+  "⚡ Новая заявка — наверху очереди": "⚡ Yangi ariza — navbat boshida",
+  "⏰ Пора перезвонить — лид наверху очереди": "⏰ Qayta aloqa vaqti — lid navbat boshida",
 };
 
 export const uzPatterns = [
@@ -254,6 +276,12 @@ export const uzPatterns = [
   [/^Ещё (\d+) в «Ученики» — показать$/, "Yana $1 ta «O‘quvchilar»da — ko‘rsatish"],
   [/^(\d+) раза? оставил\(а\) заявку$/, "$1 marta ariza qoldirgan"],
   [/^Высокое намерение · (\d+) раза?$/, "Yuqori qiziqish · $1 marta"],
+  [/^Очередь готова: (\d+) лидов\. Операторам уйдёт в Telegram$/, "Navbat tayyor: $1 ta lid. Operatorlarga Telegram’da yuboriladi"],
+  [/^ИИ недоступен — очередь по правилам: (\d+) лидов$/, "AI ishlamadi — navbat qoidalar bo‘yicha: $1 ta lid"],
+  [/^Баланс ИИ закончился — очередь по правилам: (\d+) лидов$/, "AI balansi tugagan — navbat qoidalar bo‘yicha: $1 ta lid"],
+  [/^Дальше в очереди · (\d+)$/, "Navbatda keyingilar · $1"],
+  [/^Уже позвонили · (\d+)$/, "Qo‘ng‘iroq qilinganlar · $1"],
+  [/^🔥 В очереди · (\d+)$/, "🔥 Navbatda · $1"],
 ];
 
 const ATTRS = ["placeholder", "aria-label", "title"];
