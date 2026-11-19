@@ -244,6 +244,7 @@ export const uzPhrases = {
   "Следующий звонок": "Keyingi qo‘ng‘iroq",
   "Всем из очереди уже позвонили. Нажмите «ИИ maslahat», чтобы составить новую.": "Navbatdagilarning barchasiga qo‘ng‘iroq qilindi. Yangisini tuzish uchun «AI maslahat»ni bosing.",
   "⚡ Звонить сейчас": "⚡ Hozir qo‘ng‘iroq qiling",
+  "Итог последнего звонка": "So‘nggi qo‘ng‘iroq natijasi", "Подробнее": "Batafsil",
   "Отмечено: не ответил на звонок": "Belgilandi: qo‘ng‘iroqqa javob bermadi",
   "⚡ Новая заявка — наверху очереди": "⚡ Yangi ariza — navbat boshida",
   "⏰ Пора перезвонить — лид наверху очереди": "⏰ Qayta aloqa vaqti — lid navbat boshida",

@@ -749,3 +749,18 @@ a.custom-record-link{color:#087f61;font-weight:650;text-decoration:none}
   .excel-lead-row.is-queue-item{grid-template-areas:"name name" "phone date" "queue queue" "consult consult" "meta meta" "actions actions"}
   .excel-lead-row.is-queue-item>.lead-queue-advice{grid-area:queue}
 }
+
+/* ---------- polish-25 (2026-11-19): итог последнего звонка — понятная фраза от ИИ, запись оператора под «Подробнее» ---------- */
+.lead-call-result{display:grid;gap:6px;min-width:0}
+.lead-call-label{color:#858991;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.excel-lead-meta .lead-call-summary{display:block;margin:0;overflow:visible;-webkit-line-clamp:unset;color:var(--ink);font-size:15px;font-weight:600;line-height:1.5;overflow-wrap:anywhere}
+.lead-call-more>summary{display:inline-flex;align-items:center;gap:6px;min-height:34px;color:#4b5058;font-size:13px;font-weight:700;cursor:pointer;list-style:none}
+.lead-call-more>summary::-webkit-details-marker{display:none}
+.lead-call-more>summary::after{content:"▾";font-size:11px}
+.lead-call-more[open]>summary::after{content:"▴"}
+.lead-call-detail-list{display:grid;gap:7px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fafafa}
+.lead-call-detail{display:grid;grid-template-columns:140px minmax(0,1fr);gap:2px 12px;font-size:13px;line-height:1.45}
+.lead-call-detail span{color:#6b6f80;font-weight:700}
+.excel-lead-meta .lead-call-detail p{display:block;margin:0;overflow:visible;-webkit-line-clamp:unset;overflow-wrap:anywhere}
+.lead-call-detail.is-plain{grid-template-columns:minmax(0,1fr)}
+@media(max-width:600px){.lead-call-detail{grid-template-columns:minmax(0,1fr)}}

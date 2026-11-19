@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-24";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-25";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -1901,11 +1901,37 @@ function openSurveyDialog(tab, record, onChange) {
   refresh();
   dialog.showModal();
 }
+// Итог звонка одной-двумя фразами: строка «Xulosa:» из ИИ-комментария (её пишет teachnova-bot вместе с советом).
+function leadCallSummary(text) {
+  for (const raw of String(text || "").split(/\n+/)) {
+    const found = /^\s*Xulosa\s*:\s*(.+)$/i.exec(raw.replace(/\*/g, ""));
+    if (found) return found[1].trim();
+  }
+  return "";
+}
+// Запись оператора по строкам, как её собирает опрос (composeSurveyText): «Метка: значение». Незаполненные пункты
+// опроса («narx —, to‘langan —, qolgan —») не показываем. Свободный текст оператора идёт как есть, строка за строкой.
+const callDetailLabels = ["Kim bilan", "Farzand", "Maqsad", "Qaror qiluvchi", "E’tiroz", "Kelishuv", "To‘lov", "Keyingi qo‘ng‘iroq", "Izoh"];
+function leadCallDetailsHtml(text) {
+  const rows = [];
+  for (const raw of String(text || "").split(/\n+/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const label = callDetailLabels.find((name) => line.startsWith(name + ":"));
+    const value = label ? line.slice(label.length + 1).trim() : line;
+    if (label && !/[\p{L}\p{N}]/u.test(value.replace(/narx|to‘langan|qolgan|yoshi|qiziqishi/g, ""))) continue;
+    rows.push(label
+      ? '<div class="lead-call-detail"><span>' + escapeHtml(label) + '</span><p>' + escapeHtml(value) + '</p></div>'
+      : '<div class="lead-call-detail is-plain"><p>' + escapeHtml(value) + '</p></div>');
+  }
+  return rows.length ? '<div class="lead-call-detail-list">' + rows.join("") + '</div>' : "";
+}
 // ИИ-совет для администратора: три короткие строки (следующий шаг, что уточнить, состояние лида)
 // и полоса «сколько ещё осталось уточнить» по опросу из 8 пунктов. Старые советы (Qadam/Baho/Tanqid) читаются так же.
 // В очереди ИИ это один блок: «почему сейчас» и «что сказать» из очереди идут первыми и заменяют прошлый «следующий шаг».
 function leadAdviceHtml(text, survey, queue = null) {
   const kinds = [
+    { re: /^Xulosa\s*:\s*(.+)$/i, kind: "sum", title: "" }, // итог звонка показан отдельно, над записью оператора
     { re: /^(?:Keyingi qadam|Qadam)\s*:\s*(.+)$/i, kind: "next", title: "Следующий шаг" },
     { re: /^(?:So[‘’ʻ'`´]?rang|Tanqid)\s*:\s*(.+)$/i, kind: "ask", title: "Что уточнить" },
     { re: /^(?:Holat|Baho)\s*:\s*(.+)$/i, kind: "state", title: "Состояние" },
@@ -1919,7 +1945,8 @@ function leadAdviceHtml(text, survey, queue = null) {
   }
   if (queue) rows.push({ kind: "why", title: "Почему сейчас", text: queue.reason }, { kind: "say", title: "Что сказать", text: queue.say });
   const order = { why: 0, say: 1, next: 2, ask: 3, state: 4, plain: 5 };
-  const shown = rows.filter((row) => row.text && !(queue && row.kind === "next")).sort((a, b) => order[a.kind] - order[b.kind]);
+  const shown = rows.filter((row) => row.text && row.kind !== "sum" && !(queue && row.kind === "next")).sort((a, b) => order[a.kind] - order[b.kind]);
+  if (!shown.length) return "";
   const total = Number(survey?.total) || 8, filled = Math.min(total, Number(survey?.filled) || 0);
   const left = Math.round((total - filled) / total * 100);
   const progressText = filled >= total ? "Всё уточнено ✓" : "Уточнено " + filled + " из " + total + " · осталось " + left + "%";
@@ -1990,10 +2017,18 @@ function customRecordCard(record, fields, canManage, position = 0, queue = null)
     const consultActions = canManage
       ? '<div class="lead-consult-actions" aria-label="Отметить результат консультации"><span>Консультация:</span><button class="lead-status-action is-booked' + (consultStatus === "booked" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="booked" aria-pressed="' + (consultStatus === "booked") + '">Записался</button><button class="lead-status-action is-attended' + (consultStatus === "attended" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="attended" aria-pressed="' + (consultStatus === "attended") + '">Пришёл</button><button class="lead-status-action is-no-answer' + (consultStatus === "no_answer" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="no_answer" aria-pressed="' + (consultStatus === "no_answer") + '">Не ответил</button>' + callbackButton + studentButton + '</div>'
       : '<div class="lead-consult-actions"><span class="lead-consult-status ' + (consultStatus === "attended" ? "is-attended" : consultStatus === "booked" ? "is-booked" : consultStatus === "no_answer" ? "is-no-answer" : consultStatus === "callback" ? "is-callback" : consultStatus === "student" ? "is-student" : "") + '">' + (consultStatus === "attended" ? "Пришёл на консультацию" : consultStatus === "booked" ? "Записался на консультацию" : consultStatus === "no_answer" ? "Не ответил на звонок" : consultStatus === "callback" ? "Перезвонить" + (callbackAt ? " · " + callbackTimeText(callbackAt) : "") : consultStatus === "student" ? studentStatusText(record) : "Статус консультации не указан") + '</span></div>';
-    const callResultDisplay = callResult
-      ? '<p><b>Результат последнего звонка:</b> ' + escapeHtml(callResult) + '</p>'
-      : '<p class="excel-lead-call-placeholder">Итог звонка ещё не записан</p>';
     const aiComment = callResult ? String(values["ИИ-комментарий"] || "").trim() : "";
+    // Итог звонка: понятная фраза от ИИ, а запись оператора — под «Подробнее». Пока ИИ не ответил (или совет старый,
+    // без итога) — запись оператора сразу, но по строкам, а не одним абзацем.
+    const callSummary = leadCallSummary(aiComment);
+    const callDetails = callResult ? leadCallDetailsHtml(callResult) : "";
+    const callResultDisplay = !callResult
+      ? '<p class="excel-lead-call-placeholder">Итог звонка ещё не записан</p>'
+      : '<div class="lead-call-result"><span class="lead-call-label">Итог последнего звонка</span>'
+        + (callSummary
+          ? '<p class="lead-call-summary">' + escapeHtml(callSummary) + '</p><details class="lead-call-more"><summary>Подробнее</summary>' + callDetails + '</details>'
+          : callDetails)
+        + '</div>';
     // В очереди — один блок ИИ сразу под телефоном: подсказка очереди вместе с «что уточнить» и «состояние» из прошлого
     // совета. После звонка подсказка очереди устарела: остаётся свежий совет. В общем списке — как раньше, под итогом звонка.
     const queueAdvice = !inQueueView ? ""
