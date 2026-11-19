@@ -568,3 +568,127 @@ a.custom-record-link{color:#087f61;font-weight:650;text-decoration:none}
   .excel-lead-phone{white-space:nowrap;align-self:center}
   .excel-lead-actions{flex-wrap:wrap;justify-content:flex-end}
 }
+
+/* ---------- polish-23 (2026-11-19): ученики отдельно от лидов; удобство на телефоне и компьютере ---------- */
+/* Фильтры лидов — компактные «таблетки» в одну строку, прилипают под шапкой; «Ученики» — справа, отдельно. */
+.lead-status-columns{display:flex!important;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 12px;padding:10px 0;position:sticky;top:58px;z-index:4;background:#fffffff2;backdrop-filter:blur(10px)}
+.lead-status-column{flex:0 0 auto;min-height:40px;padding:0 6px 0 14px;border-radius:999px;font-size:13px;gap:8px;white-space:nowrap}
+.lead-status-column b{min-width:26px;height:26px;padding:0 7px;font-size:12px}
+.lead-status-column.is-active{box-shadow:0 0 0 2px #10a37f40,0 2px 8px #10a37f1a}
+.lead-status-column.is-student{margin-left:auto;font-weight:800}
+.lead-status-column.is-student.is-active{border-color:#1b6b43;background:#1b6b43;color:#fff}
+.lead-status-column.is-student.is-active b{background:#ffffff33;color:#fff}
+.custom-record-toolbar{margin:0 0 12px}
+.student-search-hint{display:block;width:100%;margin:-2px 0 12px;padding:10px 14px;border:1px dashed #8fcfaa;border-radius:12px;background:#f3fbf6;color:#1b6b43;font-size:13px;font-weight:700;text-align:left;cursor:pointer}
+.student-search-hint.hidden{display:none}
+
+/* Строка лида на компьютере: имя целиком, бейджи под именем, действия справа, статусы и итог звонка во всю ширину. */
+.excel-lead-list-head,.excel-lead-row{grid-template-columns:minmax(0,1.3fr) minmax(140px,.7fr) 92px auto}
+.excel-lead-row{gap:12px 16px;padding:14px 18px}
+.excel-lead-row>.lead-consult-actions,.excel-lead-row>.excel-lead-meta{grid-column:1/-1}
+.excel-lead-title{display:flex;flex-direction:column;gap:5px;min-width:0}
+.excel-lead-name b{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.3;overflow-wrap:anywhere}
+.excel-lead-badges{display:flex;flex-wrap:wrap;gap:5px}
+.excel-lead-phone{justify-self:start}
+.excel-lead-row>.excel-lead-actions{align-items:center;flex-wrap:nowrap}
+.excel-lead-row>.excel-lead-actions>.button{min-width:0;min-height:38px;padding:0 14px;white-space:nowrap}
+
+/* Меню «⋯»: «Изменить» и «Удалить» не на виду, чтобы не нажать случайно. */
+.lead-more{position:relative;flex:0 0 auto}
+.lead-more>summary{list-style:none;width:42px;min-width:0!important;min-height:38px;padding:0!important;justify-content:center;font-size:18px;font-weight:800;cursor:pointer}
+.lead-more>summary::-webkit-details-marker{display:none}
+.lead-more[open]>summary{background:var(--soft)}
+.lead-more-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:8;display:grid;gap:2px;min-width:180px;padding:6px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:0 14px 34px #11182724}
+.lead-more-menu .button{width:100%;min-width:0;min-height:40px;justify-content:flex-start;padding:0 12px;border:0;background:transparent}
+.lead-more-menu .button:hover{background:var(--soft)}
+.lead-more-menu .button.danger{color:var(--danger)}
+
+/* Ученик в списке «Ученики»: оплата и долг вместо кнопок консультации. */
+.excel-lead-row.is-student-row{grid-template-columns:minmax(0,1.3fr) minmax(140px,.7fr) minmax(160px,.8fr) auto;border-color:#cfe9d9;background:#fbfefc}
+.excel-lead-row.is-student-row.has-debt{border-left:4px solid #e0894a}
+.student-row-status{display:grid;gap:3px;min-width:0}
+.student-pay{justify-self:start;display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:999px;background:#f1f3f2;color:#5d6761;font-size:12px;font-weight:750;white-space:nowrap}
+.student-pay.is-debt{background:#fff0e3;color:#a4501a}
+.student-pay.is-paid{background:#e3f5ea;color:#1b6b43}
+.student-paid-line{color:var(--muted);font-size:11px}
+
+@media(max-width:760px){
+  /* Шапка раздела короче: кнопки Excel в одну строку, список лидов виден сразу. */
+  .custom-record-page-header{gap:12px;margin-bottom:10px;padding-bottom:12px}
+  .custom-record-page-header h1{font-size:22px}
+  .custom-record-page-header .subtle{display:none}
+  .excel-lead-page-actions{display:flex;flex-wrap:nowrap;gap:8px;overflow-x:auto;scrollbar-width:none}
+  .excel-lead-page-actions::-webkit-scrollbar{display:none}
+  .excel-lead-page-actions .button{flex:0 0 auto;width:auto;min-height:40px;padding:0 14px;font-size:13px}
+  .excel-lead-page-actions #customAddRecord{order:-1}
+  /* Повторные заявки — одна строка с прокруткой вбок. */
+  .high-intent-panel{margin-bottom:10px;padding:12px 14px}
+  .high-intent-header{margin-bottom:8px}
+  .high-intent-header .eyebrow,.high-intent-header .subtle{display:none}
+  .high-intent-header h2{font-size:15px}
+  .high-intent-total{width:30px;height:30px;font-size:13px}
+  .high-intent-list{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
+  .high-intent-list::-webkit-scrollbar{display:none}
+  .high-intent-item{flex:0 0 76%;flex-direction:column;align-items:flex-start;gap:3px;scroll-snap-align:start}
+  /* Фильтры — строка с прокруткой, прилипает под шапкой. */
+  .lead-status-columns{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;top:54px;margin:0 -15px 10px;padding:8px 15px}
+  .lead-status-columns::-webkit-scrollbar{display:none}
+  .lead-status-column{min-height:38px;font-size:12.5px}
+  .lead-status-column.is-student{margin-left:0}
+  .custom-record-toolbar{flex-direction:row;align-items:center;gap:8px}
+  .custom-record-toolbar .search-box{flex:1;width:auto}
+  .custom-record-count{padding:6px 10px;font-size:11px}
+  /* Карточка лида: имя, крупная кнопка звонка, статусы одной строкой, итог звонка и действия. */
+  .excel-lead-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"name name" "phone date" "consult consult" "meta meta" "actions actions";gap:10px;padding:14px}
+  .excel-lead-row>.excel-lead-name{grid-area:name}
+  .excel-lead-row>.excel-lead-phone{grid-area:phone}
+  .excel-lead-row>.excel-lead-date{grid-area:date;align-self:center;font-size:11px}
+  .excel-lead-row>.lead-consult-actions{grid-area:consult;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -14px;padding:2px 14px}
+  .excel-lead-row>.lead-consult-actions::-webkit-scrollbar{display:none}
+  .excel-lead-row>.lead-consult-actions>span:first-child{display:none}
+  .excel-lead-row>.excel-lead-meta{grid-area:meta}
+  .excel-lead-row>.excel-lead-actions{grid-area:actions;justify-content:stretch}
+  .excel-lead-row>.excel-lead-actions>.button{flex:1 1 0;padding:0 10px;font-size:13px}
+  .excel-lead-row .lead-status-action{flex:0 0 auto;min-height:36px;padding:0 12px;font-size:12px}
+  .excel-lead-name .mini-avatar{display:none}
+  .excel-lead-phone{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border-radius:999px;background:var(--accent);color:#fff!important;font-size:15px;font-weight:700;white-space:nowrap}
+  .excel-lead-phone::before{content:"📞";font-size:15px}
+  .excel-lead-meta p{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+  .excel-lead-row.is-student-row{grid-template-columns:minmax(0,1fr);grid-template-areas:"name" "phone" "status" "actions"}
+  .excel-lead-row.is-student-row>.student-row-status{grid-area:status}
+}
+@media(max-width:640px){
+  /* Шапка: без лишнего, название в одну строку. */
+  .secure-pill{display:none}
+  .mobile-brand .brand-name{white-space:nowrap;font-size:14px}
+  .language-switch{min-height:40px;padding:0 10px;font-size:11px}
+  .topbar .icon-button{width:40px;height:40px}
+  /* Поля ввода 16px: телефон не увеличивает страницу при наборе. */
+  .search-box input,.input-control,.callback-dialog input,.callback-dialog select,.callback-dialog textarea{font-size:16px}
+  .toast{bottom:calc(84px + env(safe-area-inset-bottom))}
+  /* Окна (перезвон, опрос, ученик, итог звонка) — снизу во всю ширину, кнопки всегда под пальцем. */
+  .callback-dialog{width:100vw;max-width:100vw;max-height:94dvh;margin:auto 0 0;overflow:auto;border-radius:20px 20px 0 0;border-bottom:0}
+  .callback-form{padding:18px 16px 0}
+  .callback-actions{position:sticky;bottom:0;z-index:2;margin:0 -16px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-top:1px solid #eef0ef;background:#fff}
+  .callback-actions .button{flex:1 1 0;min-width:0}
+}
+/* Компьютер: боковое меню всегда на месте при прокрутке; на широких экранах — больше места под список. */
+@media(min-width:641px){.sidebar{position:sticky;top:0;align-self:flex-start;height:100vh;height:100dvh;overflow-y:auto}}
+@media(min-width:1280px){.workspace{width:min(100%,1200px)}}
+@media(max-width:760px){.lead-more-menu{top:auto;bottom:calc(100% + 6px)}}
+@media(max-width:520px){.student-tiles{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.student-tiles div{padding:8px 9px}.student-tiles span{font-size:10px}.student-tiles b{font-size:13px;overflow-wrap:anywhere}}
+@media(min-width:641px){.topbar{justify-content:flex-end}}
+@media(max-width:640px){
+  /* Дашборд на телефоне: период одной строкой, суммы в плашках без переноса. */
+  .dash-head{gap:10px;margin-bottom:12px;padding-bottom:12px}
+  .dash-head h1{font-size:24px}
+  .dash-head .subtle{display:none}
+  .dash-controls{flex-wrap:nowrap;width:100%;overflow-x:auto;scrollbar-width:none}
+  .dash-controls::-webkit-scrollbar{display:none}
+  .dash-period{flex:0 0 auto;min-height:38px;padding:0 13px}
+  .dash-controls .icon-button{flex:0 0 38px;width:38px;height:38px;margin-left:auto}
+  .dash-tiles{gap:8px}
+  .dash-tile{gap:4px;padding:12px}
+  .dash-tile-value{font-size:19px;white-space:nowrap}
+  .dash-tile-sub{font-size:11px}
+}

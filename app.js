@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-22";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-23";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -691,8 +691,12 @@ function isFargonaTezkorTab(tab) { return /^fargona\s+tezkor$/i.test(String(tab?
     nav.onclick = () => showCustomTab(tab);
     if (tab.name === excelLeadsTabName) {
       const mobileNav = document.createElement("button"); mobileNav.className = "mobile-nav-item excel-leads-mobile-nav"; mobileNav.dataset.view = "custom-" + tab.id; mobileNav.dataset.bound = "1";
-      mobileNav.innerHTML = '<span>⇧</span><small>Excel-лиды</small>';
+      mobileNav.innerHTML = '<span>☎</span><small>Лиды</small>';
       $("mobileNav").insertBefore(mobileNav, $("mobileMore")); mobileNav.onclick = () => showCustomTab(tab);
+      // «Ученики» на телефоне — в одно касание: тот же раздел, сразу открыт список учеников.
+      const studentsNav = document.createElement("button"); studentsNav.className = "mobile-nav-item excel-leads-mobile-nav students-mobile-nav"; studentsNav.dataset.view = "custom-" + tab.id; studentsNav.dataset.bound = "1";
+      studentsNav.innerHTML = '<span>🎓</span><small>Ученики</small>';
+      $("mobileNav").insertBefore(studentsNav, $("mobileMore")); studentsNav.onclick = () => showCustomTab(tab, { filter: "student" });
     }
   }
   const groups = new Map();
@@ -1092,7 +1096,7 @@ function openStudentCreateDialog(tab, record, onChange) {
     record.values = nextValues; record.updated_at = updatedAt;
     studentSummary.set(record.id, { price: priceValue, paid: paidValue });
     rememberStudentPrice(priceValue);
-    finish(); toast("Карточка ученика создана");
+    finish(); toast("Карточка ученика создана — лид перенесён в «Ученики»");
     onChange("student");
     openStudentCard(tab, record, onChange);
   };
@@ -1808,15 +1812,34 @@ function customRecordCard(record, fields, canManage, position = 0) {
     const lastEditor = String(values["Последний изменивший"] || "").trim();
     const updatedTime = record.updated_at || record.created_at;
     const surveyState = surveyProgress(values["Опрос"]);
-    const surveyButton = canManage ? '<button class="button secondary lead-survey-action' + (surveyState.started && surveyState.filled === 8 ? ' is-full' : '') + '" type="button" data-record-id="' + escapeHtml(record.id) + '">Опрос' + (surveyState.started ? ' ' + surveyState.filled + '/8' : '') + '</button>' : "";
-    const clarityBadge = leadNeedsClarification(values) ? '<span class="lead-unclear-badge">Нужно уточнить</span>' : "";
-    const actions = canManage
-      ? '<div class="excel-lead-actions">' + surveyButton + '<button class="button secondary custom-record-edit" type="button" data-record-id="' + escapeHtml(record.id) + '">Изменить</button><button class="button danger custom-record-delete" type="button" data-record-id="' + escapeHtml(record.id) + '">Удалить</button></div>'
-      : "";
     const consultStatus = String(values["Статус консультации"] || "new");
+    const recordId = escapeHtml(record.id);
+    const rowId = "excel-lead-" + String(record.id).replace(/[^a-zA-Z0-9_-]/g, "");
+    const leadNumber = '<span class="excel-lead-number">' + (position + 1) + '.</span>';
+    const phoneLink = '<a class="excel-lead-phone" href="' + escapeHtml(phoneHref(phone)) + '" aria-label="Позвонить: ' + escapeHtml(phone) + '">' + escapeHtml(phone) + '</a>';
+    const dateHtml = '<time class="excel-lead-date" datetime="' + escapeHtml(createdTime) + '">' + escapeHtml(dateText(createdTime)) + '</time>';
+    // «⋯»: редкие действия (изменить имя и телефон, удалить) спрятаны в меню, чтобы «Удалить» не нажать случайно.
+    const moreMenu = canManage
+      ? '<details class="lead-more"><summary class="button secondary" aria-label="Ещё действия" title="Ещё действия">⋯</summary><div class="lead-more-menu"><button class="button secondary custom-record-edit" type="button" data-record-id="' + recordId + '">Изменить</button><button class="button danger custom-record-delete" type="button" data-record-id="' + recordId + '">Удалить</button></div></details>'
+      : "";
+    if (consultStatus === "student" || studentSummary.has(record.id)) {
+      // Ученик: вместо кнопок консультации — оплата и карточка ученика.
+      const info = studentSummary.get(record.id);
+      const debt = info ? Math.max(0, info.price - info.paid) : 0;
+      const payState = !info ? '<span class="student-pay">Карточка не заполнена</span>'
+        : debt > 0 ? '<span class="student-pay is-debt">Долг ' + escapeHtml(moneyText(debt)) + '</span>' : '<span class="student-pay is-paid">Оплачено полностью</span>';
+      const paidLine = info ? '<small class="student-paid-line">Оплачено ' + escapeHtml(moneyText(info.paid)) + ' из ' + escapeHtml(moneyText(info.price)) + '</small>' : "";
+      const studentActions = canManage ? '<div class="excel-lead-actions"><button class="button primary lead-student-action" type="button" data-record-id="' + recordId + '">Карточка ученика</button>' + moreMenu + '</div>' : "";
+      return '<article id="' + escapeHtml(rowId) + '" class="crm-card excel-lead-row is-student-row' + (debt > 0 ? ' has-debt' : '') + '"><div class="excel-lead-name">' + leadNumber + '<span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><span class="excel-lead-title"><b>' + escapeHtml(name) + '</b></span></div>' + phoneLink + '<div class="student-row-status">' + payState + paidLine + '</div>' + studentActions + '</article>';
+    }
+    const surveyButton = canManage ? '<button class="button secondary lead-survey-action' + (surveyState.started && surveyState.filled === 8 ? ' is-full' : '') + '" type="button" data-record-id="' + recordId + '">Опрос' + (surveyState.started ? ' ' + surveyState.filled + '/8' : '') + '</button>' : "";
+    const callEditButton = canManage ? '<button class="button secondary excel-lead-call-edit" type="button" data-record-id="' + recordId + '">✎ Итог звонка</button>' : "";
+    const clarityBadge = leadNeedsClarification(values) ? '<span class="lead-unclear-badge">Нужно уточнить</span>' : "";
+    const actions = canManage ? '<div class="excel-lead-actions">' + surveyButton + callEditButton + moreMenu + '</div>' : "";
     const consultStatusClass = consultStatus === "booked" ? " is-consult-booked" : consultStatus === "attended" ? " is-consult-attended" : consultStatus === "no_answer" ? " is-consult-no-answer" : consultStatus === "callback" ? " is-consult-callback" : consultStatus === "student" ? " is-consult-student" : "";
     const callbackAt = String(values[callbackTimeField] || "");
-    const callbackButton = canManage && (consultStatus === "no_answer" || consultStatus === "callback")
+    // «Перезвонить» доступно для любого лида: перезвон часто просят ещё на первом звонке.
+    const callbackButton = canManage
       ? '<button class="lead-status-action is-callback lead-callback-action' + (consultStatus === "callback" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '">Перезвонить' + (consultStatus === "callback" && callbackAt ? " · " + escapeHtml(callbackTimeText(callbackAt)) : "") + '</button>'
       : "";
     const studentButton = canManage
@@ -1827,15 +1850,12 @@ function customRecordCard(record, fields, canManage, position = 0) {
       : '<div class="lead-consult-actions"><span class="lead-consult-status ' + (consultStatus === "attended" ? "is-attended" : consultStatus === "booked" ? "is-booked" : consultStatus === "no_answer" ? "is-no-answer" : consultStatus === "callback" ? "is-callback" : consultStatus === "student" ? "is-student" : "") + '">' + (consultStatus === "attended" ? "Пришёл на консультацию" : consultStatus === "booked" ? "Записался на консультацию" : consultStatus === "no_answer" ? "Не ответил на звонок" : consultStatus === "callback" ? "Перезвонить" + (callbackAt ? " · " + callbackTimeText(callbackAt) : "") : consultStatus === "student" ? studentStatusText(record) : "Статус консультации не указан") + '</span></div>';
     const callResultDisplay = callResult
       ? '<p><b>Результат последнего звонка:</b> ' + escapeHtml(callResult) + '</p>'
-      : '<p class="excel-lead-call-placeholder">Бу ерда қўнғироқ натижалари ёзилади.</p>';
+      : '<p class="excel-lead-call-placeholder">Итог звонка ещё не записан</p>';
     const aiComment = callResult ? String(values["ИИ-комментарий"] || "").trim() : "";
     const aiDisplay = aiComment ? leadAdviceHtml(aiComment, surveyState) : "";
-    const callEdit = canManage ? '<button class="excel-lead-call-edit icon-button" type="button" data-record-id="' + escapeHtml(record.id) + '" aria-label="Изменить результат последнего звонка" title="Изменить результат последнего звонка">✎</button>' : "";
-    const callMeta = '<div class="excel-lead-meta"><div class="excel-lead-call-row"><div class="excel-lead-call-copy">' + callResultDisplay + aiDisplay + '</div>' + callEdit + '</div><small>Последнее изменение: ' + (lastEditor ? escapeHtml(lastEditor) + ' · ' : '') + escapeHtml(dateTimeText(updatedTime)) + '</small></div>';
-    const leadNumber = '<span class="excel-lead-number">' + (position + 1) + '.</span>';
+    const callMeta = '<div class="excel-lead-meta"><div class="excel-lead-call-row"><div class="excel-lead-call-copy">' + callResultDisplay + aiDisplay + '</div></div><small>Последнее изменение: ' + (lastEditor ? escapeHtml(lastEditor) + ' · ' : '') + escapeHtml(dateTimeText(updatedTime)) + '</small></div>';
     const intentBadge = (highIntent ? '<span class="lead-intent-badge">Высокое намерение · ' + escapeHtml(leadSubmissionCountText(submissionCount)) + '</span>' : "") + clarityBadge;
-    const rowId = "excel-lead-" + String(record.id).replace(/[^a-zA-Z0-9_-]/g, "");
-    return '<article id="' + escapeHtml(rowId) + '" class="crm-card excel-lead-row' + (highIntent ? ' is-high-intent' : '') + consultStatusClass + '"><div class="excel-lead-name">' + leadNumber + '<span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><b>' + escapeHtml(name) + '</b>' + intentBadge + '</div><a class="excel-lead-phone" href="' + escapeHtml(phoneHref(phone)) + '">' + escapeHtml(phone) + '</a><time class="excel-lead-date" datetime="' + escapeHtml(createdTime) + '">' + escapeHtml(dateText(createdTime)) + '</time>' + actions + consultActions + callMeta + '</article>';
+    return '<article id="' + escapeHtml(rowId) + '" class="crm-card excel-lead-row' + (highIntent ? ' is-high-intent' : '') + consultStatusClass + '"><div class="excel-lead-name">' + leadNumber + '<span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><span class="excel-lead-title"><b>' + escapeHtml(name) + '</b>' + (intentBadge ? '<span class="excel-lead-badges">' + intentBadge + '</span>' : '') + '</span></div>' + phoneLink + dateHtml + actions + consultActions + callMeta + '</article>';
   }
   const titleField = fields.find((field) => /лид|имя|name/i.test(field.name) && String(values[field.name] || "").trim());
   const title = titleField ? values[titleField.name] : Object.values(values).find((value) => String(value || "").trim());
@@ -1868,7 +1888,13 @@ function customRecordCard(record, fields, canManage, position = 0) {
     : "";
   return '<article class="crm-card custom-record-card"><header class="custom-record-card-head"><div><p class="eyebrow">ЗАПИСЬ</p><h2>' + escapeHtml(title || "Без имени") + '</h2><small class="subtle">Обновлено: ' + escapeHtml(dateText(updated)) + '</small></div><span class="custom-record-completion">' + filled + ' из ' + fields.length + ' полей</span></header><div class="custom-record-fields">' + cells + '</div>' + actions + '</article>';
 }
-async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(tab); const canManage = canManageCustomTab(tab);
+// Меню «⋯» у лида: закрываем при клике мимо него и после выбора пункта.
+document.addEventListener("click", (event) => {
+  document.querySelectorAll("details.lead-more[open]").forEach((menu) => {
+    if (!menu.contains(event.target) || event.target.closest(".lead-more-menu button")) menu.open = false;
+  });
+});
+async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFargonaTezkorTab(tab); const canManage = canManageCustomTab(tab);
   state.selectedCustomTab = tab;
   saveView({ type: "tab", id: tab.id });
   document.querySelectorAll(".page").forEach((node) => node.classList.remove("active"));
@@ -1884,7 +1910,7 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
     $("sourceBack").onclick = () => setPage("bloggers");
   } else {
     const isExcelLeads = tab.name === excelLeadsTabName;
-    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все лиды</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button><button type="button" class="lead-status-column is-student" data-lead-filter="student"><span>Стал учеником</span><b data-count="student">0</b></button><button type="button" class="lead-status-column is-unclear" data-lead-filter="unclear"><span>Нужно уточнить</span><b data-count="unclear">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
+    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все лиды</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button><button type="button" class="lead-status-column is-unclear" data-lead-filter="unclear"><span>Нужно уточнить</span><b data-count="unclear">0</b></button><button type="button" class="lead-status-column is-student" data-lead-filter="student"><span>Ученики</span><b data-count="student">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<button type="button" id="studentSearchHint" class="student-search-hint hidden"></button><div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
   }
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo);
@@ -1909,41 +1935,62 @@ async function showCustomTab(tab) { const nestedInBloggers = isFargonaTezkorTab(
   } else {
     const recordById = new Map(customRows.map((record) => [String(record.id), record]));
     let leadSortAscending = false;
-    let leadStatusFilter = "all";
+    let leadStatusFilter = options.filter === "student" ? "student" : "all";
+    // Ученики (есть карточка ученика или статус «student») лежат только под кнопкой «Ученики»: в остальных списках их нет.
+    const studentsSeparate = tab.name === excelLeadsTabName;
+    const isStudentRecord = (record) => studentsSeparate && (String(record.values?.["Статус консультации"] || "") === "student" || studentSummary.has(record.id));
     const renderLeadStatusColumns = () => {
       const columns = $("leadStatusColumns");
       if (!columns) return;
-      const counts = { all: customRows.length, booked: 0, attended: 0, no_answer: 0, callback: 0, student: 0, unclear: 0 };
+      const counts = { all: 0, booked: 0, attended: 0, no_answer: 0, callback: 0, student: 0, unclear: 0 };
       customRows.forEach((record) => {
+        if (isStudentRecord(record)) { counts.student++; return; }
+        counts.all++;
         const status = String(record.values?.["Статус консультации"] || "new");
         if (status === "booked") counts.booked++;
         if (status === "attended") counts.attended++;
         if (status === "no_answer") counts.no_answer++;
         if (status === "callback") counts.callback++;
-        if (status === "student") counts.student++;
         if (leadNeedsClarification(record.values)) counts.unclear++;
       });
       columns.querySelectorAll("[data-lead-filter]").forEach((button) => {
         const filter = button.dataset.leadFilter;
         button.classList.toggle("is-active", filter === leadStatusFilter);
+        button.setAttribute("aria-pressed", String(filter === leadStatusFilter));
         button.querySelector("[data-count]").textContent = String(counts[filter] ?? 0);
       });
+      // Строка фильтров на телефоне прокручивается вбок: держим выбранную кнопку на виду.
+      const activeColumn = columns.querySelector(".is-active");
+      if (activeColumn && columns.scrollWidth > columns.clientWidth) columns.scrollLeft = Math.max(0, activeColumn.offsetLeft - (columns.clientWidth - activeColumn.offsetWidth) / 2);
+      // Нижнее меню телефона: подсвечиваем «Лиды» или «Ученики» — смотря какой список открыт.
+      document.querySelectorAll("#mobileNav .excel-leads-mobile-nav").forEach((node) => node.classList.toggle("active", node.classList.contains("students-mobile-nav") === (leadStatusFilter === "student")));
     };
     const renderCustomRecords = () => {
       const query = $("customRecordSearch").value.trim().toLocaleLowerCase();
-      const visible = customRows.filter((record) => {
+      const matchesQuery = (record) => !query || Object.values(record.values || {}).some((value) => String(value ?? "").toLocaleLowerCase().includes(query));
+      const inFilter = customRows.filter((record) => {
+        const student = isStudentRecord(record);
+        if (leadStatusFilter === "student") return student;
+        if (student) return false;
         const status = String(record.values?.["Статус консультации"] || "new");
-        const matchesStatus = leadStatusFilter === "all" || (leadStatusFilter === "unclear" ? leadNeedsClarification(record.values) : status === leadStatusFilter);
-        const matchesQuery = !query || Object.values(record.values || {}).some((value) => String(value ?? "").toLocaleLowerCase().includes(query));
-        return matchesStatus && matchesQuery;
+        return leadStatusFilter === "all" || (leadStatusFilter === "unclear" ? leadNeedsClarification(record.values) : status === leadStatusFilter);
       });
+      const visible = inFilter.filter(matchesQuery);
       renderLeadStatusColumns();
       if (tab.name === excelLeadsTabName) visible.sort((a, b) => {
         const aTime = Date.parse(a.values?.created_time || a.created_at || "") || 0, bTime = Date.parse(b.values?.created_time || b.created_at || "") || 0;
         return leadSortAscending ? aTime - bTime : bTime - aTime;
       });
-      if (tab.name === excelLeadsTabName) renderHighIntentLeads(visible);
-      $("customRecordCount").textContent = query ? visible.length + " из " + customRows.length + " записей" : customRows.length + " записей";
+      if (tab.name === excelLeadsTabName) renderHighIntentLeads(leadStatusFilter === "student" ? [] : visible);
+      // Поиск по лидам подсказывает, если такой человек уже среди учеников (они в этом списке не показываются).
+      const studentHint = $("studentSearchHint");
+      if (studentHint) {
+        const hiddenStudents = query && leadStatusFilter !== "student" ? customRows.filter((record) => isStudentRecord(record) && matchesQuery(record)).length : 0;
+        studentHint.classList.toggle("hidden", !hiddenStudents);
+        studentHint.textContent = hiddenStudents ? "Ещё " + hiddenStudents + " в «Ученики» — показать" : "";
+        studentHint.onclick = () => { leadStatusFilter = "student"; renderCustomRecords(); };
+      }
+      $("customRecordCount").textContent = query ? visible.length + " из " + inFilter.length + " записей" : inFilter.length + " записей";
       $("customRecordList").innerHTML = visible.map((record, index) => customRecordCard(record, fields, canManage, index)).join("") || '<div class="empty-state">' + (query ? "По этому запросу записей нет." : "Записей пока нет.") + '</div>';
       if (String(tab.name).trim().toLowerCase() === "blogerlik leadlari bolalar") attachYbaInviteActions(visible);
       document.querySelectorAll(".custom-record-edit").forEach((button) => button.onclick = () => {

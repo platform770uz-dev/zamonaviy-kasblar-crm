@@ -120,6 +120,9 @@ export const uzPhrases = {
   "Не удалось сохранить платёж. Проверьте права доступа.": "To‘lovni saqlab bo‘lmadi. Kirish huquqlarini tekshiring.",
   "Введите сумму платежа.": "To‘lov summasini kiriting.",
   "Карточка ученика создана": "O‘quvchi kartasi yaratildi",
+  "Карточка ученика создана — лид перенесён в «Ученики»": "O‘quvchi kartasi yaratildi — lid «O‘quvchilar»ga o‘tkazildi",
+  "Ещё действия": "Boshqa amallar", "Карточка не заполнена": "Karta to‘ldirilmagan", "Оплачено полностью": "To‘liq to‘langan",
+  "✎ Итог звонка": "✎ Natija", "Итог звонка ещё не записан": "Qo‘ng‘iroq natijasi hali yozilmagan",
   "Платёж добавлен": "To‘lov qo‘shildi",
   "Платёж отменён": "To‘lov bekor qilindi",
   "Цена сохранена": "Narx saqlandi",
@@ -244,6 +247,13 @@ export const uzPatterns = [
   [/^Новая запись · (.+)$/, "Yangi yozuv · $1"],
   [/^Изменить запись · (.+)$/, "Yozuvni tahrirlash · $1"],
   [/^Открыть папку (.+)$/, "Papkani ochish: $1"],
+  [/^Долг (.+)$/, "Qarz $1"],
+  [/^Нужно уточнить: (\d+)$/, "Aniqlashtirish kerak: $1"],
+  [/^Оплачено (.+) из (.+)$/, "To‘langan: $1 / $2"],
+  [/^Позвонить: (.+)$/, "Qo‘ng‘iroq qilish: $1"],
+  [/^Ещё (\d+) в «Ученики» — показать$/, "Yana $1 ta «O‘quvchilar»da — ko‘rsatish"],
+  [/^(\d+) раза? оставил\(а\) заявку$/, "$1 marta ariza qoldirgan"],
+  [/^Высокое намерение · (\d+) раза?$/, "Yuqori qiziqish · $1 marta"],
 ];
 
 const ATTRS = ["placeholder", "aria-label", "title"];
