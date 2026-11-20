@@ -16,6 +16,20 @@
 - **Supabase** `uzivivmrixstxjvzkksz` (проект «zamonaviy-kasblar», eu-central-1): база и функции. Код функций — `supabase/functions/<slug>/`, миграции — `supabase/migrations/`.
 - Второй проект Supabase `trxnsqpdekokqvtefxlt` («yba-family-platform»: семейная платформа, «Tez aytish») — его функции в этом репозитории не хранятся.
 - Маршруты лидов и формы Meta — `docs/lead-routes.md`, `docs/meta-lead-setup.md`.
+- Рабочие лиды — `custom_records` вкладки «Загрузка лидов через Excel». Таблицы `crm_*` (сделки, контакты, задачи старой CRM) с 2026-10-05 не пополняются; в них пишет `crm-lead`, читает `tg-bot`. Служебные `crm_maxfiy`, `crm_browser_login_tokens`, `crm_web_login` используются и сейчас.
+
+## Связанные репозитории
+
+Mini App ботов — отдельные репозитории аккаунта `platform770uz-dev`, каждый публикуется на GitHub Pages. Чтобы их править, подключи нужный репозиторий к сессии.
+
+| Репозиторий | Что это | Где открывается |
+|---|---|---|
+| `operator-skript` | скрипт звонков и тренажёр операторов | Mini App в @eduteachuz_bot (`eduteach-bot`) |
+| `yba-kvitansiya` | квитанции об оплате; API — функция `kv-admin` | Mini App в @teachnova_bot |
+| `yba-public-miniapp` | тренажёр «Tez aytish» (`/tez-aytish/`) | Mini App в @zamonaviykasbuz_bot (`yba-public-parent-bot`) |
+| `yosh-blogerlar-miniapp` | знакомство родителей с академией; API — `yba-parent-api` | Mini App из `tg-bot` после одобрения родителя |
+
+Остальные репозитории аккаунта: `employee-qr-passes`, `yba-family-platform-pages`, `yba-shartnoma`, `zamonaviy-kasblar-oferta`, `zamonaviy-kasblar`.
 
 ## Боты
 
@@ -63,7 +77,7 @@
    Проверить, что сайт обновился: `curl -s https://platform770uz-dev.github.io/zamonaviy-kasblar-crm/ | grep -o 'app.js?v=[^"]*'`.
 2. **Функции.** Деплой через коннектор Supabase (`deploy_edge_function`, проект `uzivivmrixstxjvzkksz`) с тем же `verify_jwt` и import map, что в таблице.
    Копии в репозитории могут отставать от развёрнутых: перед деплоем из репозитория сверь код с `get_edge_function`. После деплоя закоммить тот же код.
-   `meta-admin-lead-ingest`: в репозитории хеш токена Make читается из секрета `MAKE_TOKEN_SHA256` — перед деплоем из репозитория проверь, что секрет задан, иначе все запросы Make получат 401.
+   `meta-admin-lead-ingest`: в репозитории хеш токена Make читается из секрета `MAKE_TOKEN_SHA256` — перед деплоем из репозитория проверь, что секрет задан, иначе все запросы Make получат 401. Развёрнутую версию этой функции в репозиторий не копируй: в ней хеш записан как значение по умолчанию.
 3. **База.** Схема меняется миграцией: `apply_migration` через коннектор и тот же SQL в `supabase/migrations/<YYYYMMDDHHMMSS>_<name>.sql`.
 
 ## Правила
@@ -72,6 +86,7 @@
 - **Персональные данные не коммитить**: реквизиты, ПИНФЛ, паспортные данные, телефоны клиентов, выгрузки лидов. Для скриншотов и проверок — выдуманные данные.
 - Вкладку «Загрузка лидов через Excel» в базе **не переименовывать**: по этому имени её находят `meta-yba-webhook` и `app.js`. В интерфейсе она показывается как «Лиды» (`tabDisplayName` в `app.js`).
 - Вкладку «Blogerlik leadlari bolalar» не удалять и не переименовывать. Удаление вкладки CRM каскадно удаляет все её записи.
+- Удаление лида в CRM необратимо: корзины нет. Записи в базе не удаляй и не меняй массово без прямой просьбы; перед такой правкой сохрани копию затрагиваемых строк.
 - Тексты интерфейса пишутся по-русски, но язык по умолчанию у операторов — узбекский. Каждую новую видимую строку добавляй в `uzPhrases` в `uz-phrases.js`, строки с числами — в `uzPatterns`.
 - Операторы работают с телефона: проверяй вёрстку на ширине 390px и на узбекском (тексты длиннее). Мобильные правила — `@media(max-width:760px)` и `640px`.
 
