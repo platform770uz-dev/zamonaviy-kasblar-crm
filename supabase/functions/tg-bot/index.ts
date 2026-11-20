@@ -386,7 +386,7 @@ async function onCallback(cq: any) {
     });
     await answer(approve ? "Знакомство одобрено" : "Запрос отклонён"); return;
   }
-  if (/^(ok|no):\\d{1,15}$/.test(data)) {
+  if (/^(ok|no):\d{1,15}$/.test(data)) {
     await answer("Доступ администраторам отключён. Решение по родителям — только через запрос знакомства.");
     if (cq.message?.chat?.id && cq.message?.message_id) await tg("editMessageReplyMarkup", {
       chat_id: cq.message.chat.id, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] },
@@ -435,7 +435,7 @@ async function notify(body: any) {
 // ishga.html testini topshirgan nomzod — faqat owner'ga (bu yollash masalasi, adminlarga koʻrsatilmaydi)
 async function notifyHaydovchi(body: any) {
   const id = String(body.meta_lead_id ?? "").trim();
-  if (!/^\\d{1,128}$/.test(id)) return json({ error: "bad lead id" }, 400);
+  if (!/^\d{1,128}$/.test(id)) return json({ error: "bad lead id" }, 400);
   const [{ data: job, error: jobError }, { data: lead, error: leadError }] = await Promise.all([
     sb.from("meta_driver_notifications").select("status, attempts, updated_at").eq("meta_lead_id", id).maybeSingle(),
     sb.from("meta_admin_leads").select("meta_lead_id, meta_form_id").eq("meta_lead_id", id).maybeSingle(),
