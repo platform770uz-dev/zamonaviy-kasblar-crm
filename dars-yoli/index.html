@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f7">
+<title>Dars yoʻli</title>
+<!-- «Dars yoʻli»: the teacher's lesson route for the Tez aytish groups. Opened from the menu button of the kids' bot
+     (@zamonaviykasbuz_bot), which only teachers and the owner have. Data: Supabase project trxnsqpdekokqvtefxlt,
+     functions tez-aytish-route (stages, gates, reports) and tez-aytish-teacher («Keldi», week module, «Barakalla»).
+     ?mock (outside Telegram) runs on made-up data for checks. -->
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#f5f5f7;--card:#fff;--ink:#1d1d1f;--sub:#6e6e73;--faint:#b0b0b6;--line:#e5e5ea;--accent:#ff5a3c;--accent-press:#e8492c;--accent-tint:#ffebe6;--ok:#1e8e3e;--ok-tint:#e6f4ea;--warn:#8a5a00;--warn-tint:#fff1cc;--bad:#c5221f;--star:#f5a623}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg)}
+body{color:var(--ink);font:400 16px/1.4 ui-rounded,"SF Pro Rounded",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
+button,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none;padding:0;touch-action:manipulation}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,textarea:focus-visible{outline:3px solid #0a84ff;outline-offset:2px}
+h1,h2,h3,p,ul,ol{margin:0}
+.wrap{max-width:560px;margin:0 auto;padding:calc(12px + env(safe-area-inset-top)) 16px calc(28px + env(safe-area-inset-bottom))}
+.top{display:flex;align-items:center;gap:10px;margin:4px 0 12px}
+.top h1{font-size:24px;font-weight:800;letter-spacing:-.02em;flex:1}
+.top .who{font-size:13px;font-weight:600;color:var(--sub);text-align:right}
+.card{background:var(--card);border-radius:18px;padding:14px;margin-bottom:12px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.card h2{font-size:17px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.card h2 .sp{flex:1}
+.muted{color:var(--sub);font-size:14px}
+.small{font-size:13px}
+.groups{display:flex;gap:6px;overflow-x:auto;margin:-2px 0 12px;scrollbar-width:none}
+.groups::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1.5px solid var(--line);background:var(--card);border-radius:999px;padding:8px 14px;font-size:14px;font-weight:700;min-height:40px}
+.chip.on{border-color:var(--ink);background:var(--ink);color:#fff}
+/* lesson days */
+.days{list-style:none;padding:0;display:grid;gap:2px}
+.days li{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+.days li:last-child{border-bottom:0}
+.days .d{width:104px;flex:none;font-weight:700}
+.days .l{flex:1;min-width:0;color:var(--sub)}
+.days .l b{color:var(--ink);font-weight:700}
+.days .s{flex:none;font-size:12px;font-weight:800;border-radius:999px;padding:3px 8px}
+.s.done{background:var(--ok-tint);color:var(--ok)}
+.s.unf{background:var(--warn-tint);color:var(--warn)}
+.s.tr{background:var(--bg);color:var(--sub)}
+.s.today{background:var(--accent);color:#fff}
+.s.next{background:var(--accent-tint);color:var(--accent-press)}
+.days li.today .d{color:var(--accent-press)}
+.more{margin-top:6px;font-size:14px;font-weight:700;color:var(--accent-press);min-height:36px}
+/* lesson picker */
+.lessons{display:grid;gap:6px}
+.lesson{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:1.5px solid var(--line);border-radius:14px;padding:10px 12px;min-height:52px;background:var(--card)}
+.lesson .n{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--bg);font-weight:800;flex:none}
+.lesson .t{flex:1;min-width:0}
+.lesson .t b{display:block;font-size:15px}
+.lesson .t span{font-size:12.5px;color:var(--sub)}
+.lesson.on{border-color:var(--accent);background:var(--accent-tint)}
+.lesson.on .n{background:var(--accent);color:#fff}
+.lesson.taught{opacity:.6}
+.tag{font-size:11.5px;font-weight:800;border-radius:999px;padding:2px 7px;flex:none}
+.tag.ok{background:var(--ok-tint);color:var(--ok)}
+.tag.nx{background:var(--accent);color:#fff}
+/* buttons */
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:50px;border-radius:14px;font-weight:800;font-size:16px;padding:0 16px}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.primary:active{background:var(--accent-press)}
+.btn.dark{background:var(--ink);color:#fff}
+.btn.ghost{background:var(--bg);color:var(--ink)}
+.btn.line{border:1.5px solid var(--line);background:var(--card)}
+.row{display:flex;gap:8px;margin-top:10px}
+.row>*{flex:1}
+.mt{margin-top:10px}
+/* stages */
+.stage{background:var(--card);border-radius:18px;margin-bottom:10px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.st-head{display:flex;align-items:center;gap:12px;padding:12px 14px}
+.st-num{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-weight:800;background:var(--bg);color:var(--sub);flex:none}
+.st-title{flex:1;min-width:0}
+.st-title b{display:block;font-size:16px}
+.st-title small{font-size:12.5px;color:var(--sub)}
+.st-ico{font-size:13px;font-weight:800;flex:none}
+.stage.done .st-num{background:var(--ok);color:#fff}
+.stage.done .st-ico{color:var(--ok)}
+.stage.lock{opacity:.55}
+.stage.on{box-shadow:0 0 0 2px var(--accent)}
+.stage.on .st-num{background:var(--accent);color:#fff}
+.st-body{padding:0 14px 14px}
+.say{background:var(--accent-tint);border-radius:14px;padding:11px 12px;font-weight:700;font-size:15px;margin-bottom:10px}
+.timer{font-variant-numeric:tabular-nums;font-weight:800;font-size:13px;border-radius:999px;padding:4px 9px;background:var(--bg);color:var(--sub)}
+.timer.over{background:#fde8e7;color:var(--bad)}
+.sub-h{font-size:13px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;margin:12px 0 6px}
+.kids{display:grid;gap:6px}
+.kid{display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 10px;border-radius:12px;background:var(--bg);width:100%;text-align:left}
+.kid .nm{flex:1;min-width:0;font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kid .st{font-size:13px;font-weight:800;color:var(--sub);flex:none}
+.kid.on{background:var(--ok-tint)}
+.kid.on .st{color:var(--ok)}
+.kid.away{opacity:.5}
+.bar{width:64px;height:6px;border-radius:3px;background:var(--line);overflow:hidden;flex:none}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:3px}
+.kid.on .bar i{background:var(--ok)}
+.score{display:flex;gap:4px;flex:none}
+.score button{width:32px;height:36px;border-radius:9px;background:var(--card);border:1.5px solid var(--line);font-weight:800;font-size:15px}
+.score button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.score-kid{flex-wrap:wrap;padding:8px 10px}
+.score-kid .nm{flex:1 1 100%}
+.score-kid .score{width:100%;gap:6px}
+.score-kid .score button{flex:1;width:auto;height:40px}
+.mods{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.mods button{border:1.5px solid var(--line);border-radius:12px;min-height:46px;font-weight:800;background:var(--card)}
+.need{list-style:none;padding:0;margin:10px 0 0;display:grid;gap:4px}
+.need li{font-size:14px;display:flex;gap:8px;align-items:flex-start}
+.need li .i{flex:none;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;margin-top:1px}
+.need li.y .i{background:var(--ok);color:#fff}
+.need li.n .i{background:var(--line);color:var(--sub)}
+.plan{padding-left:20px;display:grid;gap:6px;font-size:15px}
+.plan b{color:var(--accent-press)}
+.rules{list-style:none;padding:0;display:grid;gap:4px;font-size:15px}
+.rules li::before{content:"• ";color:var(--accent);font-weight:800}
+textarea{width:100%;min-height:76px;border:1.5px solid var(--line);border-radius:12px;padding:10px;resize:vertical;font-size:15px;background:var(--card)}
+.note{font-size:13px;color:var(--sub);margin-top:8px}
+.warn{background:var(--warn-tint);color:var(--warn);border-radius:12px;padding:10px 12px;font-size:14px;font-weight:700;margin-top:10px}
+.okbox{background:var(--ok-tint);color:var(--ok);border-radius:12px;padding:10px 12px;font-size:15px;font-weight:800}
+.toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(30px);opacity:0;max-width:min(92vw,480px);background:var(--ink);color:#fff;font-weight:700;font-size:14px;border-radius:14px;padding:11px 14px;transition:opacity .2s,transform .2s;pointer-events:none;z-index:9}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.empty{text-align:center;padding:40px 10px}
+.empty b{display:block;font-size:18px;margin-bottom:6px}
+.spin{display:inline-block;width:16px;height:16px;border:2.5px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-3px}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}.spin{animation:none}}
+</style>
+</head>
+<body>
+<main class="wrap" id="app"><p class="muted">Yuklanmoqda…</p></main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+(() => {
+  'use strict';
+  const BASE = 'https://trxnsqpdekokqvtefxlt.supabase.co/functions/v1';
+  const ROUTE = `${BASE}/tez-aytish-route`, TEACHER = `${BASE}/tez-aytish-teacher`;
+  const TRAINER_URL = 'https://platform770uz-dev.github.io/yba-public-miniapp/tez-aytish/';
+  // The trainer's modules (as in yba-public-miniapp/tez-aytish); the server checks the id.
+  const MODULES = [{ id: 'g', title: 'Gʻ va Oʻ' }, { id: 'q', title: 'Q va K' }, { id: 'sh', title: 'Sh va Ch' }, { id: 'r', title: 'R, S va X' }];
+  const DAYS = ['Dushanba', 'Seshanba', 'Chorshanba', 'Payshanba', 'Juma', 'Shanba', 'Yakshanba'];
+  const DAYS_SHORT = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh', 'Ya'];
+  const MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
+  const CAMERA_RULES = ['Telefon tik turadi', 'Yorugʻlik yuzga tushadi', 'Kameraga qara', 'Sekin va aniq gapir', 'Qoʻrqma — dubl olamiz!'];
+  const SAY = {
+    1: (n) => `Assalomu alaykum${n ? `, ${n}` : ''}! Bugungi darsni tanlang va kelgan bolalarni belgilang.`,
+    2: () => 'Darsni tez aytish bilan boshlang. Har bir bola 4 ta tez aytishni trenajyorda aytadi: avval sekin, keyin oʻrta, oxirida tez.',
+    3: (l) => `Endi shu mavzuda darsni boshlang: ${l}. Varaqani har bir bolaga tarqating.`,
+    4: () => 'Har bir bola 30 soniyalik video oladi: bugungi tez aytish yoki mavzu boʻyicha.',
+    5: () => 'Natijalarni ayting, eng yaxshilarni maqtang va uyga vazifani bering.',
+  };
+  const ERR = {
+    invalid_or_expired_init_data: 'Sessiya eskirdi: Mini Appʼni yopib, qayta oching.',
+    not_a_teacher: 'Bu boʻlim faqat oʻqituvchilar uchun.', group_not_found: 'Guruh topilmadi.', bad_lesson: 'Darsni tanlang.',
+    already_started: 'Bugungi dars boshqa dars bilan boshlangan.', not_started: 'Avval darsni boshlang.', finished: 'Dars yakunlangan.',
+    stage_not_open: 'Bu bosqich hali ochilmagan.', conflict: 'Maʼlumot yangilandi. Yana bir bor bosing.', rate_limited: 'Juda tez bosildi. Biroz kuting.',
+    past_week: 'Oʻtgan hafta uchun modul tanlab boʻlmaydi.', student_not_found: 'Oʻquvchi topilmadi.', no_lesson: 'Bugun dars ochilmagan.',
+    origin_not_allowed: 'Sahifa notoʻgʻri manzildan ochilgan.', timeout: 'Server javob bermadi. Internetni tekshiring.', network: 'Internet yoʻq yoki server javob bermadi.',
+  };
+
+  const tg = window.Telegram && window.Telegram.WebApp;
+  const inTg = !!(tg && tg.initData);
+  const mock = !inTg && new URLSearchParams(location.search).has('mock');
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const dayName = (key) => DAYS[(new Date(`${key}T00:00:00Z`).getUTCDay() || 7) - 1];
+  const dayShort = (key) => DAYS_SHORT[(new Date(`${key}T00:00:00Z`).getUTCDay() || 7) - 1];
+  const dateShort = (key) => { const d = new Date(`${key}T00:00:00Z`); return `${d.getUTCDate()}-${MONTHS[d.getUTCMonth()]}`; };
+  const clock = (iso) => new Date(Date.parse(iso) + 5 * 3600e3).toISOString().slice(11, 16); // Asia/Tashkent
+  const lessonName = (l) => (l ? `${l.num}-dars${l.title ? `: ${l.title}` : ''}` : '');
+
+  let S = null; // last state from the server
+  let skew = 0; // server clock minus this device's clock
+  let pick = null; // the course lesson picked before the start
+  let changing = false; // stage 1: picking another lesson
+  let reason = { open: false, text: '' };
+  let showAllDays = false;
+  let busy = '';
+  const praised = new Set();
+  let pollTimer = null, tickTimer = null;
+
+  if (tg) { try { tg.ready(); tg.expand(); tg.setHeaderColor && tg.setHeaderColor('#f5f5f7'); tg.setBackgroundColor && tg.setBackgroundColor('#f5f5f7'); } catch (e) { /* older clients */ } }
+
+  function toast(text) {
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.add('show');
+    clearTimeout(toast.h);
+    toast.h = setTimeout(() => t.classList.remove('show'), 3200);
+  }
+  const errText = (e) => ERR[e.code] || `Xato: ${e.message || e.code}`;
+
+  async function call(url, action, body) {
+    if (mock) return mockCall(url === ROUTE ? 'route' : 'teacher', action, body || {});
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 20000);
+    try {
+      const res = await fetch(`${url}/${action}`, {
+        method: 'POST', signal: ac.signal,
+        headers: { 'content-type': 'application/json', 'x-telegram-init-data': tg.initData },
+        body: JSON.stringify(body || {}),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { const e = new Error(j.error || `HTTP ${res.status}`); e.code = j.error || 'http'; throw e; }
+      return j;
+    } catch (e) {
+      if (e.name === 'AbortError') { const x = new Error('timeout'); x.code = 'timeout'; throw x; }
+      if (!e.code) e.code = 'network';
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function take(j) {
+    if (j.group !== undefined) S.group = j.group;
+    if (j.now) skew = Date.parse(j.now) - Date.now();
+    const G = S.group;
+    if (G && !G.run && (!pick || !S.lessons.some((l) => l.id === pick))) pick = G.suggestedLessonId;
+    if (G && G.run) changing = changing && G.run.stage === 1;
+    render();
+  }
+
+  async function load(groupId, quiet) {
+    try {
+      const j = await call(ROUTE, 'state', groupId ? { groupId } : {});
+      const keepPick = S && S.group && j.group && S.group.id === j.group.id;
+      S = j;
+      if (!keepPick) { pick = null; changing = false; reason = { open: false, text: '' }; }
+      take(j);
+    } catch (e) {
+      if (quiet) return;
+      if (e.code === 'not_a_teacher') return renderEmpty('Bu boʻlim faqat oʻqituvchilar uchun', 'Trenajyorda oʻqituvchi boʻlish soʻrovini yuboring.');
+      renderEmpty('Yuklab boʻlmadi', errText(e), true);
+    }
+  }
+
+  async function act(label, fn) {
+    if (busy) return;
+    busy = label;
+    render();
+    try { await fn(); } catch (e) { toast(errText(e)); } finally { busy = ''; render(); }
+  }
+
+  // ---------- actions ----------
+  const G = () => S && S.group;
+  const doStart = () => act('start', async () => { take(await call(ROUTE, 'start', { groupId: G().id, lessonId: pick })); changing = false; render(); });
+  const doNext = (withReason) => act('next', async () => {
+    const j = await call(ROUTE, 'next', { groupId: G().id, reason: withReason ? reason.text : undefined });
+    if (!j.ok) {
+      if (j.error === 'reason_required') toast('Sababni yozing (kamida 3 harf).');
+      else toast(j.overrideInMin ? `Hali hamma tayyor emas. ${j.overrideInMin} daqiqadan keyin sabab yozib oʻtish mumkin.` : 'Hali hamma shart bajarilmagan.');
+      await load(G().id, true);
+      return;
+    }
+    reason = { open: false, text: '' };
+    take(j);
+    if (G().run && G().run.stage > 5) toast('Dars yakunlandi. Hisobot rahbarga yuborildi.');
+    try { tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success'); } catch (e) { /* no haptics */ }
+  });
+  const doAttend = (id, present) => act(`att:${id}`, async () => { await call(TEACHER, 'attend', { studentId: id, present }); await load(G().id, true); });
+  const doWeek = (moduleId) => act(`week:${moduleId}`, async () => { await call(TEACHER, 'week', { groupId: G().id, weekStart: G().weekStart, moduleId }); await load(G().id, true); toast('Hafta moduli saqlandi.'); });
+  const doCheck = (stage, id, value) => act(`chk:${stage}:${id}`, async () => { take(await call(ROUTE, 'check', { groupId: G().id, stage, studentId: id, value })); });
+  const doPraise = (id) => act(`pr:${id}`, async () => {
+    const j = await call(TEACHER, 'praise', { studentId: id });
+    praised.add(id);
+    toast(j.already ? 'Bu darsda allaqachon maqtalgan.' : 'Barakalla yuborildi.');
+  });
+
+  // ---------- rendering ----------
+  function renderEmpty(title, text, retry) {
+    stopTimers();
+    $('app').innerHTML = `<div class="empty"><b>${esc(title)}</b><p class="muted">${esc(text)}</p>${retry ? '<div class="mt"><button class="btn line" data-a="reload">Qayta urinish</button></div>' : ''}</div>`;
+  }
+
+  function render() {
+    if (!S) return;
+    const g = G();
+    const name = (S.name || '').split(' ')[0];
+    let html = `<div class="top"><h1>Dars yoʻli</h1><div class="who">${esc(S.name || '')}${S.role === 'owner' ? '<br>rahbar' : ''}</div></div>`;
+    if ((S.groups || []).length > 1) {
+      html += `<div class="groups" role="tablist">${S.groups.map((x) => `<button class="chip${g && x.id === g.id ? ' on' : ''}" data-a="group" data-id="${esc(x.id)}" role="tab" aria-selected="${g && x.id === g.id}">${esc(x.name)}</button>`).join('')}</div>`;
+    }
+    if (!g) {
+      $('app').innerHTML = `${html}<div class="empty"><b>Guruh yoʻq</b><p class="muted">Avval trenajyorda guruh yarating.</p></div>`;
+      stopTimers();
+      return;
+    }
+    if (g.run && !changing) html += stagesView(g, name) + daysCard(g);
+    else html += daysCard(g) + pickCard(g) + (g.run ? stagesView(g, name) : '');
+    const stageBefore = render.stage;
+    render.stage = g.run ? g.run.stage : 0;
+    $('app').innerHTML = html;
+    if (stageBefore && render.stage !== stageBefore) {
+      const cur = document.querySelector('.stage.on') || document.querySelector('.okbox');
+      if (cur) cur.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    const ta = $('reason');
+    if (ta) ta.value = reason.text;
+    startTimers();
+  }
+
+  function daysCard(g) {
+    const lessons = new Map(S.lessons.map((l) => [l.num, l]));
+    const rows = [];
+    const past = g.history.past.slice(0, showAllDays ? 12 : 3).slice().reverse();
+    for (const p of past) {
+      const what = p.lessonNum ? `<b>${p.lessonNum}-dars</b>${p.title ? ` · ${esc(p.title)}` : ''}` : 'trenajyor darsi';
+      const s = p.status === 'done' ? '<span class="s done">oʻtdi</span>' : p.status === 'unfinished' ? '<span class="s unf">yakunlanmagan</span>' : '<span class="s tr">trenajyor</span>';
+      rows.push(`<li><span class="d">${dayShort(p.date)}, ${dateShort(p.date)}</span><span class="l">${what}</span>${s}</li>`);
+    }
+    const run = g.run;
+    const runLesson = run ? S.lessons.find((l) => l.id === run.lessonId) : null;
+    const todayWhat = run ? `<b>${esc(lessonName(runLesson))}</b>` : g.isLessonDay ? 'dars kuni' : 'dars yoʻq';
+    const todayTag = run ? (run.stage > 5 ? '<span class="s done">oʻtdi</span>' : '<span class="s today">bugun</span>') : g.isLessonDay ? '<span class="s today">bugun</span>' : '';
+    rows.push(`<li class="today"><span class="d">Bugun, ${dateShort(S.today)}</span><span class="l">${todayWhat}${g.lessonTime && g.isLessonDay ? ` · ${g.lessonTime}` : ''}</span>${todayTag}</li>`);
+    let nextNum = Math.max(0, ...g.taught, runLesson ? runLesson.num : 0) + 1;
+    g.history.upcoming.forEach((d, i) => {
+      const l = lessons.get(nextNum + i);
+      rows.push(`<li><span class="d">${dayShort(d)}, ${dateShort(d)}</span><span class="l">${l ? `${l.num}-dars${l.title ? ` · ${esc(l.title)}` : ''}` : 'reja yoʻq'}${g.lessonTime ? ` · ${g.lessonTime}` : ''}</span>${i === 0 ? '<span class="s next">keyingi</span>' : ''}</li>`);
+    });
+    const more = g.history.past.length > 3 ? `<button class="more" data-a="days">${showAllDays ? 'Kamroq koʻrsatish' : `Barcha oʻtgan darslar (${g.history.past.length})`}</button>` : '';
+    return `<section class="card"><h2>Dars kunlari<span class="sp"></span><span class="muted small">${esc((g.days || []).map((d) => DAYS_SHORT[d - 1]).join(', '))}${g.lessonTime ? `, ${g.lessonTime}` : ''}</span></h2><ul class="days">${rows.join('')}</ul>${more}</section>`;
+  }
+
+  function pickCard(g) {
+    const taught = new Set(g.taught);
+    const list = S.lessons.map((l) => {
+      const on = l.id === pick;
+      const isNext = l.id === g.suggestedLessonId && !taught.has(l.num);
+      const tags = taught.has(l.num) ? '<span class="tag ok">oʻtilgan</span>' : isNext ? '<span class="tag nx">navbatdagi</span>' : '';
+      const kind = l.kind === 'matematika' ? 'Matematika + Blogging' : l.kind === 'blogging' ? 'Blogging' : '';
+      return `<button class="lesson${on ? ' on' : ''}${taught.has(l.num) && !on ? ' taught' : ''}" data-a="pick" data-id="${esc(l.id)}" aria-pressed="${on}"><span class="n">${l.num}</span><span class="t"><b>${esc(l.title || `${l.num}-dars`)}</b><span>${esc(kind)}${l.sheet_url ? `${kind ? ' · ' : ''}varaqa bor` : ''}</span></span>${tags}</button>`;
+    }).join('');
+    let foot;
+    if (g.run && changing) {
+      foot = `<div class="row"><button class="btn ghost" data-a="cancel-change">Bekor qilish</button><button class="btn primary" data-a="start" ${!pick || busy ? 'disabled' : ''}>${busy === 'start' ? '<span class="spin"></span>' : 'Saqlash'}</button></div>`;
+    } else if (!g.isLessonDay) {
+      const next = g.history.upcoming[0];
+      foot = `<div class="warn">Bugun dars kuni emas.${next ? ` Keyingi dars: ${dayName(next)}, ${dateShort(next)}${g.lessonTime ? `, ${g.lessonTime}` : ''}.` : ''} Darsni oʻsha kuni shu yerdan boshlaysiz.</div>`;
+    } else {
+      foot = `<div class="mt"><button class="btn primary" data-a="start" ${!pick || busy ? 'disabled' : ''}>${busy === 'start' ? '<span class="spin"></span>' : 'Darsni boshlash'}</button></div>`;
+    }
+    return `<section class="card"><h2>Bugungi dars</h2><p class="muted small" style="margin-bottom:8px">Bugun qaysi darsni oʻtasiz? Oʻzingiz tanlang.</p><div class="lessons">${list}</div>${foot}</section>`;
+  }
+
+  function stagesView(g, name) {
+    const run = g.run;
+    return S.stages.map((s) => {
+      const log = run.stages.find((x) => x.n === s.n);
+      const done = log && log.finished_at;
+      const on = run.stage === s.n;
+      const cls = done ? 'done' : on ? 'on' : 'lock';
+      let sub = `${s.min} daqiqa`;
+      if (done) sub = `${Math.max(0, Math.round((Date.parse(log.finished_at) - Date.parse(log.started_at)) / 60000))} daq · ${clock(log.started_at)}–${clock(log.finished_at)}${log.override ? ' · sabab bilan' : ''}`;
+      if (on) sub = `boshlandi ${clock(log.started_at)}`;
+      const ico = done ? '✓' : on ? `<span class="timer" id="timer" data-start="${esc(log.started_at)}" data-min="${s.min}"></span>` : '🔒';
+      const head = `<div class="st-head"><span class="st-num">${done ? '✓' : s.n}</span><span class="st-title"><b>${esc(s.title)}</b><small>${esc(sub)}</small></span><span class="st-ico">${ico}</span></div>`;
+      return `<section class="stage ${cls}" aria-current="${on ? 'step' : 'false'}">${head}${on ? `<div class="st-body">${stageBody(g, s.n, name)}</div>` : ''}</section>`;
+    }).join('') + (run.stage > 5 ? `<div class="okbox">Dars yakunlandi${run.finishedAt ? ` (${clock(run.finishedAt)})` : ''}. Hisobot rahbarga yuborildi.</div>` : '');
+  }
+
+  function stageBody(g, n, name) {
+    const lesson = S.lessons.find((l) => l.id === g.run.lessonId);
+    const present = g.kids.filter((k) => k.present);
+    let h = `<p class="say">${esc(n === 1 ? SAY[1](name) : n === 3 ? SAY[3](lessonName(lesson)) : SAY[n]())}</p>`;
+    if (n === 1) {
+      h += `<div class="sub-h">Dars</div><div class="kid on"><span class="nm">${esc(lessonName(lesson))}</span><button class="st" data-a="change" style="color:var(--accent-press)">oʻzgartirish</button></div>`;
+      h += '<div class="sub-h">Hafta moduli</div>';
+      if (g.module) h += `<div class="kid on"><span class="nm">${esc(g.module.title)}</span><span class="st">${g.module.count} ta tez aytish</span></div>`;
+      else h += `<p class="muted small" style="margin-bottom:6px">Bu hafta uchun modul tanlanmagan — tanlang, aks holda trenajyorda dars ochilmaydi.</p><div class="mods">${MODULES.map((m) => `<button data-a="week" data-id="${m.id}" ${busy ? 'disabled' : ''}>${busy === `week:${m.id}` ? '<span class="spin"></span>' : esc(m.title)}</button>`).join('')}</div>`;
+      h += `<div class="sub-h">Kelganlar · ${present.length}/${g.kids.length}</div><div class="kids">${g.kids.map((k) => `<button class="kid${k.present ? ' on' : ''}" data-a="attend" data-id="${esc(k.id)}" data-v="${k.present ? '0' : '1'}" ${busy ? 'disabled' : ''}><span class="nm">${esc(k.name)}</span><span class="st">${busy === `att:${k.id}` ? '<span class="spin"></span>' : k.present ? 'Keldi ✓' : 'Keldimi?'}</span></button>`).join('')}</div>`;
+    } else if (n === 2) {
+      h += `<button class="btn dark" data-a="trainer">🎙 Trenajyorni ochish</button><p class="note">Trenajyorda: Oʻqituvchi → guruh → bola → dars kartalari. Keyin bu sahifaga «Dars yoʻli» tugmasi bilan qayting — natijalar oʻzi yangilanadi.</p>`;
+      const total = (g.module && g.module.count) || 4;
+      h += `<div class="sub-h">Tez aytish · ${present.filter((k) => k.done >= total).length}/${present.length} tayyor</div><div class="kids">${present.map((k) => `<div class="kid${k.done >= total ? ' on' : ''}"><span class="nm">${esc(k.name)}</span><span class="bar"><i style="width:${Math.min(100, Math.round((k.done / total) * 100))}%"></i></span><span class="st">${k.done}/${total}</span></div>`).join('')}</div>`;
+    } else if (n === 3) {
+      if (lesson && lesson.sheet_url) h += `<button class="btn dark" data-a="sheet" data-url="${esc(lesson.sheet_url)}">📄 Varaqani ochish (chop etish)</button>`;
+      if (lesson && lesson.plan && lesson.plan.length) h += `<div class="sub-h">Dars rejasi · 30 daqiqa</div><ol class="plan">${lesson.plan.map((p) => `<li><b>${p.min} daq.</b> ${esc(p.text)}</li>`).join('')}</ol>`;
+      h += `<div class="sub-h">Varaqa bali (0–5)</div><div class="kids">${present.map((k) => `<div class="kid score-kid${k.score !== null ? ' on' : ''}"><span class="nm">${esc(k.name)}</span><span class="score">${[0, 1, 2, 3, 4, 5].map((v) => `<button class="${k.score === v ? 'on' : ''}" data-a="score" data-id="${esc(k.id)}" data-v="${v}" ${busy ? 'disabled' : ''} aria-label="${v} ball">${v}</button>`).join('')}</span></div>`).join('')}</div>`;
+    } else if (n === 4) {
+      h += `<div class="sub-h">Suratga olish qoidalari</div><ul class="rules">${CAMERA_RULES.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>`;
+      h += `<div class="sub-h">Suratga oldi · ${present.filter((k) => k.filmed).length}/${present.length}</div><div class="kids">${present.map((k) => `<button class="kid${k.filmed ? ' on' : ''}" data-a="film" data-id="${esc(k.id)}" data-v="${k.filmed ? '0' : '1'}" ${busy ? 'disabled' : ''}><span class="nm">${esc(k.name)}</span><span class="st">${busy === `chk:4:${k.id}` ? '<span class="spin"></span>' : k.filmed ? 'Suratga oldi ✓' : 'Oldimi?'}</span></button>`).join('')}</div>`;
+    } else if (n === 5) {
+      h += `<div class="sub-h">Maqtash</div><div class="kids">${present.map((k) => `<div class="kid${praised.has(k.id) ? ' on' : ''}"><span class="nm">${esc(k.name)}</span><button class="st" data-a="praise" data-id="${esc(k.id)}" ${busy || praised.has(k.id) ? 'disabled' : ''} style="color:var(--accent-press)">${busy === `pr:${k.id}` ? '<span class="spin"></span>' : praised.has(k.id) ? 'Barakalla ✓' : '👏 Barakalla'}</button></div>`).join('')}</div>`;
+      h += `<div class="sub-h">Uyga vazifa</div><p style="font-size:15px">${esc((lesson && lesson.homework) || 'Varaqadagi savollarni uyda takrorlash.')}</p><p class="note">Trenajyordagi uyga vazifa (tez aytishlar) ota-onalarga @kidscast_bot orqali oʻzi boradi.</p>`;
+    }
+    return h + gateBox(g, n);
+  }
+
+  function gateBox(g, n) {
+    const gate = g.gate;
+    const items = [];
+    if (n === 1) {
+      items.push([!gate.need.includes('lesson'), 'Bugungi dars tanlandi']);
+      items.push([!gate.need.includes('module'), 'Hafta moduli tanlangan']);
+      items.push([!gate.need.includes('attendance'), 'Kamida bitta bola «Keldi»']);
+    } else if (n >= 2 && n <= 4) {
+      const done = { 2: 'Hamma 4/4 tez aytishni aytdi', 3: 'Hamma bolaga ball qoʻyildi', 4: 'Hamma suratga oldi' }[n];
+      const left = { 2: 'Hali 4/4 emas', 3: 'Ball qoʻyilmagan', 4: 'Hali suratga olmagan' }[n];
+      if (n === 2 && gate.need.includes('module')) items.push([false, 'Hafta moduli tanlanmagan (1-bosqichga qarang)']);
+      if (gate.need.includes('attendance')) items.push([false, 'Hech kim «Keldi» deb belgilanmagan']);
+      else items.push([gate.ok, gate.ok ? done : `${left}: ${gate.left.join(', ')}`]);
+    }
+    let h = items.length ? `<ul class="need">${items.map(([y, t]) => `<li class="${y ? 'y' : 'n'}"><span class="i">${y ? '✓' : '…'}</span><span>${esc(t)}</span></li>`).join('')}</ul>` : '';
+    const label = n === 5 ? '✅ Darsni yakunlash' : 'Keyingi bosqich →';
+    h += `<div class="mt"><button class="btn primary" data-a="next" ${!gate.ok || busy ? 'disabled' : ''}>${busy === 'next' ? '<span class="spin"></span>' : label}</button></div>`;
+    if (!gate.ok && n >= 2 && n <= 4) {
+      if (gate.canOverride) {
+        h += reason.open
+          ? `<div class="mt"><textarea id="reason" placeholder="Nega hamma ulgurmadi? Masalan: bitta bola kech keldi" maxlength="200"></textarea><div class="row"><button class="btn ghost" data-a="reason-close">Bekor</button><button class="btn dark" data-a="next-reason" ${busy ? 'disabled' : ''}>Sabab bilan davom etish</button></div></div>`
+          : '<div class="mt"><button class="btn line" data-a="reason-open">Sabab yozib davom etish</button></div>';
+      } else if (gate.overrideInMin) {
+        h += `<p class="note">Hamma ulgurmasa, ${gate.overrideInMin} daqiqadan keyin sabab yozib keyingi bosqichga oʻtish mumkin.</p>`;
+      }
+    }
+    return h;
+  }
+
+  // The current stage's timer (minutes on the server's clock) and a quiet refresh while children use the trainer.
+  function startTimers() {
+    stopTimers();
+    const t = $('timer');
+    if (t) {
+      const upd = () => {
+        const m = Math.max(0, Math.floor((Date.now() + skew - Date.parse(t.dataset.start)) / 60000));
+        t.textContent = `${m} / ${t.dataset.min} daq`;
+        t.classList.toggle('over', m > Number(t.dataset.min));
+      };
+      upd();
+      tickTimer = setInterval(upd, 15000);
+    }
+    const g = G();
+    if (g && g.run && g.run.stage <= 5 && !reason.open && !mock) pollTimer = setTimeout(() => { if (!document.hidden && !busy) load(g.id, true); else startTimers(); }, 20000);
+  }
+  function stopTimers() { clearInterval(tickTimer); clearTimeout(pollTimer); tickTimer = pollTimer = null; }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && S && G() && !busy) load(G().id, true); });
+
+  document.addEventListener('input', (e) => { if (e.target && e.target.id === 'reason') reason.text = e.target.value; });
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-a]');
+    if (!b || b.disabled) return;
+    const a = b.dataset.a, id = b.dataset.id;
+    if (a === 'reload') return load(G() ? G().id : null);
+    if (a === 'group') { pick = null; changing = false; return load(id); }
+    if (a === 'days') { showAllDays = !showAllDays; return render(); }
+    if (a === 'pick') { pick = id; return render(); }
+    if (a === 'change') { changing = true; pick = G().run.lessonId; render(); return window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    if (a === 'cancel-change') { changing = false; return render(); }
+    if (a === 'start') return doStart();
+    if (a === 'next') return doNext(false);
+    if (a === 'next-reason') return doNext(true);
+    if (a === 'reason-open') { reason.open = true; stopTimers(); render(); const ta = $('reason'); if (ta) ta.focus(); return; }
+    if (a === 'reason-close') { reason = { open: false, text: '' }; return render(); }
+    if (a === 'attend') return doAttend(id, b.dataset.v === '1');
+    if (a === 'week') return doWeek(id);
+    if (a === 'score') return doCheck(3, id, Number(b.dataset.v));
+    if (a === 'film') return doCheck(4, id, b.dataset.v === '1');
+    if (a === 'praise') return doPraise(id);
+    if (a === 'trainer') { location.href = TRAINER_URL; return; }
+    if (a === 'sheet') { const u = b.dataset.url; if (tg && tg.openLink) tg.openLink(u); else window.open(u, '_blank', 'noopener'); }
+  });
+
+  // ---------- made-up data for ?mock ----------
+  let M = null;
+  function mockInit() {
+    const now = new Date();
+    const key = new Date(now.getTime() + 5 * 3600e3).toISOString().slice(0, 10);
+    const names = ['Ali Karimov', 'Bekzod Tursunov', 'Dilnoza Rahimova', 'Jasur Aliyev', 'Madina Yusupova', 'Sardor Qodirov', 'Zarina Ergasheva'];
+    M = {
+      today: key,
+      kids: names.map((n, i) => ({ id: `00000000-0000-4000-8000-00000000000${i + 1}`, name: n, present: false, done: 0, score: null, filmed: false })),
+      module: null, run: null,
+      lessons: [
+        { id: 'd01', num: 1, title: null, kind: null, sheet_url: null, plan: [], homework: null },
+        { id: 'd02', num: 2, title: null, kind: null, sheet_url: null, plan: [], homework: null },
+        { id: 'd03', num: 3, title: 'Murodjon suratga oladi', kind: 'matematika', sheet_url: null, plan: [], homework: null },
+        { id: 'd04', num: 4, title: 'Murodjon reelsni joylaydi', kind: 'blogging', sheet_url: 'varaqalar/4-dars.pdf', plan: [{ min: 5, text: 'Savol bering: «Reelsni nimasiga qarab ochasiz?» Javoblarni doskaga yozing: muqova, sarlavha.' }, { min: 3, text: 'Varaqadagi «Joylash qoidalari»ni birga oʻqing.' }, { min: 17, text: '5 ta topshiriq: har birida avval Misolni birga yeching, keyin bolalar Savolni oʻzi yechadi.' }, { min: 5, text: 'Varaqalarni yigʻing, har bir bolaga ball qoʻying (0–5) va shu yerga kiriting.' }], homework: 'Oʻz reelsing uchun sarlavha va 3 ta heshteg yoz, ota-onangga koʻrsat.' },
+        { id: 'd05', num: 5, title: 'Murodjon izohlarga javob beradi', kind: 'blogging', sheet_url: 'varaqalar/5-dars.pdf', plan: [], homework: 'Ota-onang bilan blog parolini tekshir: kuchlimi? Kuchsiz boʻlsa, birga almashtiring.' },
+      ],
+    };
+  }
+  const MOCK_STAGES = [{ n: 1, title: 'Darsni boshlash', min: 5 }, { n: 2, title: 'Tez aytish', min: 25 }, { n: 3, title: 'Mavzu darsi', min: 30 }, { n: 4, title: 'Kamera oldida', min: 20 }, { n: 5, title: 'Yakun', min: 10 }];
+  function mockGate() {
+    const p = M.kids.filter((k) => k.present), need = [];
+    let left = [];
+    const st = M.run ? M.run.stage : 1;
+    if (st === 1) { if (!M.run) need.push('lesson'); if (!M.module) need.push('module'); if (!p.length) need.push('attendance'); }
+    if (st === 2) left = p.filter((k) => k.done < 4).map((k) => k.name);
+    if (st === 3) left = p.filter((k) => k.score === null).map((k) => k.name);
+    if (st === 4) left = p.filter((k) => !k.filmed).map((k) => k.name);
+    if (left.length) need.push('kids');
+    const log = M.run && M.run.stages.find((x) => x.n === st && !x.finished_at);
+    const el = log ? Math.floor((Date.now() - Date.parse(log.started_at)) / 60000) : 0;
+    const min = MOCK_STAGES[Math.min(st, 5) - 1].min;
+    return { ok: !need.length, need, left, present: p.length, total: M.kids.length, stage: st, elapsedMin: el, planMin: min, canOverride: [2, 3, 4].includes(st) && !!need.length && (el >= min || /override/.test(location.search)), overrideInMin: [2, 3, 4].includes(st) ? Math.max(0, min - el) : null };
+  }
+  function mockGroup() {
+    const k = M.today, d = new Date(`${k}T00:00:00Z`);
+    const up = [];
+    for (let i = 1; up.length < 4; i++) { const x = new Date(d.getTime() + i * 864e5); const w = x.getUTCDay() || 7; if (w >= 6) up.push(x.toISOString().slice(0, 10)); }
+    return {
+      id: 'mock-group', name: 'Рухсор 14:00', days: [6, 7], lessonTime: '14:00', taughtBefore: 3, isLessonDay: !/notday/.test(location.search), weekStart: k,
+      taught: [1, 2, 3], suggestedLessonId: M.run ? M.run.lessonId : 'd04', module: M.module, kids: M.kids.map((x) => ({ ...x })),
+      history: { past: [{ date: '2026-11-15', lessonNum: null, title: null, status: 'trainer' }, { date: '2026-11-14', lessonNum: null, title: null, status: 'trainer' }], upcoming: up },
+      run: M.run ? { ...M.run } : null, gate: mockGate(),
+    };
+  }
+  async function mockCall(api, action, b) {
+    await new Promise((r) => setTimeout(r, 120));
+    if (!M) mockInit();
+    const at = new Date().toISOString();
+    if (api === 'route') {
+      if (action === 'state') return { ok: true, role: 'teacher', name: 'Azizali Ibragimov', today: M.today, now: at, stages: MOCK_STAGES, lessons: M.lessons, groups: [{ id: 'mock-group', name: 'Рухсор 14:00' }], group: mockGroup() };
+      if (action === 'start') {
+        if (M.run) M.run.lessonId = b.lessonId; else M.run = { lessonKey: M.today, lessonId: b.lessonId, stage: 1, stages: [{ n: 1, started_at: at, finished_at: null, override: null }], startedAt: at, finishedAt: null };
+        return { ok: true, group: mockGroup() };
+      }
+      if (action === 'next') {
+        const gate = mockGate();
+        if (!gate.ok) { if (!gate.canOverride) return { ok: false, error: 'gate', gate, overrideInMin: gate.overrideInMin }; if ((b.reason || '').trim().length < 3) return { ok: false, error: 'reason_required', gate }; }
+        const r = M.run, cur = r.stages.find((x) => x.n === r.stage && !x.finished_at);
+        cur.finished_at = at; cur.override = gate.ok ? null : b.reason;
+        r.stage += 1;
+        if (r.stage <= 5) r.stages.push({ n: r.stage, started_at: at, finished_at: null, override: null }); else r.finishedAt = at;
+        return { ok: true, group: mockGroup() };
+      }
+      if (action === 'check') { const k = M.kids.find((x) => x.id === b.studentId); if (b.stage === 3) k.score = b.value; else k.filmed = b.value; return { ok: true, group: mockGroup() }; }
+    } else {
+      if (action === 'attend') { const k = M.kids.find((x) => x.id === b.studentId); k.present = b.present; if (b.present && /done/.test(location.search)) k.done = 4; return { ok: true }; }
+      if (action === 'week') { const m = MODULES.find((x) => x.id === b.moduleId); M.module = { id: m.id, title: m.title, count: 4 }; return { ok: true }; }
+      if (action === 'praise') return { ok: true };
+    }
+    const e = new Error('not_found'); e.code = 'not_found'; throw e;
+  }
+  window.__mockDone = () => { if (M) { M.kids.forEach((k) => { if (k.present) k.done = 4; }); load(); } };
+
+  if (!inTg && !mock) {
+    renderEmpty('Telegram ichida oching', 'Bu sahifa @zamonaviykasbuz_bot dagi «Dars yoʻli» tugmasi orqali ochiladi.');
+    return;
+  }
+  load();
+})();
+</script>
+</body>
+</html>
