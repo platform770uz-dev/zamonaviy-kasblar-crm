@@ -96,9 +96,14 @@ npm i --prefix /tmp/sb supabase                      # Supabase CLI, без Dock
 export SUPABASE_ACCESS_TOKEN="sbp_$(printf '0%.0s' {1..40})"   # фиктивный, прокси заменит
 SB=/tmp/sb/node_modules/.bin/supabase
 $SB functions list --remote uzivivmrixstxjvzkksz     # проверено: работает
-$SB functions deploy <slug> --remote uzivivmrixstxjvzkksz --use-api --no-verify-jwt   # для verify_jwt=false
+$SB functions download <slug> --remote uzivivmrixstxjvzkksz --use-api --workdir "$(mktemp -d)"   # развёрнутый код в пустую папку, для сверки с репозиторием
+$SB functions deploy <slug> --remote uzivivmrixstxjvzkksz --use-api --no-verify-jwt --yes   # для verify_jwt=false; --yes только после подтверждения владельца
 $SB secrets list --remote uzivivmrixstxjvzkksz       # имена и SHA-256 значений, не сами значения
 ```
+
+Команды, которые меняют проект (например, `functions deploy`), в сессии агента без `--yes` останавливаются с `HostedMutationConsentRequiredError` и ничего не меняют. `--yes` добавляй только после того, как владелец в чате прямо подтвердил именно это изменение. `functions download` без `--workdir` перезапишет файлы в `supabase/functions/` репозитория.
+
+Хост проекта `uzivivmrixstxjvzkksz.supabase.co` из облачной сессии закрыт, вызвать функцию напрямую нельзя. Проверить функцию после деплоя можно по логам: `query_logs`, источник `function_edge_logs`, строки вида `POST | 200 | …/functions/v1/<slug>`. Для бота попроси владельца отправить ему `/start`.
 
 Секреты через API задавай только с несекретными значениями (например, модель ИИ). Токены и ключи вводит владелец сам — в панели Supabase или в форме коннектора, никогда не в чат.
 После смены секретов Supabase перезапускает функции: номер версии растёт на 1, а код (`ezbr_sha256`, `updated_at`) прежний — это не деплой.
