@@ -81,10 +81,27 @@ Mini App ботов — отдельные репозитории аккаунт
 1. **Сайт.** Коммит и push в `main` — GitHub Pages обновит сайт за 1–2 минуты.
    Если менялись `styles.css`, `app.js` или `uz-phrases.js`, подними версию `?v=polish-N` в `index.html` (у `styles.css` и `app.js`) и в импорте `uz-phrases.js` в начале `app.js`, иначе у операторов останется старый файл из кэша.
    Проверить, что сайт обновился: `curl -s https://platform770uz-dev.github.io/zamonaviy-kasblar-crm/ | grep -o 'app.js?v=[^"]*'`.
-2. **Функции.** Деплой через коннектор Supabase (`deploy_edge_function`, проект `uzivivmrixstxjvzkksz`) с тем же `verify_jwt` и import map, что в таблице.
+2. **Функции.** Деплой из файлов репозитория через Supabase CLI (см. «Доступ к Supabase из облака» ниже) — код уходит ровно таким, как в репозитории. Коннектор (`deploy_edge_function`) — запасной путь: код приходится передавать текстом, в больших файлах легко ошибиться.
+   `verify_jwt` оставляй как в таблице: почти у всех `false`, значит в команде нужен `--no-verify-jwt`, иначе вебхуки Telegram и Meta перестанут проходить.
    Копии в репозитории могут отставать от развёрнутых: перед деплоем из репозитория сверь код с `get_edge_function`. После деплоя закоммить тот же код.
    `meta-admin-lead-ingest`: в репозитории хеш токена Make читается из секрета `MAKE_TOKEN_SHA256` — перед деплоем из репозитория проверь, что секрет задан, иначе все запросы Make получат 401. Развёрнутую версию этой функции в репозиторий не копируй: в ней хеш записан как значение по умолчанию.
 3. **База.** Схема меняется миграцией: `apply_migration` через коннектор и тот же SQL в `supabase/migrations/<YYYYMMDDHHMMSS>_<name>.sql`.
+
+## Доступ к Supabase из облака
+
+В облачном окружении сохранён токен Supabase (network secret для `api.supabase.com`, с 2026-11-20). Права: только проект `zamonaviy-kasblar`, Edge Functions и Edge Function Secrets — чтение и запись; к базе, оплате и организации доступа нет. Прокси сам подставляет токен в запросы, переменной окружения нет: CLI нужен фиктивный токен нужного формата, настоящий подставится.
+
+```bash
+npm i --prefix /tmp/sb supabase                      # Supabase CLI, без Docker (проверено: v3.2.0)
+export SUPABASE_ACCESS_TOKEN="sbp_$(printf '0%.0s' {1..40})"   # фиктивный, прокси заменит
+SB=/tmp/sb/node_modules/.bin/supabase
+$SB functions list --remote uzivivmrixstxjvzkksz     # проверено: работает
+$SB functions deploy <slug> --remote uzivivmrixstxjvzkksz --use-api --no-verify-jwt   # для verify_jwt=false
+$SB secrets list --remote uzivivmrixstxjvzkksz       # имена и SHA-256 значений, не сами значения
+```
+
+Секреты через API задавай только с несекретными значениями (например, модель ИИ). Токены и ключи вводит владелец сам — в панели Supabase или в форме коннектора, никогда не в чат.
+После смены секретов Supabase перезапускает функции: номер версии растёт на 1, а код (`ezbr_sha256`, `updated_at`) прежний — это не деплой.
 
 ## Правила
 
