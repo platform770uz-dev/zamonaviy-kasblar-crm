@@ -14,7 +14,8 @@
   - `yba-results-panel.js`, `intellekt-lab-results.js` — панели «Bolalar tanishuvi» и «Intellekt Lab» в архиве.
   - `vakansiya/` — сайт вакансии, `maxfiylik-siyosati.html` — политика конфиденциальности.
 - **Supabase** `uzivivmrixstxjvzkksz` (проект «zamonaviy-kasblar», eu-central-1): база и функции. Код функций — `supabase/functions/<slug>/`, миграции — `supabase/migrations/`.
-- Второй проект Supabase `trxnsqpdekokqvtefxlt` («yba-family-platform»: семейная платформа, «Tez aytish») — его функции в этом репозитории не хранятся.
+- Второй проект Supabase `trxnsqpdekokqvtefxlt` («yba-family-platform»: семейная платформа, «Tez aytish») — его функции в этом репозитории не хранятся, кроме `tez-aytish-route` (папка `yba-family-platform/`, см. «Dars yoʻli»).
+- `dars-yoli/` — страница «Dars yoʻli» (маршрут урока для учителей Tez aytish) и листы уроков `dars-yoli/varaqalar/`; генератор листов — `tools/varaqa/gen.js`.
 - Маршруты лидов и формы Meta — `docs/lead-routes.md`, `docs/meta-lead-setup.md`.
 - Рабочие лиды — `custom_records` вкладки «Загрузка лидов через Excel». Таблицы `crm_*` (сделки, контакты, задачи старой CRM) с 2026-10-05 не пополняются; в них пишет `crm-lead`, читает `tg-bot`. Служебные `crm_maxfiy`, `crm_browser_login_tokens`, `crm_web_login` используются и сейчас.
 
@@ -37,10 +38,11 @@ Mini App ботов — отдельные репозитории аккаунт
 |---|---|---|---|
 | @teachnova_bot | руководитель: CRM и «Kvitansiya» как Mini App, решения по доступу операторов | `teachnova-bot` | `TEACHNOVA_BOT_TOKEN` |
 | @eduteachuz_bot | операторы колл-центра: Mini App скрипта звонков | `eduteach-bot`; уведомления операторам — `operator-notify` | `EDUTEACH_BOT_TOKEN` |
-| @zamonaviykasbuz_bot | «Zamonaviy Kasblar Kids»: тренажёр «Tez aytish» | `yba-public-parent-bot` | `YBA_PUBLIC_BOT_TOKEN` |
+| @zamonaviykasbuz_bot | «Zamonaviy Kasblar Kids»: тренажёр «Tez aytish»; у учителей и админов кнопка меню «Dars yoʻli» | `yba-public-parent-bot` | `YBA_PUBLIC_BOT_TOKEN` |
 | «1924 admin-bot» | меню ссылок, вход в CRM, подтверждение админов, новые лиды | `tg-bot` | `TELEGRAM_BOT_TOKEN` |
+| @kidscast_bot | родители учеников Tez aytish: «Keldi», итоги урока, домашка, профиль ребёнка | `kidscast-bot` (проект `trxnsqpdekokqvtefxlt`) | `KIDSCAST_BOT_TOKEN` (там же) |
 
-Вебхук каждого бота указывает на его функцию: `https://uzivivmrixstxjvzkksz.supabase.co/functions/v1/<slug>`.
+Вебхук каждого бота указывает на его функцию: `https://uzivivmrixstxjvzkksz.supabase.co/functions/v1/<slug>` (у @kidscast_bot — в проекте `trxnsqpdekokqvtefxlt`).
 Роли и доступ к CRM — таблица `tg_chatlar` (общая для `tg-bot` и `teachnova-bot`), доступ операторов — `skript_operatorlar`.
 
 ## Функции Supabase
@@ -108,8 +110,27 @@ $SB secrets list --remote uzivivmrixstxjvzkksz       # имена и SHA-256 з�
 Секреты через API задавай только с несекретными значениями (например, модель ИИ). Токены и ключи вводит владелец сам — в панели Supabase или в форме коннектора, никогда не в чат.
 После смены секретов Supabase перезапускает функции: номер версии растёт на 1, а код (`ezbr_sha256`, `updated_at`) прежний — это не деплой.
 
+## Dars yoʻli — маршрут урока для учителя (Tez aytish)
+
+Урок у группы идёт 90 минут (сб/вс), платформа ведёт учителя по 5 этапам и открывает следующий только после выполнения условия:
+1. **Darsni boshlash** (5 мин) — выбран урок курса на сегодня, выбран модуль недели, хотя бы один «Keldi».
+2. **Tez aytish** (25) — все отмеченные дети прошли 4 скороговорки урока в тренажёре.
+3. **Mavzu darsi** (30) — урок курса по печатному листу, всем пришедшим поставлен балл 0–5.
+4. **Kamera oldida** (20) — все пришедшие сняли видео на 30 секунд.
+5. **Yakun** (10) — «Barakalla», домашка; «Darsni yakunlash» отправляет отчёт владельцу.
+
+Этапы 2–4 после планового времени можно пройти, указав причину (она попадает в отчёт).
+
+- **Страница** `dars-yoli/index.html` — Mini App на GitHub Pages; открывается кнопкой меню «Dars yoʻli» в @zamonaviykasbuz_bot, которая есть только у активных учителей (`tez_aytish_teachers.status = 'active'`) и админов (`admins.active`). Отметки «Keldi», модуль недели и «Barakalla» страница пишет через `tez-aytish-teacher`, этапы — через `tez-aytish-route`. Проверка без Telegram: `?mock` (выдуманные данные; `&override`, `&notday` — варианты).
+- **Функция** `tez-aytish-route` в проекте `trxnsqpdekokqvtefxlt`, исходник — `yba-family-platform/functions/tez-aytish-route/index.ts`. Деплой — коннектором `deploy_edge_function` с `verify_jwt: false` (CLI-токен этого проекта не покрывает). Проверка типов: `deno check`.
+- **Таблицы** (там же): `tez_aytish_course_lessons` — уроки курса (`id` = `dNN`, `num`, `title`, `kind` blogging/matematika, `sheet_url`, `plan` = `[{min, text}]` для этапа 3, `homework`); `tez_aytish_lesson_runs` — прохождение урока группой за день; `tez_aytish_route_alerts`, `tez_aytish_menu_buttons`. У групп — `lesson_time` (уведомления только при нём) и `taught_before` (уроки курса, пройденные до платформы).
+- **Планировщик**: cron `tez-aytish-route-tick` каждые 5 минут → `public.tez_aytish_route_tick()` → `/tick` с `x-cron-secret` из `tez_aytish_settings.cron_secret`. Делает: напоминание учителю за 15 минут; через 10 минут без начала — сигнал владельцу и учителю; этап дольше плана на 10 минут — сигнал владельцу; отчёт через 150 минут, если урок не завершён; в воскресенье с 20:00 — итог недели; ставит и снимает кнопку меню. Сообщения идут через бот тренажёра.
+- **Новый урок**: добавь урок в `LESSONS` в `tools/varaqa/gen.js` (история Murodjon, правила, 5 заданий «Misol → Savol», «Nega bizga … kerak?») и собери PDF: `NODE_PATH=$(npm root -g) node tools/varaqa/gen.js 6` → `dars-yoli/varaqalar/6-dars.pdf` (одна страница A4). Затем строка в `tez_aytish_course_lessons` с `sheet_url` = `https://platform770uz-dev.github.io/zamonaviy-kasblar-crm/dars-yoli/varaqalar/6-dars.pdf`, `plan` и `homework`.
+- **Тест**: `/tick` с `x-selftest-token` — сухой прогон (`{"now": "…"}` задаёт время), ничего не отправляет и не меняет; остальные действия с `x-selftest-as` = Telegram ID. Хеш токена — секрет `TEZ_AYTISH_SELFTEST_SHA256`; в развёрнутой версии в `SELFTEST_SHA256` записан ещё хеш тестового токена команды тренажёра (как в `tez-aytish-teacher`), в репозитории его нет — хеши в публичный код не кладём. Временный хеш добавляй только в развёрнутую версию и убирай после проверки. Хост проекта из сессии закрыт: запросы шли через `net.http_post` из базы.
+
 ## Правила
 
+- `mcp__Supabase__execute_sql` разрешён без подтверждения (решение владельца, 2026-11-20): запросы, которые меняют или удаляют данные, делай только по прямой просьбе и с копией затрагиваемых строк.
 - **Репозиторий публичный.** Токены ботов, service_role, PIN, хеши токенов, адреса вебхуков Make — только в секретах Supabase (Edge Functions → Secrets) или в таблице `crm_maxfiy`; в коде — `Deno.env.get("ИМЯ")`. Перед каждым коммитом ищи в изменениях токены (`123456789:AA…`), JWT (`eyJ…`), `sb_secret_`, пароли и PIN.
 - **Персональные данные не коммитить**: реквизиты, ПИНФЛ, паспортные данные, телефоны клиентов, выгрузки лидов. Для скриншотов и проверок — выдуманные данные.
 - Вкладку «Загрузка лидов через Excel» в базе **не переименовывать**: по этому имени её находят `meta-yba-webhook` и `app.js`. В интерфейсе она показывается как «Лиды» (`tabDisplayName` в `app.js`).
