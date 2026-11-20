@@ -4,6 +4,10 @@ const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE
   auth: { persistSession: false, autoRefreshToken: false },
 });
 const ORIGIN = "https://platform770uz-dev.github.io";
+// CRM ga kira oladigan rollar. Avval faqat "owner" edi, shuning uchun tasdiqlangan adminlarda havola
+// bekorga yonib ketardi. Admin CRM da 'admin' roli bilan ishlaydi (custom_tabs.viewer_roles ga qarang).
+const CRM_ROLES = ["admin", "owner"];
+const canEnter = (rol: unknown) => CRM_ROLES.includes(String(rol ?? ""));
 const headers = {
   "Access-Control-Allow-Origin": ORIGIN,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -30,7 +34,7 @@ async function createOrLoadUser(chatId: number, name: string) {
   let result = await read();
   if (result.error || !result.data) throw new Error("approval_required");
   const person = result.data;
-  if (!person.tasdiqlangan || person.bloklangan || !["admin", "owner"].includes(person.rol)) {
+  if (!person.tasdiqlangan || person.bloklangan || !canEnter(person.rol)) {
     throw new Error("approval_required");
   }
   let userId = person.auth_user_id;
@@ -47,7 +51,7 @@ async function createOrLoadUser(chatId: number, name: string) {
     const bound = await admin.from("tg_chatlar")
       .update({ auth_user_id: newId })
       .eq("chat_id", chatId).eq("tasdiqlangan", true).eq("bloklangan", false)
-      .in("rol", ["admin", "owner"]).is("auth_user_id", null)
+      .in("rol", CRM_ROLES).is("auth_user_id", null)
       .select("auth_user_id").maybeSingle();
     if (bound.error) {
       await admin.auth.admin.deleteUser(newId);
@@ -57,7 +61,7 @@ async function createOrLoadUser(chatId: number, name: string) {
     else {
       await admin.auth.admin.deleteUser(newId);
       result = await read();
-      if (result.error || !result.data?.tasdiqlangan || result.data.bloklangan || !["admin", "owner"].includes(result.data.rol)) {
+      if (result.error || !result.data?.tasdiqlangan || result.data.bloklangan || !canEnter(result.data.rol)) {
         throw new Error("approval_required");
       }
       userId = result.data.auth_user_id;
@@ -94,17 +98,19 @@ Deno.serve(async (req: Request) => {
     if (found.error || !found.data) return reply({ error: "link_invalid" }, 401);
 
     const chatId = Number(found.data.chat_id);
+    // Havolani yoqishdan oldin ruxsatni tekshiramiz: ruxsat yo'q bo'lsa, token bekorga yonib ketmasin.
+    const person = await admin.from("tg_chatlar").select("ism,tasdiqlangan,bloklangan,rol")
+      .eq("chat_id", chatId).maybeSingle();
+    if (person.error || !person.data?.tasdiqlangan || person.data.bloklangan || !canEnter(person.data.rol)) {
+      return reply({ error: "approval_required" }, 403);
+    }
+
     const consumed = await admin.from("crm_browser_login_tokens")
       .update({ consumed_at: now }).eq("token_hash", tokenHash)
       .eq("chat_id", chatId).is("consumed_at", null).gt("expires_at", now)
       .select("token_hash").maybeSingle();
     if (consumed.error || !consumed.data) return reply({ error: "link_invalid" }, 401);
 
-    const person = await admin.from("tg_chatlar").select("ism,tasdiqlangan,bloklangan,rol")
-      .eq("chat_id", chatId).maybeSingle();
-    if (person.error || !person.data?.tasdiqlangan || person.data.bloklangan || !["admin", "owner"].includes(person.data.rol)) {
-      return reply({ error: "approval_required" }, 403);
-    }
     const account = await createOrLoadUser(chatId, person.data.ism || "");
     const link = await admin.auth.admin.generateLink({ type: "magiclink", email: account.email });
     if (link.error || !link.data?.properties?.hashed_token || link.data.user?.id !== account.userId) {
@@ -113,7 +119,7 @@ Deno.serve(async (req: Request) => {
     const stillApproved = await admin.from("tg_chatlar").select("auth_user_id,tasdiqlangan,bloklangan,rol")
       .eq("chat_id", chatId).maybeSingle();
     if (stillApproved.error || !stillApproved.data?.tasdiqlangan || stillApproved.data.bloklangan ||
-      !["admin", "owner"].includes(stillApproved.data.rol) || stillApproved.data.auth_user_id !== account.userId) {
+      !canEnter(stillApproved.data.rol) || stillApproved.data.auth_user_id !== account.userId) {
       return reply({ error: "approval_required" }, 403);
     }
     return reply({ token_hash: link.data.properties.hashed_token });

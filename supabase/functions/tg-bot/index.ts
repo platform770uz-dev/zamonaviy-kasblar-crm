@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.117.2";
 
 // 1924 admin-bot: Telegram'da havolalar menyusi + CRM'da yangi bitim yaratilsa xabar.
 // Bot tokeni faqat Supabase → Edge Functions → Secrets → TELEGRAM_BOT_TOKEN da (kodda ham, bazada ham yoʻq).
-// Rollar (tg_chatlar.rol): owner — hamma havola, adminlarni tasdiqlaydi/oladi (/adminlar); admin — faqat CRM va lid xabarlari.
+// CRM'ga faqat oldindan biriktirilgan rahbar kiradi; ota-onalar alohida Mini App tasdig‘idan o‘tadi.
 // Yangi odam Start bosadi → owner'ga tasdiqlash tugmali soʻrov boradi; tasdiqlanmaguncha bot unga hech narsa koʻrsatmaydi.
 
 const HEAD = { "Content-Type": "application/json; charset=utf-8" };
@@ -10,8 +10,55 @@ const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SE
 const json = (o: Record<string, unknown>, status = 200) => new Response(JSON.stringify(o), { status, headers: HEAD });
 const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const SITE = "https://platform770uz-dev.github.io/zamonaviy-kasblar-crm/";
+const MINI_APP = "https://platform770uz-dev.github.io/yosh-blogerlar-miniapp/";
 const CONTRACT_SITE = "https://uzivivmrixstxjvzkksz.supabase.co/functions/v1/contract-web";
 
+async function shaHex(value: string) {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(bytes)].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+function randomHex() {
+  return [...crypto.getRandomValues(new Uint8Array(24))].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+async function startYbaParent(chatId: number, name: string | null, username: string | null, token: string) {
+  const hash = await shaHex(token);
+  const { data: invite } = await sb.from("yba_parent_invites").select("id,lead_record_id,status,expires_at,requested_chat_id").eq("token_hash", hash).maybeSingle();
+  if (!invite || new Date(invite.expires_at).getTime() < Date.now() || !["issued","requested"].includes(String(invite.status))) {
+    await send(chatId, "Ссылка знакомства устарела или уже использована. Попросите администратора отправить новую."); return;
+  }
+  if (invite.requested_chat_id && Number(invite.requested_chat_id) !== chatId) {
+    await send(chatId, "Эта персональная ссылка уже привязана к другому Telegram-аккаунту. Попросите администратора проверить заявку."); return;
+  }
+  const { data: old } = await sb.from("yba_parent_requests").select("id,status").eq("invite_id", invite.id).maybeSingle();
+  if (old) {
+    if (old.status === "approved") {
+      const { data: session } = await sb.from("yba_parent_sessions").select("id").eq("request_id", old.id).maybeSingle();
+      if (session) {
+        const appToken = randomHex();
+        await sb.from("yba_parent_sessions").update({ token_hash: await shaHex(appToken), updated_at: new Date().toISOString() }).eq("id", session.id);
+        await send(chatId, "Руководитель одобрил знакомство. Откройте Mini App:", { inline_keyboard: [[{ text: "🎬 Знакомство с академией", web_app: { url: MINI_APP + "?session=" + appToken } }]] });
+      }
+    } else await send(chatId, old.status === "pending" ? "Запрос уже отправлен руководителю. Я напишу сюда после решения." : "Руководитель отклонил этот запрос. Свяжитесь с администратором.");
+    return;
+  }
+  const inserted = await sb.from("yba_parent_requests").insert({
+    invite_id: invite.id, lead_record_id: invite.lead_record_id, telegram_chat_id: chatId,
+    telegram_name: name, telegram_username: username, status: "pending",
+  }).select("id").single();
+  if (inserted.error) {
+    console.error("YBA parent request insert failed", inserted.error.code);
+    await send(chatId, "Не получилось отправить запрос. Попросите администратора создать новую ссылку."); return;
+  }
+  await sb.from("yba_parent_invites").update({ status: "requested", requested_chat_id: chatId }).eq("id", invite.id);
+  const { data: owners } = await sb.from("tg_chatlar").select("chat_id").eq("rol", "owner").eq("tasdiqlangan", true).eq("bloklangan", false);
+  for (const owner of owners ?? []) await send(owner.chat_id,
+    `🎓 <b>Запрос родителя на знакомство с детской академией</b>\n👤 ${who({ ism: name, username }, chatId)}\n📁 Лид CRM ID: <code>${esc(invite.lead_record_id)}</code>`,
+    { inline_keyboard: [[
+      { text: "✅ Одобрить знакомство", callback_data: `ybp:approve:${inserted.data.id}` },
+      { text: "⛔ Отклонить", callback_data: `ybp:reject:${inserted.data.id}` },
+    ]] });
+  await send(chatId, owners?.length ? "Запрос отправлен руководителю. После одобрения здесь появится кнопка знакомства с курсом." : "Не удалось доставить запрос руководителю. Попросите администратора проверить бота.");
+}
 function safeEqual(a: string, b: string) {
   if (a.length !== b.length) return false;
   let r = 0;
@@ -47,7 +94,7 @@ async function issueCrmAccess(chatId: number) {
   const { data: person, error } = await sb.from("tg_chatlar")
     .select("rol,tasdiqlangan,bloklangan")
     .eq("chat_id", chatId).maybeSingle();
-  if (error || !person?.tasdiqlangan || person.bloklangan || !["owner", "admin"].includes(String(person.rol))) {
+  if (error || !person?.tasdiqlangan || person.bloklangan || person.rol !== "owner") {
     return { ok: false };
   }
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -113,19 +160,108 @@ async function notifyOlimpiada(chatId: number, payload: any) {
   await send(chatId, owners?.length ? "✅ Запрос отправлен администратору. Ответ придёт сюда в Telegram." : "Не удалось доставить запрос администратору. Напишите ему позже.");
 }
 
+const YBA_LEADS_TAB = "d52d616c-a91f-47f4-a151-8bb9c069d06d";
+function normalizeParentPhone(value: unknown) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  return digits.length >= 9 ? digits.slice(-9) : "";
+}
+async function parentInviteFromContact(m: any, chatId: number, ism: string | null, username: string | null) {
+  const contact = m.contact;
+  if (!contact || Number(contact.user_id) !== chatId) {
+    await send(chatId, "Iltimos, pastdagi tugma orqali o‘zingizning telefon raqamingizni yuboring.");
+    return;
+  }
+  const phone = normalizeParentPhone(contact.phone_number);
+  if (!phone) {
+    await send(chatId, "Telefon raqamini aniqlay olmadim. Iltimos, qayta yuboring yoki administratordan yordam so‘rang.");
+    return;
+  }
+  const matches: any[] = [];
+  for (let from = 0; from < 10000; from += 1000) {
+    const { data: rows, error } = await sb.from("custom_records").select("id,values,created_by")
+      .eq("tab_id", YBA_LEADS_TAB).range(from, from + 999);
+    if (error) {
+      console.error("YBA lead match failed", error.code);
+      await send(chatId, "Arizani tekshirishda muammo bo‘ldi. Iltimos, administrator bilan bog‘laning.");
+      return;
+    }
+    for (const row of rows ?? []) {
+      if (normalizeParentPhone(row.values?.["Telefon"]) === phone) matches.push(row);
+      if (matches.length > 1) break;
+    }
+    if (matches.length > 1 || !rows || rows.length < 1000) break;
+  }
+  if (matches.length !== 1) {
+    await send(chatId, matches.length ? "Bu raqam bilan bir nechta ariza topildi. Administrator sizga alohida havola yuboradi." : "Bu raqam bo‘yicha ariza topilmadi. Arizada ko‘rsatilgan telefon raqamini yuboring yoki administrator bilan bog‘laning.", {
+      reply_markup: { keyboard: [[{ text: "📱 Telefon raqamni yuborish", request_contact: true }]], resize_keyboard: true, one_time_keyboard: true }
+    });
+    return;
+  }
+  const lead = matches[0];
+  const token = randomHex();
+  const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const createdBy = String(lead.created_by ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(createdBy)) {
+    await send(chatId, "Arizani xavfsiz bog‘lay olmadim. Administrator sizga alohida taklifnoma yuboradi.");
+    return;
+  }
+  const inserted = await sb.from("yba_parent_invites").insert({
+    token_hash: await shaHex(token), lead_record_id: lead.id, created_by: createdBy, status: "issued", expires_at: expires,
+  });
+  if (inserted.error) {
+    console.error("YBA parent invite create failed", inserted.error.code);
+    await send(chatId, "So‘rovni yuborib bo‘lmadi. Iltimos, administrator bilan bog‘laning.");
+    return;
+  }
+  await tg("sendMessage", { chat_id: chatId, text: "Rahmat, raqam arizangiz bilan mos keldi. Rahbaringizdan ruxsat so‘rayapman.", reply_markup: { remove_keyboard: true } });
+  await startYbaParent(chatId, ism, username, token);
+}
+async function promptParentEntry(chatId: number) {
+  await send(chatId,
+    "Assalomu alaykum! Arizangizdagi ota-onaning telefon raqamini tugma orqali yuboring. Rahbar tasdiqlagach, bot faqat akademiya bilan tanishuv Mini App’ini ochadi.",
+    { reply_markup: { keyboard: [[{ text: "📱 Telefon raqamni yuborish", request_contact: true }]], resize_keyboard: true, one_time_keyboard: true } }
+  );
+}
+
 async function onMessage(m: any) {
   if (!m?.chat || m.chat.type !== "private") return;
   const chatId = Number(m.chat.id);
   const ism = [m.from?.first_name, m.from?.last_name].filter(Boolean).join(" ").slice(0, 120) || null;
   const username = m.from?.username ? String(m.from.username).slice(0, 64) : null;
+  const text = typeof m.text === "string" ? m.text.trim() : "";
+  const ybaStart = /^\/start(?:@\w+)?\s+ybp_([a-f0-9]{48})$/i.exec(text);
+  if (ybaStart) { await startYbaParent(chatId, ism, username, ybaStart[1].toLowerCase()); return; }
+  const parentReq = await sb.from("yba_parent_requests").select("id,status").eq("telegram_chat_id", chatId)
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (parentReq.data) {
+    if (/^\/(start|menu)(?:@\w+)?(?:\s|$)/.test(text)) {
+      if (parentReq.data.status === "approved") {
+        const { data: session } = await sb.from("yba_parent_sessions").select("id").eq("request_id", parentReq.data.id).maybeSingle();
+        if (session) {
+          const appToken = randomHex();
+          await sb.from("yba_parent_sessions").update({ token_hash: await shaHex(appToken), updated_at: new Date().toISOString() }).eq("id", session.id);
+          await send(chatId, "Откройте Mini App для продолжения:", { inline_keyboard: [[{ text: "🎬 Знакомство с академией", web_app: { url: MINI_APP + "?session=" + appToken } }]] });
+        }
+      } else await send(chatId, parentReq.data.status === "pending" ? "Запрос на знакомство ожидает решения руководителя." : "Запрос отклонён. Свяжитесь с администратором.");
+    } else if (text) await send(chatId, "Этот бот используется для знакомства с детской академией. Нажмите /start, чтобы открыть Mini App после одобрения.");
+    return;
+  }
   if (m.web_app_data?.data) {
     try { await notifyOlimpiada(chatId, JSON.parse(String(m.web_app_data.data).slice(0, 4000))); }
     catch { await send(chatId, "Не получилось прочитать запрос. Попробуйте ещё раз через кнопку связи."); }
     return;
   }
-  const text = typeof m.text === "string" ? m.text.trim() : "";
   let { data: row } = await sb.from("tg_chatlar")
     .select("rol, requested_rol, tasdiqlangan, bloklangan").eq("chat_id", chatId).maybeSingle();
+  const staffRequest = text === "Xodimman — CRM kirish";
+  const startCommand = /^\/(start|menu)(@\w+)?(?:\s|$)/.test(text) || text === "📋 Меню" || text.toLowerCase() === "crm" || staffRequest;
+  if (m.contact) { await parentInviteFromContact(m, chatId, ism, username); return; }
+  const isOwner = row?.rol === "owner" && row.tasdiqlangan && !row.bloklangan;
+  if (!isOwner) {
+    if (startCommand) await setCrmMenu(chatId);
+    if (startCommand || text) await promptParentEntry(chatId);
+    return;
+  }
   if (!row) {
     const ins = await sb.from("tg_chatlar")
       .insert({ chat_id: chatId, ism, username, requested_rol: null })
@@ -147,14 +283,13 @@ async function onMessage(m: any) {
     return;
   }
   const replyMatch = /\[payment-reply:(\d{1,15})\]/.exec(replyText);
-  if (["owner", "admin"].includes(String(row?.rol)) && row?.tasdiqlangan && replyMatch && text) {
+  if (row?.rol === "owner" && row?.tasdiqlangan && replyMatch && text) {
     await send(Number(replyMatch[1]), `💬 <b>Ответ администратора по оплате:</b>\n${esc(text.slice(0, 3000))}`);
     await send(chatId, "✅ Ответ отправлен родителю.");
     return;
   }
-  if (row?.rol === "owner" && /^\/adminlar(@\w+)?$/.test(text)) return await listPeople(chatId);
+  if (row?.rol === "owner" && /^\/adminlar(@\w+)?$/.test(text)) { await send(chatId, "CRM доступа для администраторов нет. Доступ остаётся только у руководителя."); return; }
 
-  const startCommand = /^\/(start|menu)(@\w+)?(?:\s|$)/.test(text) || text === "📋 Меню" || text.toLowerCase() === "crm";
   if (row?.bloklangan) {
     if (startCommand) await send(chatId, "Доступ к CRM отклонён. Свяжитесь с руководителем.");
     return;
@@ -163,19 +298,12 @@ async function onMessage(m: any) {
     await tg("deleteMyCommands", { scope: { type: "default" } });
     await tg("deleteMyCommands", { scope: { type: "chat", chat_id: chatId } });
     await setCrmMenu(chatId);
-    if (row?.tasdiqlangan && ["owner", "admin"].includes(String(row.rol))) {
+    if (row?.tasdiqlangan && row.rol === "owner") {
       await issueCrmAccess(chatId);
       return;
     }
     if (!row?.tasdiqlangan) {
-      if (row?.requested_rol !== "admin") {
-        const saved = await sb.from("tg_chatlar").update({ requested_rol: "admin" })
-          .eq("chat_id", chatId).eq("tasdiqlangan", false).eq("bloklangan", false)
-          .select("chat_id").maybeSingle();
-        if (saved.error) { await send(chatId, "Не удалось отправить запрос. Нажмите /start ещё раз."); return; }
-        if (saved.data) await askOwners(chatId, { ism, username }, "admin");
-      }
-      await send(chatId, "Запрос на доступ к CRM отправлен руководителю. После одобрения бот пришлёт кнопку входа.");
+      await promptParentEntry(chatId);
       return;
     }
   }
@@ -215,7 +343,7 @@ async function onCallback(cq: any) {
   }
   const paymentReply = /^payment:reply:(\d{1,15})$/.exec(data);
   if (paymentReply) {
-    if (!me?.tasdiqlangan || me.bloklangan || !["owner", "admin"].includes(String(me.rol))) { await answer("Нет доступа"); return; }
+    if (me?.rol !== "owner" || !me.tasdiqlangan || me.bloklangan) { await answer("Нет доступа"); return; }
     const targetId = Number(paymentReply[1]);
     await send(Number(cq.from.id), `Введите ответ для родителя (ID ${targetId}) ответом на это сообщение.\n[payment-reply:${targetId}]`, {
       force_reply: true, input_field_placeholder: "Ответ по оплате",
@@ -224,24 +352,48 @@ async function onCallback(cq: any) {
     return;
   }
   if (me?.rol !== "owner" || !me.tasdiqlangan || me.bloklangan) { await answer("Нет доступа"); return; }
-  const m = /^(ok|no):(\d{1,15})$/.exec(data);
-  if (!m) { await answer("?"); return; }
-  const id = Number(m[2]);
-  const { data: t } = await sb.from("tg_chatlar").select("ism, username, rol, requested_rol").eq("chat_id", id).maybeSingle();
-  if (!t || t.rol === "owner") { await answer("Не найдено"); return; }
-  const yes = m[1] === "ok";
-  const updated = await sb.from("tg_chatlar").update({ rol: yes ? "admin" : t.rol, tasdiqlangan: yes, bloklangan: !yes }).eq("chat_id", id);
-  if (updated.error) { await answer("Не удалось сохранить. Попробуйте ещё раз."); return; }
-  await setCrmMenu(id);
-  if (yes) await issueCrmAccess(id);
-  if (cq.message?.chat?.id && cq.message?.message_id) {
-    await tg("editMessageText", {
+  const parentDecision = /^ybp:(approve|reject):([0-9a-f-]{36})$/i.exec(data);
+  if (parentDecision) {
+    if (me?.rol !== "owner" || !me.tasdiqlangan || me.bloklangan) { await answer("Нет доступа"); return; }
+    const requestId = parentDecision[2];
+    const { data: request } = await sb.from("yba_parent_requests").select("id,invite_id,lead_record_id,telegram_chat_id,status").eq("id", requestId).maybeSingle();
+    if (!request || request.status !== "pending") { await answer("Запрос уже обработан или не найден"); return; }
+    const approve = parentDecision[1] === "approve";
+    const appToken = approve ? randomHex() : "";
+    if (approve) {
+      const created = await sb.from("yba_parent_sessions").insert({
+        request_id: request.id, lead_record_id: request.lead_record_id, token_hash: await shaHex(appToken),
+        telegram_chat_id: request.telegram_chat_id,
+      });
+      if (created.error) { await answer("Не удалось подготовить Mini App"); return; }
+    }
+    const updated = await sb.from("yba_parent_requests").update({
+      status: approve ? "approved" : "rejected", reviewed_at: new Date().toISOString(), reviewed_by_chat_id: Number(cq.from.id),
+    }).eq("id", request.id).eq("status", "pending").select("id").maybeSingle();
+    if (updated.error || !updated.data) {
+      if (approve) await sb.from("yba_parent_sessions").delete().eq("request_id", request.id);
+      await answer("Не удалось сохранить решение"); return;
+    }
+    await sb.from("yba_parent_invites").update({ status: approve ? "approved" : "rejected" }).eq("id", request.invite_id);
+    if (approve) await send(Number(request.telegram_chat_id), "Руководитель одобрил знакомство. Откройте Mini App:", {
+      inline_keyboard: [[{ text: "🎬 Знакомство с академией", web_app: { url: MINI_APP + "?session=" + appToken } }]],
+    });
+    else await send(Number(request.telegram_chat_id), "Руководитель отклонил запрос на знакомство. По вопросам свяжитесь с администратором.");
+    if (cq.message?.chat?.id && cq.message?.message_id) await tg("editMessageText", {
       chat_id: cq.message.chat.id, message_id: cq.message.message_id, parse_mode: "HTML",
-      text: `${yes ? "✅ Tasdiqlandi" : "⛔ Rad etildi"}\n👤 ${who(t, id)}\n🎭 ${yes ? (t.requested_rol === "owner" ? "Rahbar" : "Koordinator") : "So‘rov"}`,
+      text: `${approve ? "✅ Знакомство одобрено" : "⛔ Запрос отклонён"}\nTelegram ID родителя: <code>${request.telegram_chat_id}</code>`,
       reply_markup: { inline_keyboard: [] },
     });
+    await answer(approve ? "Знакомство одобрено" : "Запрос отклонён"); return;
   }
-  await answer(yes ? "Подтверждён" : "Отклонён");
+  if (/^(ok|no):\\d{1,15}$/.test(data)) {
+    await answer("Доступ администраторам отключён. Решение по родителям — только через запрос знакомства.");
+    if (cq.message?.chat?.id && cq.message?.message_id) await tg("editMessageReplyMarkup", {
+      chat_id: cq.message.chat.id, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] },
+    });
+    return;
+  }
+  await answer("?");
 }
 
 function card(d: any, note: string | undefined, test: boolean) {
@@ -261,7 +413,7 @@ function card(d: any, note: string | undefined, test: boolean) {
 async function notify(body: any) {
   const ids: number[] = (Array.isArray(body.ids) ? body.ids : []).map(Number).filter((x: number) => Number.isSafeInteger(x) && x > 0).slice(0, 20);
   const soni = Math.max(Number(body.soni) || 0, ids.length);
-  const { data: chats } = await sb.from("tg_chatlar").select("chat_id").eq("tasdiqlangan", true);
+  const { data: chats } = await sb.from("tg_chatlar").select("chat_id").eq("rol", "owner").eq("tasdiqlangan", true).eq("bloklangan", false);
   if (!chats?.length || !soni) return json({ ok: true, kartalar: 0, sent: 0 });
 
   const texts: string[] = [];
@@ -281,6 +433,115 @@ async function notify(body: any) {
 }
 
 // ishga.html testini topshirgan nomzod — faqat owner'ga (bu yollash masalasi, adminlarga koʻrsatilmaydi)
+async function notifyHaydovchi(body: any) {
+  const id = String(body.meta_lead_id ?? "").trim();
+  if (!/^\\d{1,128}$/.test(id)) return json({ error: "bad lead id" }, 400);
+  const [{ data: job, error: jobError }, { data: lead, error: leadError }] = await Promise.all([
+    sb.from("meta_driver_notifications").select("status, attempts, updated_at").eq("meta_lead_id", id).maybeSingle(),
+    sb.from("meta_admin_leads").select("meta_lead_id, meta_form_id").eq("meta_lead_id", id).maybeSingle(),
+  ]);
+  if (jobError || leadError) {
+    console.error("driver notification lookup failed", jobError?.code ?? leadError?.code ?? "unknown");
+    return json({ error: "notification lookup failed" }, 503);
+  }
+  if (!job || !lead || lead.meta_form_id !== "1116743630843921") return json({ error: "driver lead not found" }, 404);
+  if (job.status === "sent") return json({ ok: true, sent: 0, duplicate: true });
+
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - 120000).toISOString();
+  const { data: owners, error: ownersError } = await sb.from("tg_chatlar")
+    .select("chat_id").eq("rol", "owner").eq("tasdiqlangan", true).eq("bloklangan", false);
+  if (ownersError) {
+    await sb.from("meta_driver_notifications").update({ last_error: "Could not load Telegram recipients", updated_at: now.toISOString() }).eq("meta_lead_id", id);
+    console.error("driver notification recipients failed", ownersError.code);
+    return json({ error: "notification recipients unavailable" }, 503);
+  }
+  if (!owners?.length) {
+    await sb.from("meta_driver_notifications").update({ last_error: "No active owner Telegram chats", updated_at: now.toISOString() }).eq("meta_lead_id", id);
+    return json({ error: "no active owner Telegram chats" }, 503);
+  }
+
+  const patch = { status: "sending", attempts: Number(job.attempts || 0) + 1, last_attempt_at: now.toISOString(), last_error: null, updated_at: now.toISOString() };
+  const claim = job.status === "sending"
+    ? await sb.from("meta_driver_notifications").update(patch).eq("meta_lead_id", id).eq("status", "sending").lt("updated_at", staleBefore).select("meta_lead_id").maybeSingle()
+    : await sb.from("meta_driver_notifications").update(patch).eq("meta_lead_id", id).eq("status", "pending").select("meta_lead_id").maybeSingle();
+  if (claim.error) {
+    console.error("driver notification claim failed", claim.error.code);
+    return json({ error: "notification claim failed" }, 503);
+  }
+  if (!claim.data) return json({ ok: true, sent: 0, in_progress: true });
+
+  const message = "🚗 Новая заявка водителя-координатора поступила в CRM. Откройте CRM, чтобы посмотреть карточку и связаться с кандидатом.";
+  let sent = 0;
+  for (const owner of owners) if ((await send(owner.chat_id, message)).ok) sent++;
+  if (sent > 0) {
+    const saved = await sb.from("meta_driver_notifications").update({ status: "sent", sent_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() }).eq("meta_lead_id", id);
+    if (saved.error) {
+      console.error("driver notification completion save failed", saved.error.code);
+      return json({ error: "notification state save failed" }, 503);
+    }
+    return json({ ok: true, sent });
+  }
+  await sb.from("meta_driver_notifications").update({ status: "pending", last_error: "Telegram rejected delivery to all owner chats", updated_at: new Date().toISOString() }).eq("meta_lead_id", id);
+  return json({ error: "Telegram delivery failed; queued for retry" }, 503);
+}
+
+async function notifyYbaLead(body: any) {
+  const id = String(body.meta_lead_id ?? "").trim();
+  if (!/^\d{1,128}$/.test(id)) return json({ error: "bad lead id" }, 400);
+  const [{ data: job, error: jobError }, { data: lead, error: leadError }] = await Promise.all([
+    sb.from("yba_lead_notifications").select("status, attempts, updated_at").eq("meta_lead_id", id).maybeSingle(),
+    sb.from("custom_records").select("id").eq("tab_id", "d52d616c-a91f-47f4-a151-8bb9c069d06d").eq("external_id", id).maybeSingle(),
+  ]);
+  if (jobError || leadError) {
+    console.error("YBA Telegram notification lookup failed", jobError?.code ?? leadError?.code ?? "unknown");
+    return json({ error: "notification lookup failed" }, 503);
+  }
+  if (!job || !lead) return json({ error: "YBA lead or notification job not found" }, 404);
+  if (job.status === "sent") return json({ ok: true, sent: 0, duplicate: true });
+
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - 120000).toISOString();
+  const { data: chats, error: chatsError } = await sb.from("tg_chatlar")
+    .select("chat_id").eq("rol", "owner").eq("tasdiqlangan", true).eq("bloklangan", false);
+  if (chatsError || !chats?.length) {
+    await sb.from("yba_lead_notifications").update({
+      last_error: chatsError ? "Could not load Telegram recipients" : "No active CRM Telegram chats",
+      updated_at: now.toISOString(),
+    }).eq("meta_lead_id", id);
+    console.error("YBA Telegram recipients unavailable", chatsError?.code ?? "none");
+    return json({ error: "notification recipients unavailable" }, 503);
+  }
+
+  const patch = { status: "sending", attempts: Number(job.attempts || 0) + 1, last_attempt_at: now.toISOString(), last_error: null, updated_at: now.toISOString() };
+  const claim = job.status === "sending"
+    ? await sb.from("yba_lead_notifications").update(patch).eq("meta_lead_id", id).eq("status", "sending").lt("updated_at", staleBefore).select("meta_lead_id").maybeSingle()
+    : await sb.from("yba_lead_notifications").update(patch).eq("meta_lead_id", id).eq("status", "pending").select("meta_lead_id").maybeSingle();
+  if (claim.error) {
+    console.error("YBA Telegram notification claim failed", claim.error.code);
+    return json({ error: "notification claim failed" }, 503);
+  }
+  if (!claim.data) return json({ ok: true, sent: 0, in_progress: true });
+
+  const message = "🆕 Новая заявка — Bolalar blogerlar akademiyasi\n\nЗаявка записана в CRM: раздел «Blogerlik leadlari bolalar».";
+  let sent = 0;
+  for (const chat of chats) if ((await send(chat.chat_id, message)).ok) sent++;
+  if (sent > 0) {
+    const saved = await sb.from("yba_lead_notifications").update({
+      status: "sent", sent_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString(),
+    }).eq("meta_lead_id", id);
+    if (saved.error) {
+      console.error("YBA Telegram notification completion save failed", saved.error.code);
+      return json({ error: "notification state save failed" }, 503);
+    }
+    return json({ ok: true, sent });
+  }
+  await sb.from("yba_lead_notifications").update({
+    status: "pending", last_error: "Telegram rejected delivery to all CRM chats", updated_at: new Date().toISOString(),
+  }).eq("meta_lead_id", id);
+  return json({ error: "Telegram delivery failed; queued for retry" }, 503);
+}
+
 async function notifyNomzod(body: any) {
   const id = Number(body.id);
   if (!Number.isSafeInteger(id) || id <= 0) return json({ error: "bad id" }, 400);
@@ -391,5 +652,8 @@ Deno.serve(async (req: Request) => {
   if (body?.turi === "setup") return await setup(body, sec.tg_webhook);
   if (body?.turi === "yangi_lid") return await notify(body);
   if (body?.turi === "yangi_nomzod") return await notifyNomzod(body);
+  if (body?.turi === "yangi_haydovchi") return await notifyHaydovchi(body);
+  if (body?.turi === "yangi_blogger_lid") return await notifyYbaLead(body);
   return json({ error: "nomaʼlum turi" }, 400);
 });
+
