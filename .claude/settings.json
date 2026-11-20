@@ -17,7 +17,8 @@
       "mcp__Supabase__query_logs",
       "mcp__Supabase__search_docs",
       "mcp__Supabase__generate_typescript_types",
-      "mcp__Supabase__execute_sql"
+      "mcp__Supabase__execute_sql",
+      "mcp__Supabase__apply_migration"
     ]
   }
 }
