@@ -6,7 +6,15 @@ export const uzPhrases = {
   "HR-лиды": "HR arizalari", "Блогеры": "Blogerlar", "Заявки на шоу": "Shou arizalari", "Автопилот": "Avtopilot",
   "Новая вкладка": "Yangi bo‘lim", "Шоу": "Shou", "Ещё": "Yana", "Все разделы": "Barcha bo‘limlar", "Excel-лиды": "Excel lidlar",
   "Загрузка лидов через Excel": "Excel orqali lidlar yuklash", "Переключить язык": "Tilni almashtirish",
+  "РАБОЧЕЕ МЕСТО": "ISH JOYI", "Основные разделы": "Asosiy bo‘limlar", "Координатор": "Koordinator",
+  "Безопасный вход": "Xavfsiz kirish", "Выйти": "Chiqish", "Защищённая CRM": "Xavfsiz CRM", "Вы вышли из CRM.": "Tizimdan chiqdingiz.",
+  // Раздел «Лиды» и дашборд (polish-26)
+  "Звонки, консультации и ученики. Новые заявки приходят из Facebook и Excel.": "Qo‘ng‘iroqlar, konsultatsiyalar va o‘quvchilar. Yangi arizalar Facebook va Excel’dan keladi.",
+  "Столбцы: имя, телефон и created_time — исходная дата лида": "Ustunlar: ism, telefon va created_time — lidning dastlabki sanasi",
+  "ДАТА ЛИДА": "LID SANASI", "Лиды, ученики, поступления и долги.": "Lidlar, o‘quvchilar, tushumlar va qarzlar.",
   // Вход
+  "Добро пожаловать в CRM": "CRM’ga xush kelibsiz",
+  "Лиды, звонки, ученики и оплаты в одном месте.": "Lidlar, qo‘ng‘iroqlar, o‘quvchilar va to‘lovlar bir joyda.",
   "PIN руководителя": "Rahbar PIN-kodi", "Войти как руководитель": "Rahbar sifatida kirish",
   "HR-лиды, блогеры и заявки на шоу в одном месте.": "HR lidlar, blogerlar va shou arizalari bir joyda.",
   "Администраторы входят по личной ссылке из Telegram-бота после одобрения руководителем.": "Administratorlar rahbar ruxsat bergandan so‘ng Telegram-botdagi shaxsiy havola orqali kiradi.",

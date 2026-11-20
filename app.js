@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-25";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-26";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -8,6 +8,9 @@ const db = createClient(config.url, config.publishableKey, {
 const $ = (id) => document.getElementById(id);
 const state = { user: null, crmRole: null, selectedCustomRecord: null, leads: [], orders: [], promos: [], shows: [], tabs: [], selectedLead: null, selectedOrder: null, ownerToken: "", leadAccess: false, manager: false, language: localStorage.getItem("crm-language") || "uz" };
 const excelLeadsTabName = "Загрузка лидов через Excel";
+// В базе вкладка называется по-старому (по этому имени её находят вебхук meta-yba-webhook и код CRM),
+// а в интерфейсе — коротко «Лиды». Само имя в базе не меняем.
+function tabDisplayName(tab) { return tab?.name === excelLeadsTabName ? "Лиды" : String(tab?.name || ""); }
 const statuses = {
   new: "Yangi",
   contacted: "Bog‘lanildi",
@@ -128,7 +131,7 @@ function statusPill(status) {
 }
 // После обновления страницы (F5) возвращаем открытый раздел: запоминаем его в браузере.
 const viewMemoryKey = "crm.lastView.v1";
-const viewMemory = { ready: false, restored: false };
+const viewMemory = { ready: false };
 const rememberablePages = new Set(["bloggers", "hr", "shows", "autopilot", "dashboard", "script"]);
 function saveView(view) {
   if (!viewMemory.ready) return;
@@ -145,15 +148,27 @@ function openSavedPanel(id, attempt = 0) {
   const button = document.getElementById(id);
   if (button) { button.click(); return; }
   if (attempt < 20) setTimeout(() => openSavedPanel(id, attempt + 1), 400);
+  else if (isBooting()) openDefaultView(); // панель так и не появилась (нет доступа) — не оставляем заставку
+}
+// Пока после входа грузятся данные, открыта заставка «Загрузка…» (bootPage), а не какой-то раздел.
+function isBooting() { return Boolean($("bootPage")?.classList.contains("active")); }
+// Раздел по умолчанию: главная вкладка «Лиды», без неё — дашборд руководителя, иначе «Блогеры».
+async function openDefaultView() {
+  const leadsTab = state.tabs.find((tab) => tab.name === excelLeadsTabName);
+  if (leadsTab) await showCustomTab(leadsTab);
+  else setPage(state.manager ? "dashboard" : "bloggers");
 }
 async function restoreLastView() {
-  if (viewMemory.restored) return;
-  viewMemory.restored = true;
+  // Раздел уже открыт (данные обновились после сохранения или человек успел нажать пункт меню) — не трогаем.
+  if (!isBooting()) { viewMemory.ready = true; return; }
   try {
     const saved = readSavedView();
-    if (saved?.type === "page" && rememberablePages.has(saved.page) && saved.page !== "bloggers") setPage(saved.page);
-    else if (saved?.type === "tab") { const tab = state.tabs.find((item) => item.id === saved.id); if (tab) await showCustomTab(tab); }
+    const tab = saved?.type === "tab" ? state.tabs.find((item) => item.id === saved.id) : null;
+    const pageAllowed = saved?.type === "page" && rememberablePages.has(saved.page) && (state.manager || !["dashboard", "hr"].includes(saved.page));
+    if (pageAllowed) setPage(saved.page);
+    else if (tab) await showCustomTab(tab);
     else if (saved?.type === "panel" && /^(ybaPublicResultsNav|intellektLabResultsNav)$/.test(String(saved.id))) openSavedPanel(saved.id);
+    else await openDefaultView();
   } finally { viewMemory.ready = true; }
 }
 document.addEventListener("click", (event) => {
@@ -200,7 +215,10 @@ function showCRM() {
   $("loginView").classList.add("hidden");
   $("ownerPage").classList.add("hidden");
   $("workspace").classList.remove("hidden");
-  setPage("bloggers");
+  // Раздел откроет restoreLastView, когда загрузятся вкладки и права: запомненный или «Лиды».
+  // До этого — заставка, а не «Блогеры» из архива.
+  document.querySelectorAll(".page").forEach((node) => node.classList.toggle("active", node.id === "bootPage"));
+  document.querySelectorAll("[data-view]").forEach((node) => node.classList.remove("active"));
 }
 function leadSearchText(lead) {
   return [lead.full_name, lead.phone, lead.kirgili_answer, lead.study_answer, lead.availability, lead.crm_note, ...Object.values(lead.meta_answers || {})]
@@ -684,7 +702,7 @@ function isFargonaTezkorTab(tab) { return /^fargona\s+tezkor$/i.test(String(tab?
   for (const tab of state.tabs) {
     if (isFargonaTezkorTab(tab) || isScriptTab(tab)) continue;
     const nav = document.createElement("button"); nav.className = "nav-item custom-tab-nav"; nav.dataset.view = "custom-" + tab.id; nav.dataset.bound = "1";
-    nav.innerHTML = '<span class="nav-icon">' + escapeHtml(tab.icon || "▤") + '</span><span>' + escapeHtml(tab.name) + '</span>';
+    nav.innerHTML = '<span class="nav-icon">' + escapeHtml(tab.name === excelLeadsTabName ? "☎" : tab.icon || "▤") + '</span><span>' + escapeHtml(tabDisplayName(tab)) + '</span>';
     // Куда попадёт пункт (меню или «Архив»), решает nav-archive.js; Excel-лиды по умолчанию остаются в меню.
     if (tab.name === excelLeadsTabName) nav.dataset.excel = "1";
     sidebarNav.insertBefore(nav, $("newCustomTab"));
@@ -746,7 +764,7 @@ function canManageCustomTab(tab) {
 function openCustomRecordDialog(tab, fields, record = null) {
   state.selectedCustomTab = tab;
   state.selectedCustomRecord = record;
-  $("customRecordTitle").textContent = (record ? "Изменить запись · " : "Новая запись · ") + tab.name;
+  $("customRecordTitle").textContent = (record ? "Изменить запись · " : "Новая запись · ") + tabDisplayName(tab);
   $("customRecordFields").innerHTML = fields.map((field, index) => {
     const inputType = field.type === "phone" ? "tel" : field.type === "date" ? "date" : field.type === "link" ? "url" : "text";
     const value = record?.values?.[field.name] ?? "";
@@ -1351,7 +1369,7 @@ async function renderDashboard() {
   page.textContent = "";
   const head = dashboardEl("div", "dash-head");
   const titles = dashboardEl("div");
-  titles.append(dashboardEl("p", "eyebrow", "CRM · EXCEL"), dashboardEl("h1", "", "Дашборд"), dashboardEl("p", "subtle", "Лиды, ученики, поступления и долги по вкладке «Загрузка лидов через Excel»."));
+  titles.append(dashboardEl("p", "eyebrow", "CRM"), dashboardEl("h1", "", "Дашборд"), dashboardEl("p", "subtle", "Лиды, ученики, поступления и долги."));
   const controls = dashboardEl("div", "dash-controls");
   for (const [value, label] of [["today", "Сегодня"], ["7", "7 дней"], ["30", "30 дней"], ["all", "Всё время"]]) {
     const button = dashboardEl("button", "dash-period" + (dashboardState.period === value ? " is-active" : ""), label);
@@ -1398,7 +1416,6 @@ async function renderDashboard() {
     dashboardTile("Поступило", moneyText(moneyInPeriod), "Всего: " + moneyText(moneyTotal), "good"),
     dashboardTile("Долг", moneyText(debtTotal), "Должников: " + debtors.length, debtTotal ? "bad" : ""),
     dashboardTile("Сумма по ученикам", moneyText(priceTotal), "Оплачено " + (priceTotal ? Math.round(Math.min(moneyTotal, priceTotal) / priceTotal * 100) : 0) + "%"),
-    dashboardTile("Опросы заполнены", leadRows.filter((row) => surveyProgress(row.values?.["Опрос"]).filled === 8).length + " / " + leadRows.length, "Нужно уточнить: " + leadRows.filter((row) => leadNeedsClarification(row.values)).length, "bad"),
   );
   page.appendChild(tiles);
 
@@ -1419,6 +1436,12 @@ async function renderDashboard() {
     row.append(dashboardEl("span", "", label), bar, dashboardEl("b", "", String(counts[key])));
     funnel.appendChild(row);
   }
+  // Качество записей — под воронкой, а не отдельной красной плиткой: шесть плиток ровно ложатся в сетку.
+  const surveysFull = leadRows.filter((row) => surveyProgress(row.values?.["Опрос"]).filled === 8).length;
+  const unclear = leadRows.filter((row) => leadNeedsClarification(row.values)).length;
+  const surveys = dashboardEl("div", "dash-funnel-foot");
+  surveys.append(dashboardEl("span", "", "Опросы заполнены"), dashboardEl("b", "", surveysFull + " / " + leadRows.length), dashboardEl("small", unclear ? "is-bad" : "", "Нужно уточнить: " + unclear));
+  funnel.appendChild(surveys);
   // Поступления по дням (14 дней)
   const days = [];
   for (let i = 13; i >= 0; i--) days.push(tashkentDateKey(new Date(Date.now() - i * 24 * 60 * 60 * 1000)));
@@ -2093,7 +2116,7 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
     $("sourceBack").onclick = () => setPage("bloggers");
   } else {
     const isExcelLeads = tab.name === excelLeadsTabName;
-    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM · EXCEL</p><h1>' + escapeHtml(tab.name) + '</h1><p class="subtle">Загрузите имя, телефон и исходную дату лида из столбца created_time.</p></div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><div id="leadModeSwitch" class="lead-mode-switch" role="tablist" aria-label="Режим работы с лидами"><button type="button" class="lead-mode is-queue" data-lead-mode="queue" role="tab"><span>🔥 Очередь ИИ</span><b data-mode-count="queue">0</b></button><button type="button" class="lead-mode" data-lead-mode="all" role="tab"><span>Все лиды</span><b data-mode-count="all">0</b></button></div><section id="callQueuePanel" class="call-queue-panel hidden" aria-live="polite"></section><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button><button type="button" class="lead-status-column is-unclear" data-lead-filter="unclear"><span>Нужно уточнить</span><b data-count="unclear">0</b></button><button type="button" class="lead-status-column is-student" data-lead-filter="student"><span>Ученики</span><b data-count="student">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<button type="button" id="studentSearchHint" class="student-search-hint hidden"></button><div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА СОЗДАНИЯ ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
+    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM</p><h1>' + escapeHtml(tabDisplayName(tab)) + '</h1>' + (isExcelLeads ? '<p class="subtle">Звонки, консультации и ученики. Новые заявки приходят из Facebook и Excel.</p>' : '') + '</div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button" title="Столбцы: имя, телефон и created_time — исходная дата лида">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><div id="leadModeSwitch" class="lead-mode-switch" role="tablist" aria-label="Режим работы с лидами"><button type="button" class="lead-mode is-queue" data-lead-mode="queue" role="tab"><span>🔥 Очередь ИИ</span><b data-mode-count="queue">0</b></button><button type="button" class="lead-mode" data-lead-mode="all" role="tab"><span>Все лиды</span><b data-mode-count="all">0</b></button></div><section id="callQueuePanel" class="call-queue-panel hidden" aria-live="polite"></section><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button><button type="button" class="lead-status-column is-unclear" data-lead-filter="unclear"><span>Нужно уточнить</span><b data-count="unclear">0</b></button><button type="button" class="lead-status-column is-student" data-lead-filter="student"><span>Ученики</span><b data-count="student">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<button type="button" id="studentSearchHint" class="student-search-hint hidden"></button><div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
   }
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo);
@@ -2218,7 +2241,8 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
       if (tab.name === excelLeadsTabName) {
         renderHighIntentLeads(leadStatusFilter === "student" || inQueue ? [] : visible);
         renderCallQueuePanel(tab, inQueue, { total: queue.total, done: queue.done });
-        page.querySelector(".excel-lead-list-head")?.classList.toggle("hidden", inQueue);
+        // У учеников третья колонка — оплата, а не дата лида: заголовки колонок там только путали бы.
+        page.querySelector(".excel-lead-list-head")?.classList.toggle("hidden", inQueue || leadStatusFilter === "student");
       }
       // Поиск по лидам подсказывает, если такой человек уже среди учеников (они в этом списке не показываются).
       const studentHint = $("studentSearchHint");
@@ -2483,7 +2507,7 @@ $("mobileLogoutBtn").onclick = () => $("logoutBtn").click();
 $("logoutBtn").onclick = async () => {
   await db.auth.signOut();
   state.user = null;
-  showLogin("Tizimdan chiqdingiz.", false);
+  showLogin("Вы вышли из CRM.", false);
 };
 function setSignedInUser(user) {
   state.user = user;
@@ -2642,7 +2666,7 @@ async function start() {
     showLogin("", false);
     return;
   }
-  const name = state.user.user_metadata?.full_name || "Koordinator";
+  const name = state.user.user_metadata?.full_name || "Координатор";
   $("profileName").textContent = name;
   $("avatar").textContent = initials(name);
   showCRM();

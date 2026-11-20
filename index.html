@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f7f8">
   <title>Zamonaviy Kasblar — CRM</title>
-  <link rel="stylesheet" href="./styles.css?v=polish-25">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&display=swap">
+  <link rel="stylesheet" href="./styles.css?v=polish-26">
 </head>
 <body>
   <div class="app-shell">
@@ -13,15 +16,15 @@
       <a class="brand" href="#" aria-label="Zamonaviy Kasblar CRM">
         <span class="brand-symbol">✳</span><span class="brand-name">Zamonaviy Kasblar</span>
       </a>
-      <div class="nav-label">ISH JOYI</div>
-      <nav class="side-nav" aria-label="Asosiy bo‘limlar">
+      <div class="nav-label">РАБОЧЕЕ МЕСТО</div>
+      <nav class="side-nav" aria-label="Основные разделы">
         <button class="nav-item" data-view="dashboard" data-excel="1"><span class="nav-icon">▦</span><span>Дашборд</span></button>
         <button class="nav-item" data-view="script" data-excel="1"><span class="nav-icon">§</span><span>Скрипт</span></button>
         <details class="nav-archive" id="navArchive">
           <summary class="nav-archive-summary"><span class="nav-icon">▤</span><span>Архив</span><span class="nav-archive-arrow" aria-hidden="true">›</span></summary>
           <div class="nav-archive-list" id="navArchiveList">
             <button class="nav-item" data-view="hr"><span class="nav-icon">◎</span><span data-i18n="navHr">HR-лиды</span><span class="nav-count" id="leadCountNav">0</span></button>
-            <button class="nav-item active" data-view="bloggers"><span class="nav-icon">◉</span><span data-i18n="navBloggers">Блогеры</span></button>
+            <button class="nav-item" data-view="bloggers"><span class="nav-icon">◉</span><span data-i18n="navBloggers">Блогеры</span></button>
             <button class="nav-item" data-view="shows"><span class="nav-icon">✦</span><span data-i18n="navShows">Заявки на шоу</span><span class="nav-count" id="showCountNav">0</span></button>
             <button class="nav-item" data-view="autopilot"><span class="nav-icon">✧</span><span data-i18n="navAutopilot">Автопилот</span></button>
           </div>
@@ -29,23 +32,23 @@
         <button class="nav-item" id="newCustomTab"><span class="nav-icon">＋</span><span data-i18n="newTab">Новая вкладка</span></button>
       </nav>
       <div class="sidebar-bottom">
-        <div class="profile" id="profileBox"><span class="avatar" id="avatar">Z</span><span class="profile-copy"><b id="profileName">Koordinator</b><small id="profileRole">Xavfsiz kirish</small></span></div>
-        <button class="nav-item logout" id="logoutBtn"><span class="nav-icon">↪</span><span>Chiqish</span></button>
+        <div class="profile" id="profileBox"><span class="avatar" id="avatar">Z</span><span class="profile-copy"><b id="profileName">Координатор</b><small id="profileRole">Безопасный вход</small></span></div>
+        <button class="nav-item logout" id="logoutBtn"><span class="nav-icon">↪</span><span>Выйти</span></button>
       </div>
     </aside>
 
     <div class="main-column">
       <header class="topbar" id="topbar">
         <a class="brand mobile-brand" href="#"><span class="brand-symbol">✳</span><span class="brand-name">Zamonaviy Kasblar</span></a>
-        <div class="topbar-right"><button class="icon-button hidden" id="newCustomTabMobile" aria-label="Новая вкладка">＋</button><button class="language-switch" id="languageToggle" aria-label="Переключить язык">RU / UZ</button><span class="secure-pill"><i></i> Xavfsiz CRM</span><button class="icon-button mobile-logout" id="mobileLogoutBtn" aria-label="Chiqish">↪</button></div>
+        <div class="topbar-right"><button class="icon-button hidden" id="newCustomTabMobile" aria-label="Новая вкладка">＋</button><button class="language-switch" id="languageToggle" aria-label="Переключить язык">RU / UZ</button><span class="secure-pill"><i></i> Защищённая CRM</span><button class="icon-button mobile-logout" id="mobileLogoutBtn" aria-label="Выйти">↪</button></div>
       </header>
 
       <section class="login-page" id="loginView">
         <div class="login-card">
           <span class="login-mark">✳</span>
           <p class="eyebrow">ZAMONAVIY KASBLAR DUO</p>
-          <h1>CRM’ga xush kelibsiz</h1>
-          <p class="subtle">HR-лиды, блогеры и заявки на шоу в одном месте.</p>
+          <h1>Добро пожаловать в CRM</h1>
+          <p class="subtle">Лиды, звонки, ученики и оплаты в одном месте.</p>
           <label class="field-label" for="managerPin">PIN руководителя</label>
           <input class="input-control" id="managerPin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" aria-label="PIN руководителя">
           <button class="button primary full" id="managerPinLoginBtn">Войти как руководитель</button>
@@ -55,7 +58,8 @@
       </section>
 
       <main class="workspace hidden" id="workspace">
-        <section class="page active" id="homePage">
+        <section class="page active" id="bootPage" aria-busy="true"><div class="loading-row">Загрузка…</div></section>
+        <section class="page" id="homePage">
           <button class="hidden" id="addPromo" type="button" tabindex="-1" aria-hidden="true">Добавить рекламу</button>
           <div class="blogger-folder-grid hidden" id="bloggerFolders" aria-label="Папки блогеров"></div>
           <div class="research-banner"><div><b data-i18n="researchTitle">Ресерч в Chrome раз в 2 недели</b><p id="researchStatus" class="subtle">Проведите ресерч в Chrome и загрузите Excel сюда. CRM проверит строки и обновит совпадения.</p><small id="researchLastRun"></small><small class="upload-privacy">Файл обрабатывается в браузере; в CRM сохраняются записи, сам Excel не хранится.</small></div><div class="research-actions"><button class="button secondary" id="uploadExcelButton">Загрузить Excel</button><button class="button secondary" id="downloadExcelTemplate">Шаблон</button><button class="icon-button" id="refreshPromos" aria-label="Обновить">↻</button><input class="hidden" id="excelFile" type="file" accept=".xlsx,.xls,.csv"></div></div>
@@ -93,7 +97,7 @@
         </section>
       </main>
 
-      <nav class="mobile-nav hidden" id="mobileNav" aria-label="Asosiy bo‘limlar">
+      <nav class="mobile-nav hidden" id="mobileNav" aria-label="Основные разделы">
         <button class="mobile-nav-item" data-view="dashboard"><span>▦</span><small>Дашборд</small></button>
         <button class="mobile-nav-item" id="mobileMore" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="mobileMoreSheet"><span>⋯</span><small>Ещё</small></button>
       </nav>
@@ -161,7 +165,7 @@
   <div class="toast hidden" id="toast" role="status"></div>
   <script>window.SUPABASE_CONFIG={url:"https://uzivivmrixstxjvzkksz.supabase.co",publishableKey:"sb_publishable_8z5WQbInjqHDvigfDSOcuQ_FOq7LQWJ"};</script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script type="module" src="./app.js?v=polish-25"></script>
+  <script type="module" src="./app.js?v=polish-26"></script>
   <script type="module" src="./yba-results-panel.js?v=payment-receipt-1"></script>
   <script type="module" src="./intellekt-lab-results.js?v=20261026-2"></script>
   <script type="module" src="./nav-archive.js?v=polish-13"></script>

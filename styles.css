@@ -764,3 +764,79 @@ a.custom-record-link{color:#087f61;font-weight:650;text-decoration:none}
 .excel-lead-meta .lead-call-detail p{display:block;margin:0;overflow:visible;-webkit-line-clamp:unset;overflow-wrap:anywhere}
 .lead-call-detail.is-plain{grid-template-columns:minmax(0,1fr)}
 @media(max-width:600px){.lead-call-detail{grid-template-columns:minmax(0,1fr)}}
+
+/* ---------- polish-26 (2026-11-20): ровные колонки, спокойные цвета статусов, дашборд из шести плиток ---------- */
+/* Список лидов на компьютере: у заголовка и у строк одна и та же сетка с фиксированной колонкой действий.
+   Раньше последняя колонка была auto: в заголовке она пустая, в строке — кнопки, и «Телефон» с «Датой» разъезжались. */
+@media(min-width:1181px){
+  .excel-lead-list-head,.excel-lead-row:not(.is-student-row){grid-template-columns:minmax(0,1.3fr) minmax(150px,.7fr) 104px 300px}
+  .excel-lead-row:not(.is-student-row)>.excel-lead-actions{justify-content:flex-end}
+}
+/* Узкий компьютер и планшет: кнопки действий уходят под имя, чтобы имя и телефон не сжимались. */
+@media(min-width:761px) and (max-width:1180px){
+  .excel-lead-list-head,.excel-lead-row:not(.is-student-row){grid-template-columns:minmax(0,1fr) 170px 104px}
+  .excel-lead-list-head>span:last-child{display:none}
+  .excel-lead-row:not(.is-student-row)>.excel-lead-actions{grid-column:1/-1;justify-content:flex-start}
+  .excel-lead-name .mini-avatar{display:none}
+  /* Кнопки Excel не сжимаются в столбик, а целиком уходят под заголовок. */
+  .custom-record-page-header{flex-wrap:wrap}
+  .excel-lead-page-actions{flex-wrap:nowrap}
+}
+@media(min-width:761px){.excel-lead-list-head{column-gap:16px;padding:0 19px 8px}}
+.excel-lead-date-sort{white-space:nowrap}
+
+/* Кнопки статуса консультации: невыбранные — нейтральные, с цветной точкой; цветом залит только выбранный статус.
+   На карточке остаётся один яркий акцент — текущий статус, а не пять цветных кнопок. */
+.lead-status-action{display:inline-flex;align-items:center;gap:7px}
+.lead-status-action::before{content:"";flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:currentColor}
+.lead-status-action:not(.is-selected){border-color:#e2e5e3;background:#fff;color:#3f4642}
+.lead-status-action:not(.is-selected):hover{border-color:#c6ccc8;background:#f7f8f7}
+.lead-status-action.is-booked:not(.is-selected)::before{background:#e9a955}
+.lead-status-action.is-attended:not(.is-selected)::before{background:#64bd88}
+.lead-status-action.is-no-answer:not(.is-selected)::before{background:#d96e68}
+.lead-status-action.is-callback:not(.is-selected)::before{background:#6f86d9}
+.lead-status-action.is-student:not(.is-selected)::before{background:#2f9e63}
+/* Карточка лида — белая при любом статусе: статус и так виден по выбранной кнопке. */
+.excel-lead-row.is-consult-booked,.excel-lead-row.is-consult-attended,.excel-lead-row.is-consult-no-answer,.excel-lead-row.is-consult-callback,.excel-lead-row.is-consult-student{border-color:#e9ecea;background:#fff}
+/* Особые карточки сохраняют свою рамку (порядок как раньше: повторная заявка, затем «Следующий звонок»). */
+.excel-lead-row.is-high-intent{border-left:4px solid #e38a32;background:#fff}
+.excel-lead-row.is-next-call{border:2px solid #c4561c}
+.excel-lead-row.is-queue-done{background:#fafbfa}
+
+/* Фильтры над списком — тоже нейтральные с цветной точкой; цветом выделен только выбранный фильтр.
+   Отступ слева чуть меньше, чтобы с точками все фильтры по-прежнему помещались в одну строку (и по-узбекски). */
+.lead-status-columns{gap:6px}
+.lead-status-column{padding-left:11px}
+.lead-status-column>span{display:inline-flex;align-items:center;gap:4px}
+.lead-status-column>span::before{content:"";flex:0 0 auto;width:6px;height:6px;border-radius:50%;background:#9aa6a0}
+.lead-status-column[data-lead-filter="all"]>span::before{display:none}
+.lead-status-column.is-booked>span::before{background:#e9a955}
+.lead-status-column.is-attended>span::before{background:#64bd88}
+.lead-status-column.is-no-answer>span::before,.lead-status-column.is-unclear>span::before{background:#d96e68}
+.lead-status-column.is-callback>span::before{background:#6f86d9}
+.lead-status-column.is-student>span::before{background:#2f9e63}
+.lead-status-column.is-student.is-active>span::before{background:#fff}
+.lead-status-column:not(.is-active){border-color:#e2e5e3;background:#fff;color:#3f4642}
+.lead-status-column:not(.is-active) b{background:#f0f2f1;color:#5d6761}
+.lead-status-column:not(.is-active):hover{border-color:#c6ccc8}
+
+/* Телефон: кнопки статусов переносятся на вторую строку, а не уезжают за край экрана.
+   Панель очереди: кнопка «ИИ maslahat» — отдельной строкой, чтобы «Позвонили 12 / 12» не ломалось (по-узбекски длиннее). */
+@media(max-width:760px){
+  .excel-lead-row>.lead-consult-actions{flex-wrap:wrap;overflow-x:visible;margin:0;padding:0}
+  .call-queue-info{flex-basis:100%}
+}
+
+/* Дашборд: опросы — строкой под воронкой. */
+.dash-funnel-foot{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:14px 0 0;padding:12px 0 0;border-top:1px solid #eef1ef;font-size:13px}
+.dash-funnel-foot span{color:#5d6761;font-weight:650}
+.dash-funnel-foot small{margin-left:auto;color:#8a938d;font-size:12px}
+.dash-funnel-foot small.is-bad{color:#a63834;font-weight:650}
+/* Телефон: четыре периода и «Обновить» помещаются в одну строку без прокрутки. */
+@media(max-width:640px){
+  .dash-controls{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) 38px;gap:6px;overflow:visible}
+  .dash-period{min-width:0;padding:0 4px;font-size:12.5px;white-space:nowrap}
+  .dash-controls .icon-button{margin-left:0}
+}
+/* «Стали учениками» / «O‘quvchi bo‘lganlar» — в одну строку. */
+@media(max-width:520px){.dash-bar-row{grid-template-columns:124px 1fr 30px}}
