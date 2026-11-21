@@ -8,6 +8,7 @@
 // каждую минуту пн–сб 08:00–13:59 UTC) вызывает POST ?deliver=1 с x-crm-secret = crm_maxfiy.tg_ichki.
 // Токен бота операторов — секрет EDUTEACH_BOT_TOKEN (общий с eduteach-bot).
 import { createClient } from "npm:@supabase/supabase-js@2.117.2";
+import { callCardText } from "../_shared/call-card.ts";
 
 const sb = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", { auth: { persistSession: false } });
 const HEAD = { "Content-Type": "application/json; charset=utf-8" };
@@ -92,13 +93,9 @@ function messageText(kind: string, p: Record<string, unknown>, ru: boolean, nowM
     if (late) lines.push(ru ? `🕐 Пришёл: ${late}` : `🕐 Kelgan vaqti: ${late}`);
     return lines.join("\n");
   }
+  // Результат звонка — как карточка лида в CRM: итог, запись оператора без пустых пунктов, совет ИИ (_shared/call-card.ts).
   const status = STATUS[ru ? "ru" : "uz"][str(p.status, 40)] ?? (ru ? "не указан" : "belgilanmagan");
-  const lines = [ru ? "📞 Результат звонка" : "📞 Qo‘ng‘iroq natijasi", `👤 ${name} · ${phone}`, `📌 ${ru ? "Статус" : "Holat"}: ${status}`];
-  if (str(p.editor, 120)) lines.push(`👷 ${ru ? "Оператор" : "Operator"}: ${str(p.editor, 120)}`);
-  if (late) lines.push(ru ? `🕐 Записан: ${late}` : `🕐 Yozilgan vaqti: ${late}`);
-  lines.push("", ru ? "📝 Комментарий оператора:" : "📝 Operator izohi:", str(p.note, 1500));
-  if (str(p.ai, 900)) lines.push("", ru ? "🤖 Совет ИИ:" : "🤖 AI maslahat:", str(p.ai, 900));
-  return lines.join("\n");
+  return callCardText({ name, phone, status, editor: str(p.editor, 120), note: str(p.note, 1500), ai: str(p.ai, 900), late }, ru ? "ru" : "uz");
 }
 
 // ok — доставлено; gone — повтор не поможет (оператор заблокировал бота, чат не найден);

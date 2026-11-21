@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.117.2";
 import Anthropic from "npm:@anthropic-ai/sdk@1.10.0";
+import { callCardText } from "../_shared/call-card.ts";
 
 // @teachnova_bot: rahbar uchun "cho'ntak" paneli — CRM va Kvitansiya Mini App sifatida bot ichida ochiladi.
 // Bot tokeni faqat Supabase → Edge Functions → Secrets → TEACHNOVA_BOT_TOKEN da (kodda ham, bazada ham yo‘q).
@@ -532,7 +533,11 @@ async function callResult(recordId: string, silent = false) {
   const { data: ops } = await sb.from("skript_operatorlar").select("chat_id").eq("holat", "faol");
   const operatorIds = new Set((ops ?? []).map((o) => Number(o.chat_id)));
   const recipients = (people ?? []).filter((p) => p.rol === "owner" || !operatorIds.has(Number(p.chat_id)));
-  const text = `📞 Qo‘ng‘iroq natijasi\n👤 ${String(values["Имя"] || "Ismsiz")} · ${String(values["Телефон"] || "—")}\n📌 Holat: ${STATUS_LABELS[status] ?? "belgilanmagan"}${editor ? `\n👷 Operator: ${editor}` : ""}\n\n📝 Operator izohi:\n${note.slice(0, 1500)}${ai ? `\n\n🤖 AI maslahat:\n${ai}` : ""}`;
+  // Как карточка лида в CRM: итог, запись оператора без пустых пунктов, совет ИИ (_shared/call-card.ts).
+  const text = callCardText({
+    name: String(values["Имя"] || "Ismsiz"), phone: String(values["Телефон"] || "—"),
+    status: STATUS_LABELS[status] ?? "belgilanmagan", editor, note: note.slice(0, 1500), ai: ai || "",
+  }, "uz");
   let sent = 0;
   for (const person of recipients) {
     const res = await send(Number(person.chat_id), text, { inline_keyboard: [[{ text: "📊 CRM’ni ochish", web_app: { url: CRM_SITE } }]] });
