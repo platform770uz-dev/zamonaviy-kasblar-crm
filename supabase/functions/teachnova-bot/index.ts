@@ -505,15 +505,34 @@ async function aiAlert(kind: AiFailure, detail: string, loggedNow: number): Prom
   }
 }
 
+// Недозвон и неверный номер ИИ не разбирает: разговора не было, а итог прошлого разговора на карточке должен остаться.
+function noTalkNote(note: string): boolean {
+  return /^\s*(Javob bermadi|Noto‘g‘ri raqam)/i.test(note);
+}
+// Причина архива (её пишет CRM по-русски в deleted_custom_records.reason) — по-узбекски для сообщения в Telegram.
+const ARCHIVE_REASON_UZ: Record<string, string> = {
+  "Отказ": "Rad etdi", "Не дозвонились": "Bog‘lanib bo‘lmadi", "Неверный номер": "Noto‘g‘ri raqam", "Дубль": "Takroriy ariza", "Другое": "Boshqa sabab",
+};
+
 async function callResult(recordId: string, silent = false) {
   if (!/^[0-9a-f-]{36}$/i.test(recordId)) return { ok: false, error: "bad_id" };
-  const { data: record } = await sb.from("custom_records").select("id,values").eq("id", recordId).maybeSingle();
+  let { data: record } = await sb.from("custom_records").select("id,values").eq("id", recordId).maybeSingle();
+  // Отказ, неверный номер и третий недозвон уводят лида в архив той же транзакцией, что и запись звонка: к этому
+  // моменту его уже нет среди лидов. Берём архивную копию — руководитель всё равно получает итог звонка.
+  let archived = "";
+  if (!record) {
+    const copy = await sb.from("deleted_custom_records").select("id,values,reason").eq("id", recordId).maybeSingle();
+    if (copy.data) {
+      record = { id: copy.data.id, values: copy.data.values };
+      archived = ARCHIVE_REASON_UZ[String(copy.data.reason ?? "")] ?? "sababi ko‘rsatilmagan";
+    }
+  }
   if (!record) return { ok: false, error: "not_found" };
   const values = (record.values ?? {}) as Record<string, unknown>;
   const note = String(values["Результат последнего звонка"] || "").trim();
   if (!note) return { ok: false, error: "empty" };
   const status = String(values["Статус консультации"] || "");
-  const ai = await aiComment(note, status, Math.max(1, Number(values.submission_count) || 1), surveyMissing(values["Опрос"]), !silent);
+  const ai = noTalkNote(note) ? "" : await aiComment(note, status, Math.max(1, Number(values.submission_count) || 1), surveyMissing(values["Опрос"]), !silent);
   if (ai) await sb.rpc("set_lead_ai_comment", { p_record: record.id, p_comment: ai }); // сбой ИИ не стирает прежний совет
   if (silent) return { ok: true, sent: 0, ai: Boolean(ai) };
   const editor = String(values["Последний изменивший"] || "").trim();
@@ -532,7 +551,7 @@ async function callResult(recordId: string, silent = false) {
   const { data: ops } = await sb.from("skript_operatorlar").select("chat_id").eq("holat", "faol");
   const operatorIds = new Set((ops ?? []).map((o) => Number(o.chat_id)));
   const recipients = (people ?? []).filter((p) => p.rol === "owner" || !operatorIds.has(Number(p.chat_id)));
-  const text = `📞 Qo‘ng‘iroq natijasi\n👤 ${String(values["Имя"] || "Ismsiz")} · ${String(values["Телефон"] || "—")}\n📌 Holat: ${STATUS_LABELS[status] ?? "belgilanmagan"}${editor ? `\n👷 Operator: ${editor}` : ""}\n\n📝 Operator izohi:\n${note.slice(0, 1500)}${ai ? `\n\n🤖 AI maslahat:\n${ai}` : ""}`;
+  const text = `📞 Qo‘ng‘iroq natijasi\n👤 ${String(values["Имя"] || "Ismsiz")} · ${String(values["Телефон"] || "—")}\n📌 Holat: ${STATUS_LABELS[status] ?? "belgilanmagan"}${archived ? `\n📦 Arxivga o‘tkazildi: ${archived}` : ""}${editor ? `\n👷 Operator: ${editor}` : ""}\n\n📝 Operator izohi:\n${note.slice(0, 1500)}${ai ? `\n\n🤖 AI maslahat:\n${ai}` : ""}`;
   let sent = 0;
   for (const person of recipients) {
     const res = await send(Number(person.chat_id), text, { inline_keyboard: [[{ text: "📊 CRM’ni ochish", web_app: { url: CRM_SITE } }]] });
@@ -549,7 +568,8 @@ const EXCEL_TAB_ID = "20b419be-7a75-4051-9993-6c755c4a5d68";
 async function backfillAi(limit: number, offset = 0, force = false) {
   const { data } = await sb.from("custom_records").select("id,values").eq("tab_id", EXCEL_TAB_ID);
   const field = (r: { values: unknown }, name: string) => String(((r.values ?? {}) as Record<string, unknown>)[name] || "").trim();
-  const noted = (data ?? []).filter((r) => field(r, "Результат последнего звонка"))
+  // Записи без разговора (недозвон, неверный номер) ИИ не разбирает — в переделку они не идут.
+  const noted = (data ?? []).filter((r) => field(r, "Результат последнего звонка") && !noTalkNote(field(r, "Результат последнего звонка")))
     .sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0));
   const incomplete = (r: { values: unknown }) => !aiTipComplete(field(r, "ИИ-комментарий"));
   const todo = noted.slice(offset, offset + limit).filter((r) => force || incomplete(r));
