@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-27";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-28";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -880,66 +880,6 @@ function watchAiComment(recordId, tab, before) {
     }
   }, delay));
 }
-function openCallbackDialog(tab, record, onDone) {
-  document.getElementById("callbackDialog")?.remove();
-  const values = record.values || {};
-  const hasPlan = String(values["Статус консультации"] || "") === "callback" && values[callbackTimeField];
-  const dialog = document.createElement("dialog");
-  dialog.id = "callbackDialog"; dialog.className = "callback-dialog";
-  dialog.innerHTML = '<form method="dialog" class="callback-form"><h2>Перезвонить</h2><p class="subtle callback-lead"></p>'
-    + '<p class="callback-hint">Выберите, когда напомнить. Напоминание придёт в Telegram-бот.</p>'
-    + '<div class="callback-presets"><button type="button" data-hours="3">Через 3 часа</button><button type="button" data-hours="5">Через 5 часов</button><button type="button" data-days="1">Завтра 10:00</button><button type="button" data-days="2">Послезавтра 10:00</button></div>'
-    + '<label class="callback-calendar"><span>Другая дата и время</span><input type="datetime-local" id="callbackWhen"></label>'
-    + '<div class="callback-message hidden" id="callbackMessage" role="status"></div>'
-    + '<div class="callback-actions"><button type="button" class="button primary" id="callbackSave">Сохранить</button>' + (hasPlan ? '<button type="button" class="button danger" id="callbackCancel">Отменить напоминание</button>' : "") + '<button type="button" class="button secondary" id="callbackClose">Закрыть</button></div></form>';
-  dialog.querySelector(".callback-lead").textContent = String(values["Имя"] || "Без имени") + " · " + String(values["Телефон"] || "—");
-  document.body.appendChild(dialog);
-  const when = dialog.querySelector("#callbackWhen");
-  when.min = tashkentInputValue(new Date());
-  if (hasPlan) when.value = tashkentInputValue(new Date(values[callbackTimeField]));
-  const message = dialog.querySelector("#callbackMessage");
-  const say = (text) => { message.textContent = text; message.classList.toggle("hidden", !text); };
-  const finish = () => { dialog.close(); dialog.remove(); };
-  const setBusy = (busy) => dialog.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
-  const save = async (due) => {
-    if (!(due instanceof Date) || Number.isNaN(due.getTime()) || due.getTime() < Date.now() + 30 * 1000) { say("Выберите время в будущем."); return; }
-    setBusy(true);
-    const name = String(values["Имя"] || "").slice(0, 120), phone = String(values["Телефон"] || "").slice(0, 60);
-    await cancelCallbackReminders(record.id);
-    const inserted = await db.from("lead_callbacks").insert({ record_id: record.id, tab_id: tab.id, due_at: due.toISOString(), lead_name: name, phone }).select("id").maybeSingle();
-    if (inserted.error || !inserted.data) { setBusy(false); say("Не удалось поставить напоминание. Проверьте права доступа."); return; }
-    const nextValues = { ...values, "Статус консультации": "callback", [callbackTimeField]: due.toISOString(), "Последний изменивший": excelLeadEditedBy() };
-    const updatedAt = new Date().toISOString();
-    const updated = await db.from("custom_records").update({ values: nextValues, updated_at: updatedAt }).eq("id", record.id).select("id").maybeSingle();
-    if (updated.error || !updated.data) {
-      await db.from("lead_callbacks").update({ status: "cancelled" }).eq("id", inserted.data.id);
-      setBusy(false); say("Не удалось сохранить лид. Проверьте права доступа."); return;
-    }
-    record.values = nextValues; record.updated_at = updatedAt;
-    finish(); toast("Напоминание поставлено: " + callbackTimeText(due.toISOString())); onDone();
-  };
-  dialog.querySelectorAll(".callback-presets button").forEach((button) => button.onclick = () => {
-    save(button.dataset.hours ? new Date(Date.now() + Number(button.dataset.hours) * 60 * 60 * 1000) : tashkentDayAt(Number(button.dataset.days), 10));
-  });
-  dialog.querySelector("#callbackSave").onclick = () => {
-    if (!when.value) { say("Выберите дату и время или нажмите быструю кнопку."); return; }
-    save(new Date(when.value + ":00+05:00"));
-  };
-  dialog.querySelector("#callbackCancel")?.addEventListener("click", async () => {
-    setBusy(true);
-    await cancelCallbackReminders(record.id);
-    const nextValues = { ...values, "Статус консультации": "no_answer", "Последний изменивший": excelLeadEditedBy() };
-    delete nextValues[callbackTimeField];
-    const updatedAt = new Date().toISOString();
-    const updated = await db.from("custom_records").update({ values: nextValues, updated_at: updatedAt }).eq("id", record.id).select("id").maybeSingle();
-    if (updated.error || !updated.data) { setBusy(false); say("Не удалось отменить. Проверьте права доступа."); return; }
-    record.values = nextValues; record.updated_at = updatedAt;
-    finish(); toast("Напоминание отменено"); onDone();
-  });
-  dialog.querySelector("#callbackClose").onclick = finish;
-  dialog.addEventListener("cancel", () => dialog.remove());
-  dialog.showModal();
-}
 // «O'quvchi bo'ldi»: суммы из комментария оператора ("99.000 tolov qilish kerak, 90.000 tolov qildi").
 // Числа без подсказки не угадываем: каждая сумма получает роль (оплачено / цена / остаток) по ближайшему слову.
 const moneyKeywordGroups = [
@@ -1044,6 +984,8 @@ async function loadStudentSummaries(tabId) {
 // и статус каждого лида на момент составления: по нему видно, кому уже позвонили и какие заявки пришли позже.
 let callQueue = null; // { id, createdAt, by, ai, baseline: { record_id: "подпись|статус" }, items: Map(record_id -> { rank, reason, say }) }
 let lastLeadFilter = "queue"; // какой режим лидов открыт: после сохранения итога звонка остаёмся в нём
+let queueSkipped = new Set(); // «Пропустить» в очереди: эти лиды уходят в конец, пока страница открыта
+let queueFocusId = ""; // лид, выбранный из «Дальше в очереди»: он показан вместо первого по порядку
 let callQueueBusy = false; // идёт пересчёт: кнопка остаётся выключенной, даже если список перерисовался
 let leadsLiveTimer = null; // раз в минуту открытый список лидов сам подтягивает новые заявки и чужие изменения
 let leadsLiveRefresh = null; // то же обновление по требованию (без перезагрузки страницы), пока список лидов открыт
@@ -1101,7 +1043,8 @@ function leadLiveItem(record, nowMs) {
   const batchMs = callQueue ? Date.parse(callQueue.createdAt) : NaN;
   // 1. Наступило время перезвона, и после этого лид никто не трогал. Если перезвон был просрочен уже тогда, когда ИИ
   //    составлял очередь, и лид в неё попал — место ему дал ИИ.
-  if (status === "callback") {
+  // Время перезвона стоит не только у статуса «Перезвонить»: его ставят и недозвон, и «Думает» после консультации.
+  if (status !== "student" && values[callbackTimeField]) {
     const due = Date.parse(String(values[callbackTimeField] || ""));
     const touched = Date.parse(record.updated_at || "") || 0;
     if (Number.isFinite(due) && due <= nowMs && touched <= due && (!callQueue?.items.has(String(record.id)) || due > batchMs)) {
@@ -1385,10 +1328,11 @@ async function renderDashboard() {
   if (!tab) { page.appendChild(dashboardEl("div", "empty-state", "Вкладка «Загрузка лидов через Excel» не найдена.")); return; }
   const loading = dashboardEl("div", "loading-row", "Загрузка…");
   page.appendChild(loading);
-  const [records, students, payments] = await Promise.all([
+  const [records, students, payments, archived] = await Promise.all([
     db.from("custom_records").select("id,values,created_at").eq("tab_id", tab.id),
     db.from("lead_students").select("record_id,price,created_at").eq("tab_id", tab.id),
     db.from("student_payments").select("id,record_id,amount,paid_at,note").eq("tab_id", tab.id).is("cancelled_at", null),
+    db.from("deleted_custom_records").select("reason,source").eq("tab_id", tab.id), // архив — справочно: его ошибка дашборд не ломает
   ]);
   loading.remove();
   if (records.error || students.error || payments.error) { page.appendChild(dashboardEl("div", "message error", "Не удалось загрузить данные. Проверьте права доступа.")); return; }
@@ -1436,12 +1380,17 @@ async function renderDashboard() {
     row.append(dashboardEl("span", "", label), bar, dashboardEl("b", "", String(counts[key])));
     funnel.appendChild(row);
   }
-  // Качество записей — под воронкой, а не отдельной красной плиткой: шесть плиток ровно ложатся в сетку.
-  const surveysFull = leadRows.filter((row) => surveyProgress(row.values?.["Опрос"]).filled === 8).length;
-  const unclear = leadRows.filter((row) => leadNeedsClarification(row.values)).length;
-  const surveys = dashboardEl("div", "dash-funnel-foot");
-  surveys.append(dashboardEl("span", "", "Опросы заполнены"), dashboardEl("b", "", surveysFull + " / " + leadRows.length), dashboardEl("small", unclear ? "is-bad" : "", "Нужно уточнить: " + unclear));
-  funnel.appendChild(surveys);
+  // Под воронкой — сколько лидов ушло в архив и почему (отказ, не дозвонились…): это те, кого в воронке уже нет.
+  const archiveRows = archived.error ? [] : archived.data || [];
+  if (archiveRows.length) {
+    const byReason = new Map();
+    for (const row of archiveRows) { const reason = row.reason || "Удалён без причины"; byReason.set(reason, (byReason.get(reason) || 0) + 1); }
+    const foot = dashboardEl("div", "dash-funnel-foot");
+    const reasons = dashboardEl("small");
+    [...byReason].sort((a, b) => b[1] - a[1]).forEach(([reason, count], index) => { reasons.append(index ? " · " : "", dashboardEl("span", "", reason), " " + count); });
+    foot.append(dashboardEl("span", "", "В архиве"), dashboardEl("b", "", String(archiveRows.length)), reasons);
+    funnel.appendChild(foot);
+  }
   // Поступления по дням (14 дней)
   const days = [];
   for (let i = 13; i >= 0; i--) days.push(tashkentDateKey(new Date(Date.now() - i * 24 * 60 * 60 * 1000)));
@@ -1720,242 +1669,345 @@ async function renderScriptPage() {
     page.appendChild(card);
   });
 }
-// ---------- Опрос по звонку (по шаблону из вкладки «Skript va reglament») ----------
-const surveyOptions = {
-  who: ["Ota", "Ona", "Boshqa"],
-  interests: ["Video", "Instagram", "Telegram", "O‘yinlar", "Rasm/dizayn", "Boshqa"],
-  goal: ["Ishonch", "Notiq nutq", "Hunar/daromad", "Bo‘sh vaqt", "Boshqa"],
-  decider: ["Ota", "Ona", "Ikkalasi", "Boshqa"],
-  objection: ["Yo‘q", "Narx", "O‘ylab ko‘raman", "Er/xotin bilan maslahat", "Vaqt yo‘q", "Ishonmayman", "Boshqa joy"],
-  outcome: ["Uchrashuv belgilandi", "To‘lov qildi", "Qayta aloqa", "Rad etdi", "Javob bermadi"],
+// ---------- Запись звонка: одна кнопка «Записать звонок» вместо ряда статусов, «Опроса» и «Итога звонка» ----------
+// Решения владельца (2026-11-23): после звонка оператор выбирает результат и отвечает только на то, что нужно именно
+// по этому результату. Отказ и неверный номер уводят лида в архив. «Не ответил» сам ставит перезвон, после третьей
+// попытки подряд предлагает архив. uz — как результат пишется в «Результат последнего звонка»: запись читают ИИ,
+// Telegram и карточка, поэтому она по-узбекски и с теми же метками строк, что были у опроса.
+const callResults = {
+  no_answer: { label: "Не ответил", uz: "Javob bermadi" },
+  callback: { label: "Перезвонить", uz: "Qayta aloqa" },
+  thinking: { label: "Думает", uz: "O‘ylab ko‘radi" },
+  booked: { label: "Записался на консультацию", uz: "Uchrashuv belgilandi" },
+  paid: { label: "Оплатил", uz: "To‘lov qildi" },
+  refused: { label: "Отказался", uz: "Rad etdi" },
+  wrong_number: { label: "Неверный номер", uz: "Noto‘g‘ri raqam" },
+  attended: { label: "Пришёл на консультацию", uz: "Konsultatsiyaga keldi" },
+  no_show: { label: "Не пришёл на консультацию", uz: "Konsultatsiyaga kelmadi" },
 };
-const surveyItemNames = ["Kim bilan gaplashildi", "Farzand", "Maqsad", "Qaror qiluvchi", "E’tiroz", "Kelishuv", "To‘lov", "Keyingi qo‘ng‘iroq"];
-// Сколько из 8 пунктов шаблона заполнено; «Javob bermadi» — короткий сценарий: нужен только следующий звонок.
-function surveyProgress(survey) {
-  if (!survey || typeof survey !== "object") return { filled: 0, total: 8, missing: surveyItemNames.slice(), started: false };
-  const done = [];
-  if (survey.outcome === "Javob bermadi") {
-    for (let i = 0; i < 7; i++) done.push(true);
-    done.push(Boolean(survey.nextCallAt));
-  } else {
-    done.push(Boolean(survey.who));
-    done.push(Boolean(survey.childName && survey.childAge));
-    done.push(Boolean((survey.goal && survey.goal.length) || survey.goalText));
-    done.push(Boolean(survey.decider));
-    done.push(Boolean(survey.objection && survey.objection.length));
-    done.push(Boolean(survey.outcome) && (survey.outcome !== "Uchrashuv belgilandi" || Boolean(survey.meetingAt)));
-    done.push(Number(survey.price) > 0 || Boolean(survey.payNA));
-    done.push(Boolean(survey.nextCallAt) || survey.outcome === "To‘lov qildi" || survey.outcome === "Rad etdi");
+// Причины отказа: подпись на кнопке и слово, которое попадает в запись.
+const refusalReasons = [["Дорого", "Narx"], ["Далеко", "Uzoq"], ["Нет времени", "Vaqt yo‘q"], ["Семья против", "Oila qarshi"], ["Не интересно", "Qiziqmaydi"], ["Другое", "Boshqa"]];
+// Причины архива. Те же слова пишет база в deleted_custom_records.reason.
+const archiveReasons = ["Отказ", "Не дозвонились", "Неверный номер", "Дубль", "Другое"];
+const callLogField = "Звонки"; // журнал звонков лида: [{ at, by, result, then, attempt, next, meeting, reasons, note }]
+const callLogLimit = 30;
+const noAnswerLimit = 3; // после стольких недозвонов подряд CRM предлагает архив
+function leadCallLog(values) { const log = values?.[callLogField]; return Array.isArray(log) ? log : []; }
+// Сколько раз подряд не дозвонились. Каждая запись «не ответил» хранит свой номер попытки (attempt), и он уже учитывает
+// прежние. У лидов без журнала (им звонили до этой версии) статус «не ответил» — одна попытка.
+function noAnswerStreak(values) {
+  const log = leadCallLog(values);
+  const last = log[log.length - 1];
+  if (last) return last.result === "no_answer" ? Math.max(1, Number(last.attempt) || 1) : 0;
+  return String(values?.["Статус консультации"] || "") === "no_answer" ? 1 : 0;
+}
+// Рабочее время операторов — пн–сб 13:00–19:00 по Ташкенту (как в функции operator-notify). Перезвон, который CRM
+// ставит сама, попадает в это окно: поздний вечер и воскресенье переносятся на 13:30 следующего рабочего дня.
+const workDayStartHour = 13, workDayEndHour = 19;
+function nextWorkingTime(fromMs) {
+  const hour = 60 * 60 * 1000, day = 24 * hour;
+  let t = fromMs + tashkentOffsetMs; // «местные» миллисекунды: getUTC* читает часы Ташкента
+  for (let i = 0; i < 9; i++) {
+    const d = new Date(t);
+    const dayStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    const open = dayStart + workDayStartHour * hour + hour / 2, lastCall = dayStart + workDayEndHour * hour - hour / 2;
+    if (d.getUTCDay() !== 0) {
+      if (t < open) { t = open; break; }
+      if (t <= lastCall) break;
+    }
+    t = dayStart + day + workDayStartHour * hour + hour / 2;
+    if (new Date(t).getUTCDay() !== 0) break;
   }
-  return { filled: done.filter(Boolean).length, total: 8, missing: surveyItemNames.filter((_, index) => !done[index]), started: true };
+  return new Date(t - tashkentOffsetMs);
 }
-// Лиду нужно уточнение: опроса нет и комментарий короткий, либо опрос заполнен не полностью.
-function leadNeedsClarification(values) {
-  const survey = values?.["Опрос"];
-  if (!survey) return String(values?.["Результат последнего звонка"] || "").trim().length < 40;
-  return surveyProgress(survey).filled < 8;
+// soon — через 3 часа (первый недозвон), tomorrow — завтра (второй недозвон), later — через два дня («Думает»).
+// «Завтра» и «через два дня» — в то же время суток, но в рабочие часы: вечерняя запись не уезжает ещё на день.
+function autoCallbackTime(kind, nowMs = Date.now()) {
+  const hour = 60 * 60 * 1000;
+  if (kind === "soon") return nextWorkingTime(nowMs + 3 * hour);
+  const local = new Date(nowMs + tashkentOffsetMs);
+  const minutes = Math.min(Math.max(local.getUTCHours() * 60 + local.getUTCMinutes(), workDayStartHour * 60 + 30), workDayEndHour * 60 - 30);
+  const dayStart = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()) + (kind === "tomorrow" ? 1 : 2) * 24 * hour;
+  return nextWorkingTime(dayStart + minutes * 60 * 1000 - tashkentOffsetMs);
 }
-function surveyDateText(iso) { return iso ? callbackTimeText(iso) : ""; }
-// Запись оператора из опроса — только заполненные пункты: опрос можно сохранить и с одним ответом,
-// и строки из одних «—» не должны попадать ни в карточку, ни в Telegram, ни в ИИ.
-function composeSurveyText(s) {
+function callDateText(iso) { return iso ? callbackTimeText(iso) : ""; }
+// Запись оператора о звонке — только то, что известно: без строк из одних прочерков.
+function composeCallNote(entry) {
   const glue = (parts, separator) => parts.filter(Boolean).join(separator);
-  const list = (items) => (Array.isArray(items) ? items.join(", ") : "");
   const line = (label, text) => (text ? label + ": " + text + "." : "");
-  if (s.outcome === "Javob bermadi") {
-    return glue(["Javob bermadi." + (s.note ? " " + s.note : ""), line("Keyingi qo‘ng‘iroq", surveyDateText(s.nextCallAt))], "\n");
-  }
-  const price = Number(s.price) || 0, paid = Number(s.paid) || 0;
-  const payment = s.payNA ? "muhokama qilinmadi" : glue([
-    price ? "narx " + moneyText(price) : "",
-    paid ? "to‘langan " + moneyText(paid) : "",
-    price ? "qolgan " + moneyText(Math.max(0, price - paid)) : "",
-    s.payDue ? "muddat " + s.payDue : "",
-  ], ", ");
-  return glue([
-    line("Kim bilan", s.who),
-    line("Farzand", glue([glue([s.childName, s.childAge ? s.childAge + " yosh" : ""], ", "), list(s.interests) && "qiziqishi: " + list(s.interests)], "; ")),
-    line("Maqsad", glue([list(s.goal), s.goalText && "«" + s.goalText + "»"], " — ")),
-    line("Qaror qiluvchi", s.decider),
-    line("E’tiroz", glue([list(s.objection), s.objectionAnswer && "javob: " + s.objectionAnswer], " — ")),
-    line("Kelishuv", glue([s.outcome, surveyDateText(s.meetingAt)], " — ")),
-    line("To‘lov", payment),
-    line("Keyingi qo‘ng‘iroq", surveyDateText(s.nextCallAt)),
-    s.note ? "Izoh: " + s.note : "",
-  ], "\n");
+  const uz = (code) => callResults[code]?.uz || "";
+  const deal = (code) => line("Kelishuv", glue([uz(code), code === "booked" ? callDateText(entry.meeting) : ""], " — "));
+  const lines = [];
+  if (entry.result === "no_answer") lines.push("Javob bermadi" + (entry.attempt > 1 ? " (" + entry.attempt + "-urinish)" : "") + ".");
+  else if (entry.result === "wrong_number") lines.push("Noto‘g‘ri raqam.");
+  else if (entry.result === "attended" || entry.result === "no_show") lines.push(uz(entry.result) + ".", entry.then ? deal(entry.then) : "");
+  else lines.push(deal(entry.result));
+  lines.push(line("E’tiroz", (entry.reasons || []).join(", ")), line("Keyingi qo‘ng‘iroq", callDateText(entry.next)), entry.note ? "Izoh: " + entry.note : "");
+  return glue(lines, "\n");
 }
-function surveyChips(options, { multi = false, value = [], onChange = () => {} } = {}) {
+// Что результат звонка делает с лидом: новый статус, карточка ученика или архив с причиной.
+// У «Пришёл / Не пришёл» решает то, чем закончилась консультация (entry.then).
+function callOutcome(entry, currentStatus) {
+  const kind = entry.then || entry.result;
+  const visited = entry.result === "attended";
+  if (kind === "refused") return { archive: "Отказ" };
+  if (kind === "wrong_number") return { archive: "Неверный номер" };
+  if (kind === "no_answer") return entry.giveUp ? { archive: "Не дозвонились" } : { status: "no_answer" };
+  if (kind === "booked") return { status: "booked" };
+  if (kind === "paid") return { status: visited ? "attended" : currentStatus || "new", student: true };
+  if (kind === "callback" || kind === "thinking") return { status: visited ? "attended" : "callback" };
+  return { status: visited ? "attended" : currentStatus || "new" };
+}
+// Ряд кнопок выбора: одна или несколько. options — строки или пары [подпись, значение].
+function choiceChips(options, { multi = false, value = [], onChange = () => {} } = {}) {
   const wrap = dashboardEl("div", "survey-chips");
   const selected = new Set(Array.isArray(value) ? value : value ? [value] : []);
-  const buttons = options.map((label) => {
+  const buttons = options.map((option) => {
+    const [label, key] = Array.isArray(option) ? option : [option, option];
     const button = dashboardEl("button", "survey-chip", label);
-    button.type = "button";
+    button.type = "button"; button.dataset.value = key;
     button.onclick = () => {
-      if (selected.has(label)) selected.delete(label); else { if (!multi) selected.clear(); selected.add(label); }
+      if (!selected.has(key)) { if (!multi) selected.clear(); selected.add(key); } else if (multi) selected.delete(key);
       sync(); onChange(get());
     };
     wrap.appendChild(button);
     return button;
   });
-  const sync = () => buttons.forEach((button) => { const on = selected.has(button.textContent); button.classList.toggle("is-on", on); button.setAttribute("aria-pressed", String(on)); });
+  const sync = () => buttons.forEach((button) => { const on = selected.has(button.dataset.value); button.classList.toggle("is-on", on); button.setAttribute("aria-pressed", String(on)); });
   const get = () => (multi ? [...selected] : [...selected][0] || "");
   sync();
   return { el: wrap, get };
 }
-function openSurveyDialog(tab, record, onChange) {
-  const values = record.values || {};
-  const previous = values["Опрос"] && typeof values["Опрос"] === "object" ? values["Опрос"] : null;
-  const oldNote = String(values["Результат последнего звонка"] || "").trim();
-  const hint = previous ? null : extractPaymentHint(oldNote);
-  document.getElementById("surveyDialog")?.remove();
+// Общий каркас окон «Записать звонок» и «В архив»: заголовок, лид, содержимое, сообщение и кнопки внизу.
+function leadDialogShell(id, title, values, saveText) {
+  document.getElementById(id)?.remove();
   const dialog = document.createElement("dialog");
-  dialog.id = "surveyDialog"; dialog.className = "callback-dialog survey-dialog";
+  dialog.id = id; dialog.className = "callback-dialog call-dialog";
   dialog.addEventListener("cancel", () => dialog.remove());
   const form = dashboardEl("form", "callback-form"); form.method = "dialog"; form.onsubmit = (event) => event.preventDefault();
-  const head = dashboardEl("div"); head.append(dashboardEl("h2", "", "Опрос по звонку"));
+  const head = dashboardEl("div"); head.append(dashboardEl("h2", "", title));
   const lead = dashboardEl("p", "subtle student-lead-box"); fillStudentLead(lead, values); head.appendChild(lead);
-  form.appendChild(head);
-  if (!previous && oldNote) {
-    const box = dashboardEl("details", "survey-old");
-    box.append(dashboardEl("summary", "", "Прежний комментарий"), dashboardEl("p", "", oldNote));
-    form.appendChild(box);
-  }
-  const block = (title) => { const node = dashboardEl("section", "survey-block"); node.appendChild(dashboardEl("h3", "", title)); form.appendChild(node); return node; };
-  const input = (type, value, placeholder, extra = {}) => { const node = document.createElement("input"); node.type = type; node.value = value ?? ""; if (placeholder) node.placeholder = placeholder; node.className = "script-input"; Object.assign(node, extra); return node; };
-  const p = previous || {};
-  const sectionOutcome = block("Результат звонка");
-  const outcome = surveyChips(surveyOptions.outcome, { value: p.outcome, onChange: () => refresh() });
-  sectionOutcome.appendChild(outcome.el);
-  const meetingWrap = dashboardEl("label", "callback-calendar"); meetingWrap.appendChild(dashboardEl("span", "", "Дата и время встречи"));
-  const meeting = input("datetime-local", p.meetingAt ? tashkentInputValue(new Date(p.meetingAt)) : ""); meeting.min = tashkentInputValue(new Date());
-  meetingWrap.appendChild(meeting); sectionOutcome.appendChild(meetingWrap);
-  const full = dashboardEl("div", "survey-full"); form.appendChild(full);
-  const fullBlock = (title) => { const node = dashboardEl("section", "survey-block"); node.appendChild(dashboardEl("h3", "", title)); full.appendChild(node); return node; };
-  const who = surveyChips(surveyOptions.who, { value: p.who, onChange: () => refresh() }); fullBlock("1. Кто говорил").appendChild(who.el);
-  const childBlock = fullBlock("2. Ребёнок");
-  const row = dashboardEl("div", "survey-row");
-  const childName = input("text", p.childName || "", "Ismi"); childName.maxLength = 60;
-  const childAge = input("number", p.childAge || "", "Yoshi"); childAge.min = 3; childAge.max = 25;
-  row.append(childName, childAge); childBlock.appendChild(row);
-  const interests = surveyChips(surveyOptions.interests, { multi: true, value: p.interests || [], onChange: () => refresh() }); childBlock.appendChild(interests.el);
-  const goalBlock = fullBlock("3. Цель");
-  const goal = surveyChips(surveyOptions.goal, { multi: true, value: p.goal || [], onChange: () => refresh() }); goalBlock.appendChild(goal.el);
-  const goalText = input("text", p.goalText || "", "Ota-onaning o‘z so‘zlari bilan"); goalText.maxLength = 200; goalBlock.appendChild(goalText);
-  const decider = surveyChips(surveyOptions.decider, { value: p.decider, onChange: () => refresh() }); fullBlock("4. Кто решает").appendChild(decider.el);
-  const objectionBlock = fullBlock("5. Возражение");
-  const objection = surveyChips(surveyOptions.objection, { multi: true, value: p.objection || [], onChange: () => refresh() }); objectionBlock.appendChild(objection.el);
-  const objectionAnswer = input("text", p.objectionAnswer || "", "Qanday javob berildi?"); objectionAnswer.maxLength = 300; objectionBlock.appendChild(objectionAnswer);
-  const payBlock = fullBlock("7. Оплата");
-  const payRow = dashboardEl("div", "survey-row");
-  const price = input("text", p.price || (hint?.price ?? "") || rememberedStudentPrice() || "", "Narx (so‘m)"); price.inputMode = "numeric";
-  const paid = input("text", p.paid || hint?.paid || "", "To‘langan (so‘m)"); paid.inputMode = "numeric";
-  payRow.append(price, paid); payBlock.appendChild(payRow);
-  [price, paid].forEach((node) => { formatMoneyInput(node); node.addEventListener("blur", () => { formatMoneyInput(node); refresh(); }); });
-  const payDue = input("date", p.payDue || ""); const payDueLabel = dashboardEl("label", "callback-calendar"); payDueLabel.append(dashboardEl("span", "", "Срок оплаты остатка"), payDue); payBlock.appendChild(payDueLabel);
-  const payNALabel = dashboardEl("label", "survey-check"); const payNA = document.createElement("input"); payNA.type = "checkbox"; payNA.checked = Boolean(p.payNA);
-  payNA.onchange = () => refresh(); payNALabel.append(payNA, document.createTextNode(" Оплата не обсуждалась")); payBlock.appendChild(payNALabel);
-  const nextBlock = block("8. Следующий звонок");
-  const nextPresets = dashboardEl("div", "callback-presets");
-  // Следующий звонок — тот, что сейчас стоит в карточке (его могли поставить кнопкой «Перезвонить» после опроса);
-  // иначе из прошлого опроса. Так частичное сохранение не стирает уже назначенный перезвон.
-  const plannedNext = String(values[callbackTimeField] || "") || p.nextCallAt || "";
-  const next = input("datetime-local", plannedNext ? tashkentInputValue(new Date(plannedNext)) : ""); next.min = tashkentInputValue(new Date());
-  [["Через 3 часа", () => new Date(Date.now() + 3 * 3600000)], ["Через 5 часов", () => new Date(Date.now() + 5 * 3600000)], ["Завтра 10:00", () => tashkentDayAt(1, 10)], ["Послезавтра 10:00", () => tashkentDayAt(2, 10)]].forEach(([label, make]) => {
-    const button = dashboardEl("button", "", label); button.type = "button"; button.onclick = () => { next.value = tashkentInputValue(make()); refresh(); }; nextPresets.appendChild(button);
-  });
-  const nextLabel = dashboardEl("label", "callback-calendar"); nextLabel.append(dashboardEl("span", "", "Другая дата и время"), next);
-  nextBlock.append(nextPresets, nextLabel);
-  const noteBlock = block("Заметка оператора");
-  const note = document.createElement("textarea"); note.className = "script-input script-textarea"; note.rows = 3; note.maxLength = 600; note.value = p.note || ""; note.placeholder = "Qo‘shimcha izoh"; noteBlock.appendChild(note);
-  const progress = dashboardEl("p", "survey-progress");
-  const saveHint = dashboardEl("p", "subtle survey-hint", "Можно сохранить и с одним пунктом — остальное допишете позже.");
+  const body = dashboardEl("div", "call-steps");
   const message = dashboardEl("div", "callback-message hidden"); message.setAttribute("role", "status");
   const actions = dashboardEl("div", "callback-actions");
-  const save = dashboardEl("button", "button primary", "Сохранить опрос"); save.type = "button";
+  const save = dashboardEl("button", "button primary", saveText); save.type = "button";
   const close = dashboardEl("button", "button secondary", "Закрыть"); close.type = "button";
   actions.append(save, close);
-  form.append(progress, saveHint, message, actions);
+  form.append(head, body, message, actions);
   dialog.appendChild(form); document.body.appendChild(dialog);
-
-  const collect = () => {
-    const o = outcome.get();
-    const toIso = (node) => (node.value ? new Date(node.value + ":00+05:00").toISOString() : "");
-    return {
-      outcome: o, who: who.get(), childName: childName.value.trim(), childAge: Number(childAge.value) || 0, interests: interests.get(),
-      goal: goal.get(), goalText: goalText.value.trim(), decider: decider.get(), objection: objection.get(), objectionAnswer: objectionAnswer.value.trim(),
-      meetingAt: o === "Uchrashuv belgilandi" ? toIso(meeting) : "", price: moneyInputValue(price), paid: moneyInputValue(paid), payDue: payDue.value, payNA: payNA.checked,
-      nextCallAt: toIso(next), note: note.value.trim(),
-    };
-  };
-  // Что было в форме при открытии (прошлый опрос, подсказки): сохранять есть смысл, только если оператор что-то изменил.
-  const initial = collect();
-  const initialJson = JSON.stringify(initial);
-  function refresh() {
-    message.classList.add("hidden");
-    const noAnswer = outcome.get() === "Javob bermadi";
-    full.classList.toggle("hidden", noAnswer);
-    meetingWrap.classList.toggle("hidden", outcome.get() !== "Uchrashuv belgilandi");
-    const state = surveyProgress(collect());
-    progress.textContent = "Заполнено " + state.filled + " из " + state.total + (state.missing.length ? " · не хватает: " + state.missing.join(", ") : "");
-    progress.classList.toggle("is-full", state.filled === state.total);
-    saveHint.classList.toggle("hidden", state.filled === state.total);
-  }
-  const setBusy = (busy) => dialog.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
-  // На телефоне кнопки прилипают к низу, а сообщение стоит в конце формы — прокручиваем к нему, иначе его не видно
-  // и кажется, что опрос просто не сохраняется.
-  const say = (text) => { message.textContent = text; message.classList.toggle("hidden", !text); if (text) message.scrollIntoView({ block: "nearest", behavior: "smooth" }); };
   const finish = () => { dialog.close(); dialog.remove(); };
-  [childName, childAge, goalText, objectionAnswer, meeting, payDue, next, note].forEach((node) => node.addEventListener("input", refresh));
   close.onclick = finish;
-  save.onclick = async () => {
-    const s = collect();
-    // Сохраняем любое количество ответов, даже один: недостающее видно в карточке («Опрос 2/8») и в ИИ-совете.
-    if (JSON.stringify(s) === initialJson) {
-      if (previous) { finish(); toast("Изменений нет"); } else say("Заполните хотя бы один пункт опроса.");
+  return {
+    dialog, body, save, finish,
+    // На телефоне кнопки прилипают к низу, а сообщение стоит над ними — прокручиваем к нему, иначе его не видно.
+    say: (text) => { message.textContent = text; message.classList.toggle("hidden", !text); if (text) message.scrollIntoView({ block: "nearest", behavior: "smooth" }); },
+    setBusy: (busy) => dialog.querySelectorAll("button").forEach((button) => { button.disabled = busy; }),
+    section: (title) => { const node = dashboardEl("section", "survey-block"); if (title) node.appendChild(dashboardEl("h3", "", title)); body.appendChild(node); return node; },
+  };
+}
+function openCallDialog(tab, record, onChange) {
+  const values = record.values || {};
+  const status = String(values["Статус консультации"] || "new");
+  const oldSurvey = values["Опрос"] && typeof values["Опрос"] === "object" ? values["Опрос"] : {};
+  const attempt = noAnswerStreak(values) + 1; // какой по счёту недозвон подряд это будет
+  const shell = leadDialogShell("callDialog", "Записать звонок", values, "Сохранить");
+  const { body, save, say, finish, setBusy, section } = shell;
+  // Что выбрано: результат; чем закончилась консультация (у «Пришёл / Не пришёл»); время, причины, заметка.
+  const pick = { result: "", then: "", when: "", meeting: "", reasons: [], note: "", giveUp: attempt >= noAnswerLimit };
+  const kindNow = () => pick.then || pick.result;
+  const toIso = (value) => (value ? new Date(value + ":00+05:00").toISOString() : "");
+  const info = (parent, text) => parent.appendChild(dashboardEl("p", "call-info", text));
+  const archiveInfo = (parent) => info(parent, "Лид уйдёт в архив. Вернуть его можно в разделе «Архив».");
+  const dateField = (value) => { const node = document.createElement("input"); node.type = "datetime-local"; node.className = "script-input"; node.value = value; node.min = tashkentInputValue(new Date()); return node; };
+  // «Когда перезвонить»: время, которое CRM подставила сама (preset), быстрые кнопки и своё время.
+  const whenBlock = (parent, title, preset) => {
+    if (preset && !pick.when) pick.when = tashkentInputValue(preset);
+    const field = dateField(pick.when);
+    field.addEventListener("input", () => { pick.when = field.value; say(""); });
+    const label = dashboardEl("label", "callback-calendar"); label.append(dashboardEl("span", "", title), field);
+    const presets = dashboardEl("div", "callback-presets");
+    [["Через 3 часа", () => new Date(Date.now() + 3 * 3600000)], ["Через 5 часов", () => new Date(Date.now() + 5 * 3600000)], ["Завтра 10:00", () => tashkentDayAt(1, 10)], ["Послезавтра 10:00", () => tashkentDayAt(2, 10)]].forEach(([text, make]) => {
+      const button = dashboardEl("button", "", text); button.type = "button";
+      button.onclick = () => { pick.when = tashkentInputValue(make()); field.value = pick.when; say(""); };
+      presets.appendChild(button);
+    });
+    parent.append(label, presets);
+  };
+  const resultButton = (code) => {
+    const button = dashboardEl("button", "call-result is-" + code.replace("_", "-"), callResults[code].label);
+    button.type = "button";
+    button.onclick = () => { pick.result = code; render(); };
+    return button;
+  };
+  function render() {
+    body.textContent = "";
+    say("");
+    save.classList.toggle("hidden", !pick.result);
+    if (!pick.result) {
+      // Шаг 1. Чем закончился звонок. У записанных на консультацию сверху — пришёл или нет.
+      if (status === "booked") {
+        const visit = section("Консультация");
+        if (oldSurvey.meetingAt) visit.querySelector("h3").append(" · " + callDateText(oldSurvey.meetingAt));
+        const grid = dashboardEl("div", "call-results"); grid.append(resultButton("attended"), resultButton("no_show")); visit.appendChild(grid);
+      }
+      const main = section("Чем закончился звонок?");
+      const grid = dashboardEl("div", "call-results");
+      ["no_answer", "callback", "thinking", "booked", "paid", "refused", "wrong_number"].forEach((code) => grid.appendChild(resultButton(code)));
+      main.appendChild(grid);
       return;
     }
-    // Время звонка, которое уже стояло и прошло, — старый план: сохранить он не мешает, просто снимаем его.
-    // Прошедшее время, которое оператор ввёл сам, — ошибка ввода, о ней говорим.
-    if (s.nextCallAt && Date.parse(s.nextCallAt) < Date.now() + 30000) {
-      if (s.nextCallAt !== initial.nextCallAt) { say("Следующий звонок должен быть в будущем."); return; }
-      s.nextCallAt = "";
+    // Шаг 2. Выбранный результат одной строкой и только нужные по нему вопросы.
+    const chosen = dashboardEl("div", "call-chosen");
+    const change = dashboardEl("button", "call-change", "Изменить"); change.type = "button";
+    change.onclick = () => { Object.assign(pick, { result: "", then: "", when: "", meeting: "", reasons: [] }); render(); };
+    chosen.append(dashboardEl("span", "", "Результат"), dashboardEl("b", "", callResults[pick.result].label), change);
+    body.appendChild(chosen);
+    if (pick.result === "attended" || pick.result === "no_show") {
+      const options = pick.result === "attended"
+        ? [["Оплатил", "paid"], ["Думает", "thinking"], ["Отказался", "refused"]]
+        : [["Новая дата консультации", "booked"], ["Перезвонить", "callback"], ["Отказался", "refused"]];
+      section(pick.result === "attended" ? "Чем закончилась консультация?" : "Что дальше?")
+        .appendChild(choiceChips(options, { value: pick.then, onChange: (value) => { Object.assign(pick, { then: value, when: "", meeting: "", reasons: [] }); render(); } }).el);
     }
-    if (s.price && s.paid > s.price) { say("Оплачено больше цены: проверьте суммы."); return; }
+    const kind = kindNow();
+    if (kind === "no_answer") {
+      const box = section("");
+      if (attempt >= noAnswerLimit) {
+        info(box, "Это уже " + attempt + "-я попытка без ответа.");
+        box.appendChild(choiceChips([["В архив: не дозвонились", "archive"], ["Позвонить ещё раз", "retry"]], { value: pick.giveUp ? "archive" : "retry", onChange: (value) => { pick.giveUp = value === "archive"; pick.when = ""; render(); } }).el);
+        if (pick.giveUp) archiveInfo(box); else whenBlock(box, "Когда перезвонить", autoCallbackTime("tomorrow"));
+      } else {
+        info(box, "Попытка " + attempt + " из " + noAnswerLimit + ". CRM сама поставила перезвон — время можно изменить.");
+        whenBlock(box, "Когда перезвонить", autoCallbackTime(attempt === 1 ? "soon" : "tomorrow"));
+      }
+    } else if (kind === "callback") whenBlock(section(""), "Когда перезвонить", null);
+    else if (kind === "thinking") whenBlock(section(""), "Когда перезвонить", autoCallbackTime("later"));
+    else if (kind === "booked") {
+      const field = dateField(pick.meeting);
+      field.addEventListener("input", () => { pick.meeting = field.value; say(""); });
+      const label = dashboardEl("label", "callback-calendar"); label.append(dashboardEl("span", "", "Дата и время консультации"), field);
+      section("").appendChild(label);
+    } else if (kind === "paid") info(section(""), "После сохранения откроется карточка ученика: цена и оплата.");
+    else if (kind === "refused") {
+      const box = section("Причина отказа");
+      box.appendChild(choiceChips(refusalReasons, { multi: true, value: pick.reasons, onChange: (value) => { pick.reasons = value; say(""); } }).el);
+      archiveInfo(box);
+    } else if (kind === "wrong_number") archiveInfo(section(""));
+    if (!kind || ((pick.result === "attended" || pick.result === "no_show") && !pick.then)) return;
+    const note = document.createElement("textarea");
+    note.className = "script-input script-textarea"; note.rows = 2; note.maxLength = 600; note.value = pick.note; note.placeholder = "Заметка (необязательно)";
+    note.addEventListener("input", () => { pick.note = note.value.trim(); });
+    section("").appendChild(note);
+  }
+  save.onclick = async () => {
+    const kind = kindNow();
+    if (!pick.result) return;
+    if ((pick.result === "attended" || pick.result === "no_show") && !pick.then) { say(pick.result === "attended" ? "Выберите, чем закончилась консультация." : "Выберите, что дальше."); return; }
+    const giveUp = kind === "no_answer" && attempt >= noAnswerLimit && pick.giveUp;
+    const needsWhen = kind === "callback" || kind === "thinking" || (kind === "no_answer" && !giveUp);
+    const next = needsWhen ? toIso(pick.when) : "";
+    if (needsWhen && !next) { say("Укажите, когда перезвонить."); return; }
+    if (next && Date.parse(next) < Date.now() + 30000) { say("Время перезвона должно быть в будущем."); return; }
+    const meeting = kind === "booked" ? toIso(pick.meeting) : "";
+    if (kind === "booked" && !meeting) { say("Укажите дату и время консультации."); return; }
+    if (meeting && Date.parse(meeting) < Date.now() + 30000) { say("Консультация должна быть в будущем."); return; }
+    if (kind === "refused" && !pick.reasons.length) { say("Выберите причину отказа."); return; }
     setBusy(true);
-    const at = new Date().toISOString();
-    const survey = { ...s, at, by: excelLeadEditedBy() };
-    const status = String(values["Статус консультации"] || "");
-    let nextStatus = status;
-    if (status !== "student") {
-      if (s.outcome === "Uchrashuv belgilandi") nextStatus = "booked";
-      else if (s.outcome === "Qayta aloqa" || (s.outcome === "Javob bermadi" && s.nextCallAt)) nextStatus = "callback";
-      else if (s.outcome === "Javob bermadi") nextStatus = "no_answer";
-      // Результат не выбран, но время следующего звонка стоит — лид ждёт перезвона (запись и визит не трогаем).
-      else if (!s.outcome && s.nextCallAt && (!status || status === "new" || status === "no_answer")) nextStatus = "callback";
+    const at = new Date().toISOString(), by = excelLeadEditedBy();
+    const entry = { at, by, result: pick.result };
+    if (pick.then) entry.then = pick.then;
+    if (kind === "no_answer") { entry.attempt = attempt; if (giveUp) entry.giveUp = true; }
+    if (next) entry.next = next;
+    if (meeting) entry.meeting = meeting;
+    if (kind === "refused") entry.reasons = pick.reasons.slice();
+    if (pick.note) entry.note = pick.note;
+    const outcome = callOutcome(entry, status);
+    // «Опрос» остаётся копилкой известного о лиде (ребёнок, цель, кто решает — из прежних анкет); звонок обновляет в нём
+    // результат, время следующего звонка и встречи: по этим полям очередь ИИ (lead-queue) решает, кому звонить.
+    const survey = { ...oldSurvey, outcome: callResults[kind].uz, nextCallAt: next, meetingAt: kind === "booked" ? meeting : outcome.status === "booked" ? oldSurvey.meetingAt || "" : "", note: pick.note, at, by };
+    if (kind === "refused") survey.objection = pick.reasons.slice();
+    const nextValues = { ...values, "Опрос": survey, "Результат последнего звонка": composeCallNote(entry), [callLogField]: [...leadCallLog(values), entry].slice(-callLogLimit), "Последний изменивший": by };
+    if (outcome.status) nextValues["Статус консультации"] = outcome.status;
+    if (next) nextValues[callbackTimeField] = next; else delete nextValues[callbackTimeField];
+    if (outcome.archive) {
+      // Итог звонка и архив — одним запросом: лид не останется в списке с записанным отказом.
+      const detail = [(entry.reasons || []).join(", "), pick.note].filter(Boolean).join(" — ");
+      const result = await db.rpc("archive_custom_record", { p_record: record.id, p_reason: outcome.archive, p_note: detail || null, p_values: nextValues });
+      if (result.error || !result.data?.ok) { setBusy(false); say(result.data?.error === "forbidden" ? "Нет прав на архив." : "Не удалось отправить в архив. Попробуйте ещё раз."); return; }
+      finish(); toast("Лид отправлен в архив");
+      onChange({ archived: record.id });
+      return;
     }
-    const noteText = composeSurveyText(s);
-    const noteChanged = noteText !== String(values["Результат последнего звонка"] || "").trim();
-    const aiBefore = String(values["ИИ-комментарий"] || "");
-    const nextValues = { ...values, "Опрос": survey, "Результат последнего звонка": noteText, "Статус консультации": nextStatus, "Последний изменивший": excelLeadEditedBy() };
-    if (s.nextCallAt) nextValues[callbackTimeField] = s.nextCallAt; else delete nextValues[callbackTimeField];
     await cancelCallbackReminders(record.id);
-    if (s.nextCallAt) {
-      const inserted = await db.from("lead_callbacks").insert({ record_id: record.id, tab_id: tab.id, due_at: s.nextCallAt, lead_name: String(values["Имя"] || "").slice(0, 120), phone: String(values["Телефон"] || "").slice(0, 60) }).select("id").maybeSingle();
+    if (next) {
+      const inserted = await db.from("lead_callbacks").insert({ record_id: record.id, tab_id: tab.id, due_at: next, lead_name: String(values["Имя"] || "").slice(0, 120), phone: String(values["Телефон"] || "").slice(0, 60) }).select("id").maybeSingle();
       if (inserted.error || !inserted.data) { setBusy(false); say("Не удалось поставить напоминание. Проверьте права доступа."); return; }
     }
+    const aiBefore = String(values["ИИ-комментарий"] || "");
     const updatedAt = new Date().toISOString();
     const updated = await db.from("custom_records").update({ values: nextValues, updated_at: updatedAt }).eq("id", record.id).select("id").maybeSingle();
     if (updated.error || !updated.data) { setBusy(false); say("Не удалось сохранить. Проверьте права доступа."); return; }
     record.values = nextValues; record.updated_at = updatedAt;
-    const filled = surveyProgress(s).filled;
-    finish(); toast(filled === 8 ? "Опрос сохранён" : "Опрос сохранён: " + filled + " из 8");
-    onChange(nextStatus === "callback" ? "callback" : undefined);
-    // Итог звонка от ИИ приходит через несколько секунд — подтягиваем его в карточку, как после «✎ Итог звонка».
-    if (noteChanged) watchAiComment(record.id, tab, aiBefore);
-    if (s.outcome === "To‘lov qildi" && !studentSummary.has(record.id)) openStudentDialog(tab, record, onChange);
+    finish(); toast(next ? "Звонок записан. Перезвон: " + callbackTimeText(next) : "Звонок записан");
+    onChange({ status: outcome.status });
+    // Итог звонка от ИИ приходит через несколько секунд — подтягиваем его в карточку.
+    watchAiComment(record.id, tab, aiBefore);
+    if (outcome.student && !studentSummary.has(record.id)) openStudentDialog(tab, record, () => onChange({ status: "student" }));
   };
-  refresh();
-  dialog.showModal();
+  render();
+  shell.dialog.showModal();
+}
+// «В архив» из меню «⋯»: лид уходит из списков, но хранится в архиве — вернуть можно в разделе «Архив».
+function openArchiveDialog(tab, record, onDone) {
+  const shell = leadDialogShell("archiveDialog", "В архив", record.values || {}, "В архив");
+  const { save, say, finish, setBusy, section } = shell;
+  const reason = choiceChips(archiveReasons, { onChange: () => say("") });
+  section("Почему в архив?").appendChild(reason.el);
+  const note = document.createElement("textarea");
+  note.className = "script-input script-textarea"; note.rows = 2; note.maxLength = 600; note.placeholder = "Заметка (необязательно)";
+  const noteBox = section("");
+  noteBox.append(note, dashboardEl("p", "call-info", "Лид уйдёт в архив. Вернуть его можно в разделе «Архив»."));
+  save.onclick = async () => {
+    if (!reason.get()) { say("Выберите причину."); return; }
+    setBusy(true);
+    const result = await db.rpc("archive_custom_record", { p_record: record.id, p_reason: reason.get(), p_note: note.value.trim() || null });
+    if (result.error || !result.data?.ok) { setBusy(false); say(result.data?.error === "forbidden" ? "Нет прав на архив." : "Не удалось отправить в архив. Попробуйте ещё раз."); return; }
+    finish(); toast("Лид отправлен в архив");
+    onDone();
+  };
+  shell.dialog.showModal();
+}
+// ---------- Архив лидов: всё, что убрали из списка (отказ, не дозвонились, удалённые) ----------
+// Строки приходят из deleted_custom_records. source: delete — полная копия; recovered — восстановлено по следам,
+// данные неполные; lost — известно только, что лид был (в списке не показываем, только считаем).
+let leadArchive = { rows: [], lost: [] };
+async function loadLeadArchive(tabId) {
+  const result = await db.from("deleted_custom_records").select("id,values,deleted_at,deleted_by_name,reason,reason_note,source,related").eq("tab_id", tabId).order("deleted_at", { ascending: false });
+  if (result.error) return; // связь моргнула или архива ещё нет — оставляем то, что было
+  const all = result.data || [];
+  leadArchive = { rows: all.filter((row) => row.source !== "lost"), lost: all.filter((row) => row.source === "lost") };
+}
+function archivedLeadCard(row, canManage, position) {
+  const values = row.values || {};
+  const name = values["Имя"] || "Без имени", phone = values["Телефон"] || "";
+  const recovered = row.source === "recovered" ? row.related?.recovered || {} : null;
+  // У восстановленных по следам точное время удаления неизвестно: только между какими двумя очередями лид пропал.
+  const when = '<span>' + escapeHtml(recovered && !recovered.exact_time && recovered.last_seen
+    ? "Удалён между " + callbackTimeText(recovered.last_seen).slice(0, 5) + " и " + callbackTimeText(row.deleted_at).slice(0, 5)
+    : "В архиве с " + callbackTimeText(row.deleted_at)) + '</span>';
+  const reasonHtml = '<span class="lead-archive-reason">' + escapeHtml(row.reason || "Удалён без причины") + '</span>'
+    + (row.reason_note ? '<span class="lead-archive-note">' + escapeHtml(row.reason_note) + '</span>' : "");
+  const callResult = String(values["Результат последнего звонка"] || "").trim();
+  const summary = leadCallSummary(String(values["ИИ-комментарий"] || ""));
+  const details = callResult ? leadCallDetailsHtml(callResult) : "";
+  const call = !callResult ? ""
+    : '<div class="lead-call-result"><span class="lead-call-label">Итог последнего звонка</span>'
+      + (summary ? '<p class="lead-call-summary">' + escapeHtml(summary) + '</p><details class="lead-call-more"><summary>Подробнее</summary>' + details + '</details>' : details) + '</div>';
+  const restore = canManage ? '<div class="excel-lead-actions"><button class="button secondary lead-restore-action" type="button" data-record-id="' + escapeHtml(row.id) + '">Вернуть в список</button></div>' : "";
+  return '<article class="crm-card excel-lead-row is-archived-row"><div class="excel-lead-name"><span class="excel-lead-number">' + (position + 1) + '.</span><span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><span class="excel-lead-title"><b>' + escapeHtml(name) + '</b><span class="excel-lead-badges">' + reasonHtml + '</span></span></div>'
+    + (phone ? '<a class="excel-lead-phone" href="' + escapeHtml(phoneHref(phone)) + '" aria-label="Позвонить: ' + escapeHtml(phone) + '">' + escapeHtml(phone) + '</a>' : '<span class="excel-lead-phone is-empty">—</span>')
+    + '<span class="excel-lead-date"></span>' + restore
+    + '<div class="excel-lead-meta">' + call + '<small>' + when + (row.deleted_by_name ? ' · ' + escapeHtml(row.deleted_by_name) : '') + (recovered ? ' · <span>данные восстановлены частично</span>' : '') + '</small></div></article>';
 }
 // Итог звонка одной-двумя фразами: строка «Xulosa:» из ИИ-комментария (её пишет teachnova-bot вместе с советом).
 function leadCallSummary(text) {
@@ -1965,8 +2017,8 @@ function leadCallSummary(text) {
   }
   return "";
 }
-// Запись оператора по строкам, как её собирает опрос (composeSurveyText): «Метка: значение». Незаполненные пункты
-// опроса («narx —, to‘langan —, qolgan —») не показываем. Свободный текст оператора идёт как есть, строка за строкой.
+// Запись оператора по строкам: «Метка: значение» — так её пишут composeCallNote и прежний опрос. Пустые пункты старых
+// опросов («narx —, to‘langan —, qolgan —») не показываем. Свободный текст оператора идёт как есть, строка за строкой.
 const callDetailLabels = ["Kim bilan", "Farzand", "Maqsad", "Qaror qiluvchi", "E’tiroz", "Kelishuv", "To‘lov", "Keyingi qo‘ng‘iroq", "Izoh"];
 function leadCallDetailsHtml(text) {
   const rows = [];
@@ -1982,41 +2034,50 @@ function leadCallDetailsHtml(text) {
   }
   return rows.length ? '<div class="lead-call-detail-list">' + rows.join("") + '</div>' : "";
 }
-// ИИ-совет для администратора: три короткие строки (следующий шаг, что уточнить, состояние лида)
-// и полоса «сколько ещё осталось уточнить» по опросу из 8 пунктов. Старые советы (Qadam/Baho/Tanqid) читаются так же.
-// В очереди ИИ это один блок: «почему сейчас» и «что сказать» из очереди идут первыми и заменяют прошлый «следующий шаг».
-function leadAdviceHtml(text, survey, queue = null) {
-  const kinds = [
-    { re: /^Xulosa\s*:\s*(.+)$/i, kind: "sum", title: "" }, // итог звонка показан отдельно, над записью оператора
-    { re: /^(?:Keyingi qadam|Qadam)\s*:\s*(.+)$/i, kind: "next", title: "Следующий шаг" },
-    { re: /^(?:So[‘’ʻ'`´]?rang|Tanqid)\s*:\s*(.+)$/i, kind: "ask", title: "Что уточнить" },
-    { re: /^(?:Holat|Baho)\s*:\s*(.+)$/i, kind: "state", title: "Состояние" },
-  ];
-  const rows = [];
-  for (const raw of String(text || "").split(/\n+/)) {
-    const line = raw.replace(/\*\*/g, "").trim();
-    if (!line) continue;
-    const found = kinds.find((item) => item.re.test(line));
-    rows.push(found ? { kind: found.kind, title: found.title, text: line.replace(found.re, "$1").trim() } : { kind: "plain", title: "", text: line });
-  }
-  if (queue) rows.push({ kind: "why", title: "Почему сейчас", text: queue.reason }, { kind: "say", title: "Что сказать", text: queue.say });
-  const order = { why: 0, say: 1, next: 2, ask: 3, state: 4, plain: 5 };
-  const shown = rows.filter((row) => row.text && row.kind !== "sum" && !(queue && row.kind === "next")).sort((a, b) => order[a.kind] - order[b.kind]);
-  if (!shown.length) return "";
-  const total = Number(survey?.total) || 8, filled = Math.min(total, Number(survey?.filled) || 0);
-  const left = Math.round((total - filled) / total * 100);
-  const progressText = filled >= total ? "Всё уточнено ✓" : "Уточнено " + filled + " из " + total + " · осталось " + left + "%";
-  // Лиду ещё не звонили и опрос не начат — полоса «уточнено 0 из 8» только отвлекает.
-  const progressHtml = text || survey?.started
-    ? '<span class="lead-advice-progress' + (filled >= total ? ' is-done' : '') + '"><span>' + escapeHtml(progressText) + '</span><progress class="lead-advice-bar" value="' + filled + '" max="' + total + '"></progress></span>'
-    : "";
-  const rowHtml = shown.map((row) => {
-    const temperature = row.kind === "state" ? (/^issiq/i.test(row.text) ? " is-hot" : /^iliq/i.test(row.text) ? " is-warm" : /^sovuq/i.test(row.text) ? " is-cold" : "") : "";
-    const label = row.title ? '<span class="lead-advice-label">' + escapeHtml(row.title) + '</span>' : "";
-    return '<div class="lead-advice-row is-' + row.kind + temperature + '">' + label + '<p>' + escapeHtml(row.text) + '</p></div>';
-  }).join("");
-  return '<div class="lead-advice' + (queue ? ' is-queue-advice' : '') + '"><div class="lead-advice-head"><span class="lead-advice-title">ИИ-совет</span>' + progressHtml + '</div>'
-    + rowHtml + '</div>';
+// Что уже известно о лиде из прежних анкет (поле «Опрос»): кто говорил, ребёнок, цель, кто решает. Запись звонка
+// этого больше не спрашивает, но и не стирает — показываем под «Подробнее».
+function leadKnownFactsHtml(survey) {
+  if (!survey || typeof survey !== "object") return "";
+  const list = (items) => (Array.isArray(items) ? items.filter(Boolean).join(", ") : "");
+  const glue = (parts, separator) => parts.filter(Boolean).join(separator);
+  const rows = [
+    ["Kim bilan", survey.who],
+    ["Farzand", glue([glue([survey.childName, survey.childAge ? survey.childAge + " yosh" : ""], ", "), list(survey.interests)], "; ")],
+    ["Maqsad", glue([list(survey.goal), survey.goalText], " — ")],
+    ["Qaror qiluvchi", survey.decider],
+  ].filter(([, value]) => String(value || "").trim());
+  return rows.length ? '<div class="lead-call-detail-list">' + rows.map(([label, value]) => '<div class="lead-call-detail"><span>' + escapeHtml(label) + '</span><p>' + escapeHtml(String(value)) + '</p></div>').join("") + '</div>' : "";
+}
+// Последние звонки из журнала: когда, чем закончился, кто звонил. Один звонок и так показан как итог — историю не дублируем.
+function leadCallHistoryHtml(values) {
+  const log = leadCallLog(values).slice(-5).reverse();
+  if (log.length < 2) return "";
+  return '<div class="lead-call-history"><span class="lead-call-label">История звонков</span>' + log.map((entry) => {
+    const result = callResults[entry.result]?.label || "", then = callResults[entry.then]?.label || "";
+    return '<p><time>' + escapeHtml(callbackTimeText(entry.at)) + '</time><span>' + escapeHtml(result) + '</span>' + (then ? '<i>→</i><span>' + escapeHtml(then) + '</span>' : '') + (entry.by ? '<small>' + escapeHtml(entry.by) + '</small>' : '') + '</p>';
+  }).join("") + '</div>';
+}
+// Подсказка очереди на карточке: почему звонить сейчас и что сказать. Больше от ИИ на карточке ничего нет: итог
+// прошлого разговора показан отдельно, а «следующий шаг» из него лежит под «Подробнее».
+function leadQueueHintHtml(queue) {
+  const rows = [["why", "Почему сейчас", queue?.reason], ["say", "Что сказать", queue?.say]].filter(([, , text]) => String(text || "").trim());
+  return rows.length ? '<div class="lead-advice is-queue-advice">' + rows.map(([kind, title, text]) => '<div class="lead-advice-row is-' + kind + '"><span class="lead-advice-label">' + escapeHtml(title) + '</span><p>' + escapeHtml(text) + '</p></div>').join("") + '</div>' : "";
+}
+// Статус лида одной плашкой вместо ряда кнопок: этап и, если назначено, время следующего звонка или консультации.
+function leadStatusHtml(values) {
+  const status = String(values["Статус консультации"] || "new");
+  const survey = values["Опрос"] && typeof values["Опрос"] === "object" ? values["Опрос"] : {};
+  const callbackAt = String(values[callbackTimeField] || "");
+  const streak = noAnswerStreak(values);
+  const part = (text) => '<span>' + text + '</span>';
+  const time = (iso) => (iso && callbackTimeText(iso) ? '<time>' + escapeHtml(callbackTimeText(iso)) + '</time>' : "");
+  const recall = callbackAt ? part("перезвон") + time(callbackAt) : "";
+  let kind = "new", html = part(String(values["Результат последнего звонка"] || "").trim() ? "В работе" : "Новый");
+  if (status === "no_answer") { kind = "no-answer"; html = part("Не ответил") + (streak > 1 ? '<b>×' + streak + '</b>' : "") + recall; }
+  else if (status === "callback") { kind = "callback"; html = part(survey.outcome === callResults.thinking.uz ? "Думает" : "Перезвонить") + time(callbackAt); }
+  else if (status === "booked") { kind = "booked"; html = part("Записан на консультацию") + time(survey.meetingAt); }
+  else if (status === "attended") { kind = "attended"; html = part("Был на консультации") + recall; }
+  return '<span class="lead-consult-status is-' + kind + '">' + html + '</span>';
 }
 function customRecordCard(record, fields, canManage, position = 0, queue = null) {
   const values = record.values || {};
@@ -2029,26 +2090,25 @@ function customRecordCard(record, fields, canManage, position = 0, queue = null)
     const callResult = String(values["Результат последнего звонка"] || "").trim();
     const lastEditor = String(values["Последний изменивший"] || "").trim();
     const updatedTime = record.updated_at || record.created_at;
-    const surveyState = surveyProgress(values["Опрос"]);
     const consultStatus = String(values["Статус консультации"] || "new");
     const recordId = escapeHtml(record.id);
     const rowId = "excel-lead-" + String(record.id).replace(/[^a-zA-Z0-9_-]/g, "");
     // queue.badge — лид показан в общем списке, от очереди только значок; иначе это карточка самой очереди ИИ.
     const inQueueView = Boolean(queue) && !queue.badge;
-    // В очереди вместо порядкового номера — место в очереди: ⚡ у новых заявок и перезвонов, ✓ у отработанных.
+    // В очереди вместо порядкового номера — место в очереди: ⚡ у новых заявок и перезвонов.
     const leadNumber = inQueueView
-      ? '<span class="excel-lead-number queue-rank' + (queue.done ? ' is-done' : queue.live ? ' is-live' : '') + '" title="' + (queue.done ? 'Уже позвонили' : queue.live ? 'Звонить сейчас' : 'Место в очереди') + '">' + (queue.done ? '✓' : queue.live ? '⚡' : escapeHtml(String(queue.rank))) + '</span>'
+      ? '<span class="excel-lead-number queue-rank' + (queue.live ? ' is-live' : '') + '" title="' + (queue.live ? 'Звонить сейчас' : 'Место в очереди') + '">' + (queue.live ? '⚡' : escapeHtml(String(queue.rank))) + '</span>'
       : '<span class="excel-lead-number">' + (position + 1) + '.</span>';
-    const queueClass = inQueueView ? " is-queue-item" + (queue.done ? " is-queue-done" : "") + (queue.live ? " is-queue-live" : "") + (queue.next ? " is-next-call" : "") : "";
+    const queueClass = inQueueView ? " is-queue-item is-next-call" + (queue.live ? " is-queue-live" : "") : "";
     const queueBadge = queue?.badge ? '<span class="lead-queue-badge">' + (queue.live ? "⚡ Звонить сейчас" : "🔥 В очереди · " + escapeHtml(String(queue.rank))) + '</span>' : "";
     const phoneLink = '<a class="excel-lead-phone" href="' + escapeHtml(phoneHref(phone)) + '" aria-label="Позвонить: ' + escapeHtml(phone) + '">' + escapeHtml(phone) + '</a>';
     const dateHtml = '<time class="excel-lead-date" datetime="' + escapeHtml(createdTime) + '">' + escapeHtml(dateText(createdTime)) + '</time>';
-    // «⋯»: редкие действия (изменить имя и телефон, удалить) спрятаны в меню, чтобы «Удалить» не нажать случайно.
+    // «⋯»: редкие действия спрятаны в меню. Лид не удаляется, а уходит в архив — вернуть можно в разделе «Архив».
     const moreMenu = canManage
-      ? '<details class="lead-more"><summary class="button secondary" aria-label="Ещё действия" title="Ещё действия">⋯</summary><div class="lead-more-menu"><button class="button secondary custom-record-edit" type="button" data-record-id="' + recordId + '">Изменить</button><button class="button danger custom-record-delete" type="button" data-record-id="' + recordId + '">Удалить</button></div></details>'
+      ? '<details class="lead-more"><summary class="button secondary" aria-label="Ещё действия" title="Ещё действия">⋯</summary><div class="lead-more-menu"><button class="button secondary custom-record-edit" type="button" data-record-id="' + recordId + '">Изменить</button><button class="button secondary lead-archive-action" type="button" data-record-id="' + recordId + '">В архив</button></div></details>'
       : "";
     if (consultStatus === "student" || studentSummary.has(record.id)) {
-      // Ученик: вместо кнопок консультации — оплата и карточка ученика.
+      // Ученик: вместо записи звонка — оплата и карточка ученика.
       const info = studentSummary.get(record.id);
       const debt = info ? Math.max(0, info.price - info.paid) : 0;
       const payState = !info ? '<span class="student-pay">Карточка не заполнена</span>'
@@ -2057,43 +2117,31 @@ function customRecordCard(record, fields, canManage, position = 0, queue = null)
       const studentActions = canManage ? '<div class="excel-lead-actions"><button class="button primary lead-student-action" type="button" data-record-id="' + recordId + '">Карточка ученика</button>' + moreMenu + '</div>' : "";
       return '<article id="' + escapeHtml(rowId) + '" class="crm-card excel-lead-row is-student-row' + (debt > 0 ? ' has-debt' : '') + '"><div class="excel-lead-name">' + leadNumber + '<span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><span class="excel-lead-title"><b>' + escapeHtml(name) + '</b></span></div>' + phoneLink + '<div class="student-row-status">' + payState + paidLine + '</div>' + studentActions + '</article>';
     }
-    const surveyButton = canManage ? '<button class="button secondary lead-survey-action' + (surveyState.started && surveyState.filled === 8 ? ' is-full' : '') + '" type="button" data-record-id="' + recordId + '">Опрос' + (surveyState.started ? ' ' + surveyState.filled + '/8' : '') + '</button>' : "";
-    const callEditButton = canManage ? '<button class="button secondary excel-lead-call-edit" type="button" data-record-id="' + recordId + '">✎ Итог звонка</button>' : "";
-    const clarityBadge = leadNeedsClarification(values) ? '<span class="lead-unclear-badge">Нужно уточнить</span>' : "";
-    const actions = canManage ? '<div class="excel-lead-actions">' + surveyButton + callEditButton + moreMenu + '</div>' : "";
-    const consultStatusClass = consultStatus === "booked" ? " is-consult-booked" : consultStatus === "attended" ? " is-consult-attended" : consultStatus === "no_answer" ? " is-consult-no-answer" : consultStatus === "callback" ? " is-consult-callback" : consultStatus === "student" ? " is-consult-student" : "";
-    const callbackAt = String(values[callbackTimeField] || "");
-    // «Перезвонить» доступно для любого лида: перезвон часто просят ещё на первом звонке.
-    const callbackButton = canManage
-      ? '<button class="lead-status-action is-callback lead-callback-action' + (consultStatus === "callback" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '">Перезвонить' + (consultStatus === "callback" && callbackAt ? " · " + escapeHtml(callbackTimeText(callbackAt)) : "") + '</button>'
-      : "";
-    const studentButton = canManage
-      ? '<button class="lead-status-action is-student lead-student-action' + (consultStatus === "student" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '">' + (consultStatus === "student" ? "Карточка ученика" : "Стал учеником") + '</button>'
-      : "";
-    const consultActions = canManage
-      ? '<div class="lead-consult-actions" aria-label="Отметить результат консультации"><span>Консультация:</span><button class="lead-status-action is-booked' + (consultStatus === "booked" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="booked" aria-pressed="' + (consultStatus === "booked") + '">Записался</button><button class="lead-status-action is-attended' + (consultStatus === "attended" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="attended" aria-pressed="' + (consultStatus === "attended") + '">Пришёл</button><button class="lead-status-action is-no-answer' + (consultStatus === "no_answer" ? " is-selected" : "") + '" type="button" data-record-id="' + escapeHtml(record.id) + '" data-lead-status="no_answer" aria-pressed="' + (consultStatus === "no_answer") + '">Не ответил</button>' + callbackButton + studentButton + '</div>'
-      : '<div class="lead-consult-actions"><span class="lead-consult-status ' + (consultStatus === "attended" ? "is-attended" : consultStatus === "booked" ? "is-booked" : consultStatus === "no_answer" ? "is-no-answer" : consultStatus === "callback" ? "is-callback" : consultStatus === "student" ? "is-student" : "") + '">' + (consultStatus === "attended" ? "Пришёл на консультацию" : consultStatus === "booked" ? "Записался на консультацию" : consultStatus === "no_answer" ? "Не ответил на звонок" : consultStatus === "callback" ? "Перезвонить" + (callbackAt ? " · " + callbackTimeText(callbackAt) : "") : consultStatus === "student" ? studentStatusText(record) : "Статус консультации не указан") + '</span></div>';
+    // Одна кнопка после звонка: результат, время перезвона, отказ и архив — всё внутри неё.
+    const actions = canManage ? '<div class="excel-lead-actions"><button class="button primary lead-call-action" type="button" data-record-id="' + recordId + '">Записать звонок</button>' + moreMenu + '</div>' : "";
+    const consultStatusClass = consultStatus === "booked" ? " is-consult-booked" : consultStatus === "attended" ? " is-consult-attended" : consultStatus === "no_answer" ? " is-consult-no-answer" : consultStatus === "callback" ? " is-consult-callback" : "";
+    const statusLine = '<div class="lead-status-line">' + leadStatusHtml(values) + '</div>';
     const aiComment = callResult ? String(values["ИИ-комментарий"] || "").trim() : "";
-    // Итог звонка: понятная фраза от ИИ, а запись оператора — под «Подробнее». Пока ИИ не ответил (или совет старый,
-    // без итога) — запись оператора сразу, но по строкам, а не одним абзацем.
+    // Итог — понятная фраза от ИИ. Запись оператора, следующий шаг, известное о ребёнке и история звонков — под «Подробнее».
+    // Пока ИИ итог не написал, запись оператора видна сразу, по строкам.
     const callSummary = leadCallSummary(aiComment);
-    const callDetails = callResult ? leadCallDetailsHtml(callResult) : "";
+    const noteRows = callResult ? leadCallDetailsHtml(callResult) : "";
+    const nextStep = leadAdviceNextStep(aiComment);
+    const extra = (nextStep ? '<div class="lead-call-detail-list"><div class="lead-call-detail"><span>Следующий шаг</span><p>' + escapeHtml(nextStep) + '</p></div></div>' : "")
+      // Запись из прежнего опроса уже содержит строки о ребёнке и цели — второй раз их не показываем.
+      + (/^(Kim bilan|Farzand|Maqsad|Qaror qiluvchi):/m.test(callResult) ? "" : leadKnownFactsHtml(values["Опрос"])) + leadCallHistoryHtml(values);
+    const more = (body) => (body ? '<details class="lead-call-more"><summary>Подробнее</summary>' + body + '</details>' : "");
+    // Недозвон итог прошлого разговора не стирает: он остаётся на карточке, а про недозвон говорит плашка статуса.
+    const lastWasNoAnswer = /^Javob bermadi/i.test(callResult);
     const callResultDisplay = !callResult
-      ? '<p class="excel-lead-call-placeholder">Итог звонка ещё не записан</p>'
-      : '<div class="lead-call-result"><span class="lead-call-label">Итог последнего звонка</span>'
-        + (callSummary
-          ? '<p class="lead-call-summary">' + escapeHtml(callSummary) + '</p><details class="lead-call-more"><summary>Подробнее</summary>' + callDetails + '</details>'
-          : callDetails)
+      ? '<p class="excel-lead-call-placeholder">Звонков ещё не было</p>'
+      : '<div class="lead-call-result"><span class="lead-call-label">' + (callSummary && lastWasNoAnswer ? "Последний разговор" : "Итог последнего звонка") + '</span>'
+        + (callSummary ? '<p class="lead-call-summary">' + escapeHtml(callSummary) + '</p>' + more(noteRows + extra) : noteRows + more(extra))
         + '</div>';
-    // В очереди — один блок ИИ сразу под телефоном: подсказка очереди вместе с «что уточнить» и «состояние» из прошлого
-    // совета. После звонка подсказка очереди устарела: остаётся свежий совет. В общем списке — как раньше, под итогом звонка.
-    const queueAdvice = !inQueueView ? ""
-      : queue.done ? '<div class="lead-queue-advice">' + (aiComment ? leadAdviceHtml(aiComment, surveyState) : "") + '<p class="lead-queue-done">✓ Позвонили после составления очереди</p></div>'
-      : '<div class="lead-queue-advice">' + leadAdviceHtml(aiComment, surveyState, queue) + '</div>';
-    const aiDisplay = !inQueueView && aiComment ? leadAdviceHtml(aiComment, surveyState) : "";
-    const callMeta = '<div class="excel-lead-meta"><div class="excel-lead-call-row"><div class="excel-lead-call-copy">' + callResultDisplay + aiDisplay + '</div></div><small>Последнее изменение: ' + (lastEditor ? escapeHtml(lastEditor) + ' · ' : '') + escapeHtml(dateTimeText(updatedTime)) + '</small></div>';
-    const intentBadge = queueBadge + (highIntent ? '<span class="lead-intent-badge">Высокое намерение · ' + escapeHtml(leadSubmissionCountText(submissionCount)) + '</span>' : "") + clarityBadge;
-    return '<article id="' + escapeHtml(rowId) + '" class="crm-card excel-lead-row' + (highIntent ? ' is-high-intent' : '') + consultStatusClass + queueClass + '"><div class="excel-lead-name">' + leadNumber + '<span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><span class="excel-lead-title"><b>' + escapeHtml(name) + '</b>' + (intentBadge ? '<span class="excel-lead-badges">' + intentBadge + '</span>' : '') + '</span></div>' + phoneLink + dateHtml + actions + queueAdvice + consultActions + callMeta + '</article>';
+    const queueAdvice = inQueueView ? '<div class="lead-queue-advice">' + leadQueueHintHtml(queue) + '</div>' : "";
+    const callMeta = '<div class="excel-lead-meta"><div class="excel-lead-call-row"><div class="excel-lead-call-copy">' + callResultDisplay + '</div></div><small>Последнее изменение: ' + (lastEditor ? escapeHtml(lastEditor) + ' · ' : '') + escapeHtml(dateTimeText(updatedTime)) + '</small></div>';
+    const intentBadge = queueBadge + (highIntent ? '<span class="lead-intent-badge">Высокое намерение · ' + escapeHtml(leadSubmissionCountText(submissionCount)) + '</span>' : "");
+    return '<article id="' + escapeHtml(rowId) + '" class="crm-card excel-lead-row' + (highIntent ? ' is-high-intent' : '') + consultStatusClass + queueClass + '"><div class="excel-lead-name">' + leadNumber + '<span class="mini-avatar">' + escapeHtml(initials(name)) + '</span><span class="excel-lead-title"><b>' + escapeHtml(name) + '</b>' + (intentBadge ? '<span class="excel-lead-badges">' + intentBadge + '</span>' : '') + '</span></div>' + phoneLink + dateHtml + actions + queueAdvice + statusLine + callMeta + '</article>';
   }
   const titleField = fields.find((field) => /лид|имя|name/i.test(field.name) && String(values[field.name] || "").trim());
   const title = titleField ? values[titleField.name] : Object.values(values).find((value) => String(value || "").trim());
@@ -2149,7 +2197,7 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
     $("sourceBack").onclick = () => setPage("bloggers");
   } else {
     const isExcelLeads = tab.name === excelLeadsTabName;
-    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM</p><h1>' + escapeHtml(tabDisplayName(tab)) + '</h1>' + (isExcelLeads ? '<p class="subtle">Звонки, консультации и ученики. Новые заявки приходят из Facebook и Excel.</p>' : '') + '</div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button" title="Столбцы: имя, телефон и created_time — исходная дата лида">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><div id="leadModeSwitch" class="lead-mode-switch" role="tablist" aria-label="Режим работы с лидами"><button type="button" class="lead-mode is-queue" data-lead-mode="queue" role="tab"><span>🔥 Очередь ИИ</span><b data-mode-count="queue">0</b></button><button type="button" class="lead-mode" data-lead-mode="all" role="tab"><span>Все лиды</span><b data-mode-count="all">0</b></button></div><section id="callQueuePanel" class="call-queue-panel hidden" aria-live="polite"></section><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button><button type="button" class="lead-status-column is-unclear" data-lead-filter="unclear"><span>Нужно уточнить</span><b data-count="unclear">0</b></button><button type="button" class="lead-status-column is-student" data-lead-filter="student"><span>Ученики</span><b data-count="student">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<button type="button" id="studentSearchHint" class="student-search-hint hidden"></button><div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
+    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM</p><h1>' + escapeHtml(tabDisplayName(tab)) + '</h1>' + (isExcelLeads ? '<p class="subtle">Звонки, консультации и ученики. Новые заявки приходят из Facebook и Excel.</p>' : '') + '</div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button" title="Столбцы: имя, телефон и created_time — исходная дата лида">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><div id="leadModeSwitch" class="lead-mode-switch" role="tablist" aria-label="Режим работы с лидами"><button type="button" class="lead-mode is-queue" data-lead-mode="queue" role="tab"><span>🔥 Очередь ИИ</span><b data-mode-count="queue">0</b></button><button type="button" class="lead-mode" data-lead-mode="all" role="tab"><span>Все лиды</span><b data-mode-count="all">0</b></button></div><section id="callQueuePanel" class="call-queue-panel hidden" aria-live="polite"></section><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button><button type="button" class="lead-status-column is-student" data-lead-filter="student"><span>Ученики</span><b data-count="student">0</b></button><button type="button" class="lead-status-column is-archive" data-lead-filter="archive"><span>Архив</span><b data-count="archive">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<button type="button" id="studentSearchHint" class="student-search-hint hidden"></button><div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
   }
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo);
@@ -2159,7 +2207,7 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
   }
   const result = await db.from("custom_records").select("*").eq("tab_id", tab.id).order("created_at", { ascending: false });
   if (result.error) { if (!nestedInBloggers) $("customRecordList").textContent = result.error.message; return; }
-  if (tab.name === excelLeadsTabName) await Promise.all([loadStudentSummaries(tab.id), loadCallQueue(tab.id)]); else { studentSummary.clear(); callQueue = null; }
+  if (tab.name === excelLeadsTabName) await Promise.all([loadStudentSummaries(tab.id), loadCallQueue(tab.id), loadLeadArchive(tab.id)]); else { studentSummary.clear(); callQueue = null; leadArchive = { rows: [], lost: [] }; }
   const fields = Array.isArray(tab.fields) ? tab.fields : [];
   const sourceRows = nestedInBloggers ? state.promos.filter(isFargonaTezkorPromo) : [];
   const sourceUrls = new Set(sourceRows.map((row) => String(row.permalink || "").replace(/\/$/, "").toLowerCase()));
@@ -2174,7 +2222,7 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
   } else {
     const recordById = new Map(customRows.map((record) => [String(record.id), record]));
     let leadSortAscending = false;
-    const leadFilters = ["queue", "all", "booked", "attended", "no_answer", "callback", "unclear", "student"];
+    const leadFilters = ["queue", "all", "booked", "attended", "no_answer", "callback", "student", "archive"];
     // Лиды открываются на очереди ИИ: порядок работы задаёт она. «Все лиды» — соседний режим для поиска и просмотра.
     let leadStatusFilter = tab.name !== excelLeadsTabName ? "all" : leadFilters.includes(options.filter) ? options.filter : "queue";
     // Ученики (есть карточка ученика или статус «student») лежат только под кнопкой «Ученики»: в остальных списках их нет.
@@ -2206,7 +2254,7 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
     let lastLiveSignature = "";
     const leadsSignature = () => {
       const nowMs = Date.now();
-      return (callQueue?.id || "") + "|" + customRows.map((record) => {
+      return (callQueue?.id || "") + "|" + leadArchive.rows.length + "|" + customRows.map((record) => {
         const student = studentSummary.get(record.id);
         return record.id + ":" + callQueueNoteSig(JSON.stringify(record.values || {})) + ":" + (leadLiveItem(record, nowMs)?.live || "") + ":" + (student ? student.price + "/" + student.paid : "");
       }).join(",");
@@ -2217,7 +2265,7 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
       const columns = $("leadStatusColumns");
       if (!columns) return;
       const inQueue = leadStatusFilter === "queue";
-      const counts = { all: 0, booked: 0, attended: 0, no_answer: 0, callback: 0, student: 0, unclear: 0 };
+      const counts = { all: 0, booked: 0, attended: 0, no_answer: 0, callback: 0, student: 0, archive: leadArchive.rows.length };
       customRows.forEach((record) => {
         if (isStudentRecord(record)) { counts.student++; return; }
         counts.all++;
@@ -2226,7 +2274,6 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
         if (status === "attended") counts.attended++;
         if (status === "no_answer") counts.no_answer++;
         if (status === "callback") counts.callback++;
-        if (leadNeedsClarification(record.values)) counts.unclear++;
       });
       // Переключатель режимов: очередь ИИ (главная) или весь список. В очереди фильтры и поиск не нужны.
       document.querySelectorAll("#leadModeSwitch [data-lead-mode]").forEach((button) => {
@@ -2261,9 +2308,12 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
         if (leadStatusFilter === "student") return student;
         if (student) return false;
         const status = String(record.values?.["Статус консультации"] || "new");
-        return leadStatusFilter === "all" || (leadStatusFilter === "unclear" ? leadNeedsClarification(record.values) : status === leadStatusFilter);
+        return leadStatusFilter === "all" || status === leadStatusFilter;
       });
       const visible = inFilter.filter(matchesQuery);
+      // Архив — отдельный список: лиды, которых убрали из работы (отказ, не дозвонились, удалённые).
+      const inArchive = leadStatusFilter === "archive";
+      const archiveVisible = !inArchive ? [] : leadArchive.rows.filter((row) => !query || [row.values?.["Имя"], row.values?.["Телефон"], row.reason, row.reason_note].some((value) => String(value ?? "").toLocaleLowerCase().includes(query)));
       if (tab.name === excelLeadsTabName) lastLeadFilter = leadStatusFilter;
       renderLeadStatusColumns(queue);
       // Очередь уже стоит по порядку. Остальные списки — по дате создания лида.
@@ -2272,10 +2322,10 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
         return leadSortAscending ? aTime - bTime : bTime - aTime;
       });
       if (tab.name === excelLeadsTabName) {
-        renderHighIntentLeads(leadStatusFilter === "student" || inQueue ? [] : visible);
+        renderHighIntentLeads(leadStatusFilter === "student" || inQueue || inArchive ? [] : visible);
         renderCallQueuePanel(tab, inQueue, { total: queue.total, done: queue.done });
         // У учеников третья колонка — оплата, а не дата лида: заголовки колонок там только путали бы.
-        page.querySelector(".excel-lead-list-head")?.classList.toggle("hidden", inQueue || leadStatusFilter === "student");
+        page.querySelector(".excel-lead-list-head")?.classList.toggle("hidden", inQueue || inArchive || leadStatusFilter === "student");
       }
       // Поиск по лидам подсказывает, если такой человек уже среди учеников (они в этом списке не показываются).
       const studentHint = $("studentSearchHint");
@@ -2285,21 +2335,37 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
         studentHint.textContent = hiddenStudents ? "Ещё " + hiddenStudents + " в «Ученики» — показать" : "";
         studentHint.onclick = () => { leadStatusFilter = "student"; renderCustomRecords(); };
       }
-      $("customRecordCount").textContent = query ? visible.length + " из " + inFilter.length + " записей" : inFilter.length + " записей";
+      const shownCount = inArchive ? archiveVisible.length : visible.length, filterCount = inArchive ? leadArchive.rows.length : inFilter.length;
+      $("customRecordCount").textContent = query ? shownCount + " из " + filterCount + " записей" : filterCount + " записей";
       let listHtml = "";
-      if (inQueue) {
-        // Первый необзвоненный — «Следующий звонок»; дальше остальная очередь; внизу — кому уже позвонили.
-        const next = queue.entries.find((entry) => !entry.done);
-        listHtml = queue.entries.map((entry, index) => {
-          const previous = queue.entries[index - 1];
-          const heading = entry === next ? '<h2 class="queue-section is-next">Следующий звонок</h2>'
-            : !entry.done && previous === next ? '<h2 class="queue-section">Дальше в очереди · ' + (queue.waiting - 1) + '</h2>'
-            : entry.done && (!previous || !previous.done) ? '<h2 class="queue-section">Уже позвонили · ' + queue.done + '</h2>'
-            : "";
-          return heading + customRecordCard(entry.record, fields, canManage, index, { ...entry, next: entry === next });
-        }).join("");
-        // Очереди ещё нет — это объясняет панель над списком. Очередь есть, но звонить больше некому — подсказываем.
-        if (callQueue && !next) listHtml = '<div class="empty-state queue-finished">Всем из очереди уже позвонили. Нажмите «ИИ maslahat», чтобы составить новую.</div>' + listHtml;
+      let queueCurrentId = "";
+      if (inArchive) {
+        // О части лидов, удалённых до появления архива, известно только то, что они были: их считаем одной строкой.
+        const lost = leadArchive.lost;
+        const day = (iso) => callbackTimeText(iso).slice(0, 5);
+        const lostFrom = lost.map((row) => row.related?.recovered?.last_seen).filter(Boolean).sort()[0], lostTo = lost.map((row) => row.deleted_at).filter(Boolean).sort().pop();
+        const lostNote = lost.length ? '<p class="archive-lost-note">' + escapeHtml("Ещё " + lost.length + " лидов удалены " + (lostFrom ? day(lostFrom) + "–" : "") + day(lostTo) + " до появления архива: их данные не сохранились.") + '</p>' : "";
+        listHtml = (archiveVisible.map((row, index) => archivedLeadCard(row, canManage, index)).join("") || '<div class="empty-state">' + (query ? "По этому запросу записей нет." : "Архив пуст.") + '</div>') + lostNote;
+      } else if (inQueue) {
+        // По одному лиду на экране: позвонил → записал звонок → открывается следующий. Пропущенные уходят в конец очереди.
+        const waiting = queue.entries.filter((entry) => !entry.done);
+        let pool = waiting.filter((entry) => !queueSkipped.has(String(entry.record.id)));
+        if (!pool.length) { queueSkipped.clear(); pool = waiting; }
+        const current = waiting.find((entry) => String(entry.record.id) === queueFocusId) || pool[0];
+        const nameOf = (entry) => escapeHtml(entry.record.values?.["Имя"] || "Без имени");
+        if (current) {
+          queueCurrentId = String(current.record.id);
+          const rest = [...pool, ...waiting.filter((entry) => !pool.includes(entry))].filter((entry) => entry !== current);
+          listHtml = '<h2 class="queue-section is-next"><span>Следующий звонок</span>' + (rest.length ? '<i>·</i><span>ещё в очереди</span><b>' + rest.length + '</b>' : '') + '</h2>'
+            + customRecordCard(current.record, fields, canManage, 0, current)
+            + (rest.length ? '<div class="queue-focus-nav"><button class="button secondary" id="queueSkip" type="button">Пропустить →</button></div>'
+              + '<details class="queue-rest"><summary><span>Дальше в очереди</span><b>' + rest.length + '</b></summary>' + rest.map((entry) => '<button type="button" class="queue-rest-item" data-queue-jump="' + escapeHtml(entry.record.id) + '"><b>' + nameOf(entry) + '</b><span>' + escapeHtml(entry.reason || "") + '</span></button>').join("") + '</details>' : '');
+        } else if (callQueue) {
+          // Очереди ещё нет — это объясняет панель над списком. Очередь есть, но звонить больше некому — подсказываем.
+          listHtml = '<div class="empty-state queue-finished">Очередь пройдена: всем позвонили. Остальные лиды — во вкладке «Все лиды».</div>';
+        }
+        const called = queue.entries.filter((entry) => entry.done);
+        if (called.length) listHtml += '<details class="queue-rest is-done"><summary><span>Уже позвонили</span><b>' + called.length + '</b></summary>' + called.map((entry) => '<p class="queue-rest-item"><b>' + nameOf(entry) + '</b></p>').join("") + '</details>';
       } else {
         // В общем списке лид из очереди помечен значком: видно, что ИИ уже поставил его на звонок.
         listHtml = visible.map((record, index) => {
@@ -2314,42 +2380,39 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
         const record = recordById.get(button.dataset.recordId);
         if (record) openCustomRecordDialog(tab, tab.name === excelLeadsTabName ? excelLeadEditFields(fields) : fields, record);
       });
-      document.querySelectorAll(".excel-lead-call-edit").forEach((button) => button.onclick = () => {
+      // После записи звонка остаёмся там же: в очереди открывается следующий лид, в списке карточка обновляется на месте.
+      const afterCall = (change) => {
+        queueFocusId = "";
+        if (change?.archived) {
+          const index = customRows.findIndex((row) => String(row.id) === String(change.archived));
+          if (index >= 0) customRows.splice(index, 1);
+          recordById.delete(String(change.archived));
+          loadLeadArchive(tab.id).then(() => { if (state.selectedCustomTab?.id === tab.id && page.isConnected) renderCustomRecords(); });
+        }
+        if (change?.status === "student") followFilter("student");
+        renderCustomRecords();
+      };
+      document.querySelectorAll(".lead-call-action").forEach((button) => button.onclick = () => {
         const record = recordById.get(button.dataset.recordId);
-        if (record) openCustomRecordDialog(tab, [{ name: "Результат последнего звонка", type: "textarea" }], record);
+        if (record) openCallDialog(tab, record, afterCall);
       });
-      document.querySelectorAll(".lead-status-action").forEach((button) => button.onclick = async () => {
+      document.querySelectorAll(".lead-archive-action").forEach((button) => button.onclick = () => {
         const record = recordById.get(button.dataset.recordId);
-        if (!record) return;
+        if (record) openArchiveDialog(tab, record, () => afterCall({ archived: record.id }));
+      });
+      document.querySelectorAll(".lead-restore-action").forEach((button) => button.onclick = async () => {
         button.disabled = true;
-        const status = button.dataset.leadStatus;
-        const selectedStatus = String(record.values?.["Статус консультации"] || "new");
-        const nextStatus = selectedStatus === status ? "new" : status;
-        const values = { ...(record.values || {}), "Статус консультации": nextStatus, "Последний изменивший": excelLeadEditedBy() };
-        if (selectedStatus === "callback") delete values[callbackTimeField];
-        const updatedAt = new Date().toISOString();
-        const { data, error } = await db.from("custom_records").update({ values, updated_at: updatedAt }).eq("id", record.id).select("id").maybeSingle();
-        if (!error && data && selectedStatus === "callback") await cancelCallbackReminders(record.id);
-        if (error || !data) {
+        const result = await db.rpc("restore_archived_record", { p_record: button.dataset.recordId });
+        if (result.error || !result.data?.ok) {
           button.disabled = false;
-          toast(error ? "Не удалось обновить статус. Проверьте права доступа." : "Лид не найден или у вас нет прав на изменение.");
+          toast(result.data?.error === "duplicate" ? "Такая заявка уже есть в списке лидов." : result.data?.error === "forbidden" ? "Нет прав на возврат из архива." : "Не удалось вернуть лида. Попробуйте ещё раз.");
           return;
         }
-        record.values = values;
-        record.updated_at = updatedAt;
-        followFilter(nextStatus === "new" ? "all" : nextStatus);
-        renderCustomRecords();
-        toast(nextStatus === "new" ? "Статус консультации отменён" : nextStatus === "attended" ? "Лид отмечен как пришедший на консультацию" : nextStatus === "no_answer" ? "Отмечено: не ответил на звонок" : "Лид перенесён в колонку «Записались»");
+        toast(result.data.duplicate_phone ? "Лид возвращён. В списке уже есть лид с этим телефоном — проверьте, не дубль ли." : "Лид возвращён в список");
+        await showCustomTab(tab, { filter: "all" });
       });
-      document.querySelectorAll(".lead-callback-action").forEach((button) => button.onclick = () => {
-        const record = recordById.get(button.dataset.recordId);
-        if (!record) return;
-        openCallbackDialog(tab, record, () => { followFilter("callback"); renderCustomRecords(); });
-      });
-      document.querySelectorAll(".lead-survey-action").forEach((button) => button.onclick = () => {
-        const record = recordById.get(button.dataset.recordId);
-        if (record) openSurveyDialog(tab, record, (filter) => { followFilter(filter); renderCustomRecords(); });
-      });
+      if ($("queueSkip")) $("queueSkip").onclick = () => { queueSkipped.add(queueCurrentId); queueFocusId = ""; renderCustomRecords(); };
+      document.querySelectorAll("[data-queue-jump]").forEach((button) => button.onclick = () => { queueFocusId = button.dataset.queueJump; renderCustomRecords(); page.querySelector(".queue-section")?.scrollIntoView({ block: "start", behavior: "smooth" }); });
       document.querySelectorAll(".lead-student-action").forEach((button) => button.onclick = () => {
         const record = recordById.get(button.dataset.recordId);
         if (!record) return;
@@ -2395,7 +2458,7 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
           const liveBefore = new Set(queueView().entries.filter((entry) => entry.live).map((entry) => entry.record.id));
           const fresh = await db.from("custom_records").select("*").eq("tab_id", tab.id).order("created_at", { ascending: false });
           if (fresh.error) return;
-          await Promise.all([loadStudentSummaries(tab.id), loadCallQueue(tab.id)]);
+          await Promise.all([loadStudentSummaries(tab.id), loadCallQueue(tab.id), loadLeadArchive(tab.id)]);
           // Пока шла загрузка, могли уйти со страницы, открыть окно или нажать кнопку — тогда ничего не трогаем.
           if (state.selectedCustomTab?.id !== tab.id || !page.isConnected || busy()) return;
           customRows.splice(0, customRows.length, ...(fresh.data || []));

@@ -845,3 +845,70 @@ a.custom-record-link{color:#087f61;font-weight:650;text-decoration:none}
 .survey-hint{margin:-4px 2px 0;font-size:12.5px;line-height:1.45}
 /* На телефоне кнопки опроса прилипают к низу: сообщение прокручиваем так, чтобы оно было над ними */
 .survey-dialog .callback-message{scroll-margin-bottom:104px}
+
+/* ---------- polish-28 (2026-11-23): одна кнопка «Записать звонок», архив лидов, очередь по одному лиду ---------- */
+/* Статус лида — одна плашка вместо ряда кнопок: этап и время следующего звонка или консультации. */
+.excel-lead-row>.lead-status-line{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.lead-consult-status{gap:6px;min-height:30px;padding:4px 11px;font-size:12px}
+.lead-consult-status time,.lead-consult-status b{font-weight:800;font-variant-numeric:tabular-nums}
+.lead-consult-status span+span{font-weight:650;opacity:.8}
+/* Главная кнопка карточки. */
+.excel-lead-row>.excel-lead-actions>.lead-call-action{flex:1 1 auto}
+.excel-lead-row.is-next-call .lead-call-action{min-height:46px;font-size:15px}
+/* Окно «Записать звонок»: шаг 1 — результат, шаг 2 — только нужное по этому результату. */
+.call-dialog{width:min(520px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto}
+.call-steps{display:grid;gap:4px}
+.call-dialog .survey-block:first-child{border-top:0;padding-top:0}
+.call-results{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.call-result{display:flex;align-items:center;gap:9px;min-height:52px;padding:8px 12px;border:1px solid #e2e5e3;border-radius:12px;background:#fff;color:#1f2623;font:inherit;font-size:14px;font-weight:700;line-height:1.25;text-align:left;cursor:pointer}
+.call-result:hover{border-color:#b9c1bc;background:#f7f8f7}
+.call-result::before{content:"";flex:0 0 auto;width:9px;height:9px;border-radius:50%;background:#9aa39e}
+.call-result.is-no-answer::before{background:#d96e68}
+.call-result.is-callback::before,.call-result.is-thinking::before{background:#6f86d9}
+.call-result.is-booked::before,.call-result.is-attended::before{background:#e9a955}
+.call-result.is-paid::before{background:#2f9e63}
+.call-chosen{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:12px;background:#f4f6f5;font-size:14px}
+.call-chosen span{color:#6b746f;font-size:12px;font-weight:700}
+.call-chosen b{flex:1 1 auto;min-width:0}
+.call-change{flex:0 0 auto;min-height:36px;padding:0 8px;border:0;background:none;color:var(--accent);font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+.call-info{margin:0;color:#59625d;font-size:13px;line-height:1.45}
+/* Очередь по одному лиду: под карточкой — «Пропустить», ниже свёрнутые списки «дальше» и «уже позвонили». */
+.queue-section.is-next{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.queue-section.is-next i{font-style:normal;color:#c4c7cc}
+.queue-section.is-next span+i~*{color:#858991}
+.queue-focus-nav{display:flex;justify-content:flex-end}
+.queue-focus-nav .button{min-height:42px}
+.queue-rest{border:1px solid #e9ecea;border-radius:14px;background:#fff;overflow:hidden}
+.queue-rest>summary{display:flex;align-items:center;gap:8px;padding:12px 16px;color:#3f4642;font-size:13px;font-weight:750;cursor:pointer;list-style:none}
+.queue-rest>summary::-webkit-details-marker{display:none}
+.queue-rest>summary::after{content:"▾";margin-left:auto;color:#9aa39e}
+.queue-rest[open]>summary::after{content:"▴"}
+.queue-rest>summary b{min-width:24px;padding:1px 8px;border-radius:999px;background:#f1f3f2;font-size:12px;text-align:center}
+.queue-rest-item{display:grid;gap:2px;width:100%;margin:0;padding:10px 16px;border:0;border-top:1px solid #f0f2f1;background:none;color:inherit;font:inherit;text-align:left}
+button.queue-rest-item{cursor:pointer}
+button.queue-rest-item:hover{background:#f7f8f7}
+.queue-rest-item b{font-size:14px}
+.queue-rest-item span{color:#6b746f;font-size:12.5px;line-height:1.4}
+.queue-rest.is-done .queue-rest-item b{color:#6b746f;font-weight:650}
+/* Архив: причина рядом с именем, кнопка «Вернуть в список». */
+.excel-lead-row.is-archived-row{background:#fafbfa}
+.lead-archive-reason{display:inline-flex;align-items:center;min-height:24px;padding:0 9px;border-radius:999px;background:#eceeed;color:#4e5852;font-size:11px;font-weight:750}
+.lead-archive-note{align-self:center;color:#6b746f;font-size:12px;line-height:1.4}
+.excel-lead-phone.is-empty{background:none;color:#9aa39e!important;padding:0;min-height:0}
+.excel-lead-phone.is-empty::before{content:none}
+.archive-lost-note{margin:4px 2px 0;color:#7a827e;font-size:12.5px;line-height:1.5}
+/* «Подробнее»: следующий шаг, известное о ребёнке, история звонков. */
+.lead-call-more .lead-call-detail-list+.lead-call-detail-list{margin-top:8px}
+.lead-call-history{display:grid;gap:4px;margin-top:10px}
+.lead-call-history p{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;margin:0;color:#4e5852;font-size:12.5px;-webkit-line-clamp:unset}
+.lead-call-history time{color:#7a827e;font-variant-numeric:tabular-nums}
+.lead-call-history i{font-style:normal;color:#9aa39e}
+.lead-call-history small{color:#9aa39e}
+@media(max-width:760px){
+  .excel-lead-row>.lead-status-line{grid-area:consult}
+  /* В очереди кнопка «Записать звонок» стоит сразу под подсказкой: она видна без прокрутки. */
+  .excel-lead-row.is-queue-item{grid-template-areas:"name name" "phone date" "queue queue" "actions actions" "consult consult" "meta meta"}
+  .call-results{grid-template-columns:1fr}
+  .call-result{min-height:50px;font-size:15px}
+  .queue-focus-nav .button{flex:1 1 auto}
+}
