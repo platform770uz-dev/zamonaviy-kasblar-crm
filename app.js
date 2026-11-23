@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-26";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-27";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -1756,25 +1756,33 @@ function leadNeedsClarification(values) {
   return surveyProgress(survey).filled < 8;
 }
 function surveyDateText(iso) { return iso ? callbackTimeText(iso) : ""; }
+// Запись оператора из опроса — только заполненные пункты: опрос можно сохранить и с одним ответом,
+// и строки из одних «—» не должны попадать ни в карточку, ни в Telegram, ни в ИИ.
 function composeSurveyText(s) {
-  const dash = "—";
-  const join = (list) => (list && list.length ? list.join(", ") : dash);
+  const glue = (parts, separator) => parts.filter(Boolean).join(separator);
+  const list = (items) => (Array.isArray(items) ? items.join(", ") : "");
+  const line = (label, text) => (text ? label + ": " + text + "." : "");
   if (s.outcome === "Javob bermadi") {
-    return ["Javob bermadi." + (s.note ? " " + s.note : ""), "Keyingi qo‘ng‘iroq: " + (surveyDateText(s.nextCallAt) || dash) + "."].join("\n");
+    return glue(["Javob bermadi." + (s.note ? " " + s.note : ""), line("Keyingi qo‘ng‘iroq", surveyDateText(s.nextCallAt))], "\n");
   }
-  const money = (value) => (Number(value) > 0 ? moneyText(Number(value)) : dash);
-  const debt = Number(s.price) > 0 ? moneyText(Math.max(0, Number(s.price) - Number(s.paid || 0))) : dash;
-  return [
-    "Kim bilan: " + (s.who || dash) + ".",
-    "Farzand: " + (s.childName || dash) + ", " + (s.childAge ? s.childAge + " yosh" : "yoshi " + dash) + "; qiziqishi: " + join(s.interests) + ".",
-    "Maqsad: " + join(s.goal) + (s.goalText ? " — «" + s.goalText + "»" : "") + ".",
-    "Qaror qiluvchi: " + (s.decider || dash) + ".",
-    "E’tiroz: " + join(s.objection) + (s.objectionAnswer ? " — javob: " + s.objectionAnswer : "") + ".",
-    "Kelishuv: " + (s.outcome || dash) + (s.meetingAt ? " — " + surveyDateText(s.meetingAt) : "") + ".",
-    "To‘lov: " + (s.payNA ? "muhokama qilinmadi" : "narx " + money(s.price) + ", to‘langan " + money(s.paid) + ", qolgan " + debt + (s.payDue ? ", muddat " + s.payDue : "")) + ".",
-    "Keyingi qo‘ng‘iroq: " + (surveyDateText(s.nextCallAt) || dash) + ".",
+  const price = Number(s.price) || 0, paid = Number(s.paid) || 0;
+  const payment = s.payNA ? "muhokama qilinmadi" : glue([
+    price ? "narx " + moneyText(price) : "",
+    paid ? "to‘langan " + moneyText(paid) : "",
+    price ? "qolgan " + moneyText(Math.max(0, price - paid)) : "",
+    s.payDue ? "muddat " + s.payDue : "",
+  ], ", ");
+  return glue([
+    line("Kim bilan", s.who),
+    line("Farzand", glue([glue([s.childName, s.childAge ? s.childAge + " yosh" : ""], ", "), list(s.interests) && "qiziqishi: " + list(s.interests)], "; ")),
+    line("Maqsad", glue([list(s.goal), s.goalText && "«" + s.goalText + "»"], " — ")),
+    line("Qaror qiluvchi", s.decider),
+    line("E’tiroz", glue([list(s.objection), s.objectionAnswer && "javob: " + s.objectionAnswer], " — ")),
+    line("Kelishuv", glue([s.outcome, surveyDateText(s.meetingAt)], " — ")),
+    line("To‘lov", payment),
+    line("Keyingi qo‘ng‘iroq", surveyDateText(s.nextCallAt)),
     s.note ? "Izoh: " + s.note : "",
-  ].filter(Boolean).join("\n");
+  ], "\n");
 }
 function surveyChips(options, { multi = false, value = [], onChange = () => {} } = {}) {
   const wrap = dashboardEl("div", "survey-chips");
@@ -1848,7 +1856,10 @@ function openSurveyDialog(tab, record, onChange) {
   payNA.onchange = () => refresh(); payNALabel.append(payNA, document.createTextNode(" Оплата не обсуждалась")); payBlock.appendChild(payNALabel);
   const nextBlock = block("8. Следующий звонок");
   const nextPresets = dashboardEl("div", "callback-presets");
-  const next = input("datetime-local", p.nextCallAt ? tashkentInputValue(new Date(p.nextCallAt)) : ""); next.min = tashkentInputValue(new Date());
+  // Следующий звонок — тот, что сейчас стоит в карточке (его могли поставить кнопкой «Перезвонить» после опроса);
+  // иначе из прошлого опроса. Так частичное сохранение не стирает уже назначенный перезвон.
+  const plannedNext = String(values[callbackTimeField] || "") || p.nextCallAt || "";
+  const next = input("datetime-local", plannedNext ? tashkentInputValue(new Date(plannedNext)) : ""); next.min = tashkentInputValue(new Date());
   [["Через 3 часа", () => new Date(Date.now() + 3 * 3600000)], ["Через 5 часов", () => new Date(Date.now() + 5 * 3600000)], ["Завтра 10:00", () => tashkentDayAt(1, 10)], ["Послезавтра 10:00", () => tashkentDayAt(2, 10)]].forEach(([label, make]) => {
     const button = dashboardEl("button", "", label); button.type = "button"; button.onclick = () => { next.value = tashkentInputValue(make()); refresh(); }; nextPresets.appendChild(button);
   });
@@ -1857,12 +1868,13 @@ function openSurveyDialog(tab, record, onChange) {
   const noteBlock = block("Заметка оператора");
   const note = document.createElement("textarea"); note.className = "script-input script-textarea"; note.rows = 3; note.maxLength = 600; note.value = p.note || ""; note.placeholder = "Qo‘shimcha izoh"; noteBlock.appendChild(note);
   const progress = dashboardEl("p", "survey-progress");
+  const saveHint = dashboardEl("p", "subtle survey-hint", "Можно сохранить и с одним пунктом — остальное допишете позже.");
   const message = dashboardEl("div", "callback-message hidden"); message.setAttribute("role", "status");
   const actions = dashboardEl("div", "callback-actions");
   const save = dashboardEl("button", "button primary", "Сохранить опрос"); save.type = "button";
   const close = dashboardEl("button", "button secondary", "Закрыть"); close.type = "button";
   actions.append(save, close);
-  form.append(progress, message, actions);
+  form.append(progress, saveHint, message, actions);
   dialog.appendChild(form); document.body.appendChild(dialog);
 
   const collect = () => {
@@ -1875,6 +1887,9 @@ function openSurveyDialog(tab, record, onChange) {
       nextCallAt: toIso(next), note: note.value.trim(),
     };
   };
+  // Что было в форме при открытии (прошлый опрос, подсказки): сохранять есть смысл, только если оператор что-то изменил.
+  const initial = collect();
+  const initialJson = JSON.stringify(initial);
   function refresh() {
     message.classList.add("hidden");
     const noAnswer = outcome.get() === "Javob bermadi";
@@ -1883,18 +1898,28 @@ function openSurveyDialog(tab, record, onChange) {
     const state = surveyProgress(collect());
     progress.textContent = "Заполнено " + state.filled + " из " + state.total + (state.missing.length ? " · не хватает: " + state.missing.join(", ") : "");
     progress.classList.toggle("is-full", state.filled === state.total);
+    saveHint.classList.toggle("hidden", state.filled === state.total);
   }
   const setBusy = (busy) => dialog.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
-  const say = (text) => { message.textContent = text; message.classList.toggle("hidden", !text); };
+  // На телефоне кнопки прилипают к низу, а сообщение стоит в конце формы — прокручиваем к нему, иначе его не видно
+  // и кажется, что опрос просто не сохраняется.
+  const say = (text) => { message.textContent = text; message.classList.toggle("hidden", !text); if (text) message.scrollIntoView({ block: "nearest", behavior: "smooth" }); };
   const finish = () => { dialog.close(); dialog.remove(); };
   [childName, childAge, goalText, objectionAnswer, meeting, payDue, next, note].forEach((node) => node.addEventListener("input", refresh));
   close.onclick = finish;
   save.onclick = async () => {
     const s = collect();
-    if (!s.outcome) { say("Выберите результат звонка."); return; }
-    if (s.outcome === "Uchrashuv belgilandi" && !s.meetingAt) { say("Укажите дату и время встречи."); return; }
-    if (s.outcome === "Qayta aloqa" && !s.nextCallAt) { say("Укажите время следующего звонка."); return; }
-    if (s.nextCallAt && Date.parse(s.nextCallAt) < Date.now() + 30000) { say("Следующий звонок должен быть в будущем."); return; }
+    // Сохраняем любое количество ответов, даже один: недостающее видно в карточке («Опрос 2/8») и в ИИ-совете.
+    if (JSON.stringify(s) === initialJson) {
+      if (previous) { finish(); toast("Изменений нет"); } else say("Заполните хотя бы один пункт опроса.");
+      return;
+    }
+    // Время звонка, которое уже стояло и прошло, — старый план: сохранить он не мешает, просто снимаем его.
+    // Прошедшее время, которое оператор ввёл сам, — ошибка ввода, о ней говорим.
+    if (s.nextCallAt && Date.parse(s.nextCallAt) < Date.now() + 30000) {
+      if (s.nextCallAt !== initial.nextCallAt) { say("Следующий звонок должен быть в будущем."); return; }
+      s.nextCallAt = "";
+    }
     if (s.price && s.paid > s.price) { say("Оплачено больше цены: проверьте суммы."); return; }
     setBusy(true);
     const at = new Date().toISOString();
@@ -1905,8 +1930,13 @@ function openSurveyDialog(tab, record, onChange) {
       if (s.outcome === "Uchrashuv belgilandi") nextStatus = "booked";
       else if (s.outcome === "Qayta aloqa" || (s.outcome === "Javob bermadi" && s.nextCallAt)) nextStatus = "callback";
       else if (s.outcome === "Javob bermadi") nextStatus = "no_answer";
+      // Результат не выбран, но время следующего звонка стоит — лид ждёт перезвона (запись и визит не трогаем).
+      else if (!s.outcome && s.nextCallAt && (!status || status === "new" || status === "no_answer")) nextStatus = "callback";
     }
-    const nextValues = { ...values, "Опрос": survey, "Результат последнего звонка": composeSurveyText(s), "Статус консультации": nextStatus, "Последний изменивший": excelLeadEditedBy() };
+    const noteText = composeSurveyText(s);
+    const noteChanged = noteText !== String(values["Результат последнего звонка"] || "").trim();
+    const aiBefore = String(values["ИИ-комментарий"] || "");
+    const nextValues = { ...values, "Опрос": survey, "Результат последнего звонка": noteText, "Статус консультации": nextStatus, "Последний изменивший": excelLeadEditedBy() };
     if (s.nextCallAt) nextValues[callbackTimeField] = s.nextCallAt; else delete nextValues[callbackTimeField];
     await cancelCallbackReminders(record.id);
     if (s.nextCallAt) {
@@ -1917,8 +1947,11 @@ function openSurveyDialog(tab, record, onChange) {
     const updated = await db.from("custom_records").update({ values: nextValues, updated_at: updatedAt }).eq("id", record.id).select("id").maybeSingle();
     if (updated.error || !updated.data) { setBusy(false); say("Не удалось сохранить. Проверьте права доступа."); return; }
     record.values = nextValues; record.updated_at = updatedAt;
-    finish(); toast("Опрос сохранён");
+    const filled = surveyProgress(s).filled;
+    finish(); toast(filled === 8 ? "Опрос сохранён" : "Опрос сохранён: " + filled + " из 8");
     onChange(nextStatus === "callback" ? "callback" : undefined);
+    // Итог звонка от ИИ приходит через несколько секунд — подтягиваем его в карточку, как после «✎ Итог звонка».
+    if (noteChanged) watchAiComment(record.id, tab, aiBefore);
     if (s.outcome === "To‘lov qildi" && !studentSummary.has(record.id)) openStudentDialog(tab, record, onChange);
   };
   refresh();

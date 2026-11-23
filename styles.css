@@ -840,3 +840,8 @@ a.custom-record-link{color:#087f61;font-weight:650;text-decoration:none}
 }
 /* «Стали учениками» / «O‘quvchi bo‘lganlar» — в одну строку. */
 @media(max-width:520px){.dash-bar-row{grid-template-columns:124px 1fr 30px}}
+
+/* ---------- polish-27 (2026-11-23): опрос по звонку сохраняется с любым количеством ответов ---------- */
+.survey-hint{margin:-4px 2px 0;font-size:12.5px;line-height:1.45}
+/* На телефоне кнопки опроса прилипают к низу: сообщение прокручиваем так, чтобы оно было над ними */
+.survey-dialog .callback-message{scroll-margin-bottom:104px}
