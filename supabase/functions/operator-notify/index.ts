@@ -1,5 +1,5 @@
 // Уведомления операторам колл-центра (@eduteachuz_bot): новые лиды из Facebook, результаты звонков, напоминания
-// «Qayta aloqa» (перезвонить) и ИИ-очередь «кому звонить первым» (кнопка «ИИ maslahat» в CRM, функция lead-queue).
+// «Qayta aloqa» (перезвонить) и ежедневный список «кому звонить сегодня» (функция lead-queue, по правилам очереди CRM).
 // Напоминание перед отправкой сверяется с карточкой лида: если время перезвона перенесли или убрали, старое не шлём.
 // Владелец и админы получают их сразу, круглосуточно, через @teachnova_bot. Операторам (skript_operatorlar.holat = 'faol')
 // — только в рабочее время: пн–сб 13:00–19:00 по Ташкенту. Пришедшее ночью и в воскресенье ждёт в очереди
@@ -41,32 +41,32 @@ const STATUS: Record<"uz" | "ru", Record<string, string>> = {
   ru: { booked: "Записан", attended: "Пришёл", no_answer: "Не ответил", callback: "Перезвонить" },
 };
 
-// ИИ-очередь (lead-queue): одно сообщение, в него — сколько лидов влезает в лимит Telegram (4096 символов).
-// Причина и «что сказать» написаны ИИ по-узбекски и не переводятся.
+// Список звонков на сегодня (lead-queue): одно сообщение, в него — сколько лидов влезает в лимит Telegram (4096 символов).
+// Порядок задают постоянные правила — те же, что у очереди в CRM. Причина — подпись правила, «что сказать» — готовая
+// фраза ИИ по прошлому разговору; обе приходят по-узбекски и не переводятся. Фразы может не быть — тогда строки нет.
 const TELEGRAM_LIMIT = 3900;
 function queueText(p: Record<string, unknown>, ru: boolean): string {
   const items = (Array.isArray(p.items) ? p.items : []) as Record<string, unknown>[];
-  // ai === false — ИИ не ответил, очередь составлена по правилам: так и пишем.
-  const lines = [p.ai === false
-    ? (ru ? "🔥 Кому звонить первым — очередь по правилам (ИИ не ответил)" : "🔥 Kimga birinchi qo‘ng‘iroq qilish kerak — navbat qoidalar bo‘yicha (AI javob bermadi)")
-    : (ru ? "🔥 Кому звонить первым — очередь ИИ" : "🔥 Kimga birinchi qo‘ng‘iroq qilish kerak — AI navbati")];
-  const at = str(p.at, 40), by = str(p.by, 80);
-  if (Number.isFinite(Date.parse(at))) lines.push(`🕐 ${ru ? "Составлена" : "Tuzildi"}: ${tashkentTime(at)}${by ? ` · ${by}` : ""}`);
+  const total = Math.max(items.length, Math.floor(Number(p.total) || 0)); // всего ждут звонка; в сообщении — первые
+  const lines = [ru ? `🔥 Кому звонить сегодня — в очереди ${total}` : `🔥 Bugun kimga qo‘ng‘iroq qilish kerak — navbatda ${total} ta`];
+  const at = str(p.at, 40);
+  if (Number.isFinite(Date.parse(at))) lines.push(`🕐 ${ru ? "Составлена" : "Tuzildi"}: ${tashkentTime(at)}`);
   let length = lines.join("\n").length;
   let shown = 0;
   for (const item of items) {
+    const say = str(item.say, 200);
     const block = [
       "",
       `${Number(item.rank) || shown + 1}. ${str(item.name, 80) || (ru ? "Без имени" : "Ismsiz")} · ${str(item.phone, 40) || "—"}`,
       `❓ ${str(item.reason, 120)}`,
-      `💬 ${str(item.say, 140)}`,
+      ...(say ? [`💬 ${say}`] : []),
     ].join("\n");
     if (length + block.length + 1 > TELEGRAM_LIMIT - 60) break; // 60 — запас на строку «… yana N ta — CRM’da»
     lines.push(block);
     length += block.length + 1;
     shown++;
   }
-  if (shown < items.length) lines.push("", ru ? `… и ещё ${items.length - shown} — в CRM` : `… yana ${items.length - shown} ta — CRM’da`);
+  if (shown < total) lines.push("", ru ? `… и ещё ${total - shown} — в CRM` : `… yana ${total - shown} ta — CRM’da`);
   return lines.join("\n");
 }
 
