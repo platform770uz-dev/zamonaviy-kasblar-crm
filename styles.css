@@ -912,3 +912,10 @@ button.queue-rest-item:hover{background:#f7f8f7}
   .call-result{min-height:50px;font-size:15px}
   .queue-focus-nav .button{flex:1 1 auto}
 }
+/* ---------- polish-29: очередь звонков по правилам — счётчики над очередью, «Сегодня позвонили» ---------- */
+.call-queue-stats{display:flex;flex-wrap:wrap;gap:8px 22px}
+.call-queue-stat{display:inline-flex;align-items:baseline;gap:7px;color:#5d6168;font-size:13px;line-height:1.45}
+.call-queue-stat b{color:#16211d;font-size:16px;font-variant-numeric:tabular-nums}
+.call-queue-stat:first-child b{color:#c4561c}
+.queue-rest.is-done .queue-rest-item .lead-consult-status{justify-self:start}
+@media(max-width:760px){.call-queue-stats{gap:6px 16px}}

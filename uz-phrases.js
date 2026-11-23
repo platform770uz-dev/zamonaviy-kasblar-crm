@@ -282,6 +282,16 @@ export const uzPhrases = {
   "⚡ Звонить сейчас": "⚡ Hozir qo‘ng‘iroq qiling",
   "Итог последнего звонка": "So‘nggi qo‘ng‘iroq natijasi", "Подробнее": "Batafsil",
   "Отмечено: не ответил на звонок": "Belgilandi: qo‘ng‘iroqqa javob bermadi",
+  // Очередь звонков по правилам (polish-29): группы, счётчики над очередью, подсказки
+  "🔥 Очередь": "🔥 Navbat",
+  "Ждут своего времени": "O‘z vaqtini kutmoqda", "Записано звонков сегодня": "Bugun yozilgan qo‘ng‘iroqlar",
+  "Сегодня позвонили": "Bugun qo‘ng‘iroq qilinganlar",
+  "Сейчас звонить некому: все лиды ждут назначенного времени. Весь список — во вкладке «Все лиды».": "Hozir qo‘ng‘iroq qilinadigan lid yo‘q: barchasi belgilangan vaqtini kutmoqda. To‘liq ro‘yxat — «Barcha lidlar» bo‘limida.",
+  "Записан, приход не отмечен": "Yozilgan, kelgani belgilanmagan",
+  "Был на консультации, ещё не ученик": "Konsultatsiyaga kelgan, hali o‘quvchi emas",
+  "Нет следующего шага": "Keyingi qadam belgilanmagan",
+  "⚡ Новая заявка — в очереди": "⚡ Yangi ariza — navbatda",
+  "⏰ Пора перезвонить — лид в очереди": "⏰ Qayta aloqa vaqti — lid navbatda",
   "⚡ Новая заявка — наверху очереди": "⚡ Yangi ariza — navbat boshida",
   "⏰ Пора перезвонить — лид наверху очереди": "⏰ Qayta aloqa vaqti — lid navbat boshida",
 };
@@ -327,6 +337,11 @@ export const uzPatterns = [
   [/^Удалён между (.+) и (.+)$/, "$1 va $2 orasida o‘chirilgan"],
   [/^Ещё (\d+) лидов удалены (.+) до появления архива: их данные не сохранились\.$/, "Yana $1 ta lid arxiv paydo bo‘lishidan oldin o‘chirilgan ($2): ularning ma’lumotlari saqlanmagan."],
   [/^🔥 В очереди · (\d+)$/, "🔥 Navbatda · $1"],
+  [/^Пора перезвонить · (.+)$/, "Qayta aloqa vaqti keldi · $1"],
+  [/^Новая заявка · (.+)$/, "Yangi ariza · $1"],
+  [/^Повторная заявка · (\d+)-я$/, "Qayta ariza · $1-marta"],
+  [/^Сегодня консультация · (.+)$/, "Bugun konsultatsiya · $1"],
+  [/^Приход не отмечен · (.+)$/, "Kelgani belgilanmagan · $1"],
 ];
 
 const ATTRS = ["placeholder", "aria-label", "title"];

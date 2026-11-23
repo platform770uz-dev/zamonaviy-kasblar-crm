@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-28";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-29";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -979,136 +979,122 @@ async function loadStudentSummaries(tabId) {
     if (info) info.paid += Number(row.amount) || 0;
   }
 }
-// ---------- ИИ-очередь звонков: главный экран лидов (кнопка «ИИ maslahat», функция lead-queue) ----------
-// Последняя партия: до 20 лидов по порядку, почему звонить сейчас и что сказать. baseline партии — подпись итога звонка
-// и статус каждого лида на момент составления: по нему видно, кому уже позвонили и какие заявки пришли позже.
-let callQueue = null; // { id, createdAt, by, ai, baseline: { record_id: "подпись|статус" }, items: Map(record_id -> { rank, reason, say }) }
-let lastLeadFilter = "queue"; // какой режим лидов открыт: после сохранения итога звонка остаёмся в нём
+// ---------- Очередь звонков: главный экран лидов ----------
+// Кому звонить сейчас, решают постоянные правила: группы идут по порядку (LEAD_QUEUE_GROUPS), внутри группы — свой
+// порядок. ИИ порядок не задаёт: от него на карточке итог прошлого разговора («Xulosa») и готовая фраза для следующего
+// («Ayting»), а его оценка «Holat» (горячий, тёплый, холодный) расставляет лидов только внутри последней группы.
+// Лид с назначенным на потом звонком или консультацией в очередь не попадает, пока время не подошло.
+let lastLeadFilter = "queue"; // какой режим лидов открыт: после записи звонка остаёмся в нём
 let queueSkipped = new Set(); // «Пропустить» в очереди: эти лиды уходят в конец, пока страница открыта
 let queueFocusId = ""; // лид, выбранный из «Дальше в очереди»: он показан вместо первого по порядку
-let callQueueBusy = false; // идёт пересчёт: кнопка остаётся выключенной, даже если список перерисовался
 let leadsLiveTimer = null; // раз в минуту открытый список лидов сам подтягивает новые заявки и чужие изменения
 let leadsLiveRefresh = null; // то же обновление по требованию (без перезагрузки страницы), пока список лидов открыт
 const leadsLiveEveryMs = 60000;
 function stopLeadsLive() { if (leadsLiveTimer) clearInterval(leadsLiveTimer); leadsLiveTimer = null; leadsLiveRefresh = null; }
-// Те же подпись и baseline, что noteSig и baselineOf в supabase/functions/lead-queue — менять обе стороны вместе.
-function callQueueNoteSig(text) {
+// Короткий отпечаток текста: по нему автообновление понимает, изменилась ли карточка.
+function leadTextSig(text) {
   const s = String(text ?? "").trim();
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
   return h.toString(16).padStart(8, "0") + ":" + s.length;
 }
-function callQueueBaseline(values) {
-  const v = values || {};
-  return callQueueNoteSig(v["Результат последнего звонка"]) + "|" + String(v["Статус консультации"] || "new");
-}
-async function loadCallQueue(tabId) {
-  const latest = await db.from("lead_call_batches").select("id,ai,created_by_name,created_at").eq("tab_id", tabId).eq("ready", true).order("created_at", { ascending: false }).limit(1).maybeSingle();
-  if (latest.error) return; // связь моргнула или таблицы ещё нет — оставляем то, что было
-  if (!latest.data) { callQueue = null; return; }
-  if (callQueue?.id === latest.data.id) return; // эта партия уже загружена
-  const [full, items] = await Promise.all([
-    db.from("lead_call_batches").select("baseline").eq("id", latest.data.id).maybeSingle(),
-    db.from("lead_call_queue").select("record_id,rank,reason,say").eq("batch_id", latest.data.id).order("rank", { ascending: true }),
-  ]);
-  if (full.error || items.error || !full.data) return;
-  callQueue = {
-    id: latest.data.id,
-    createdAt: latest.data.created_at,
-    by: latest.data.created_by_name || "",
-    ai: latest.data.ai === true,
-    baseline: full.data.baseline && typeof full.data.baseline === "object" ? full.data.baseline : {},
-    items: new Map((items.data || []).map((row) => [String(row.record_id), { rank: Number(row.rank) || 0, reason: row.reason || "", say: row.say || "" }])),
-  };
-}
-// Между пересчётами ИИ работают правила: новая заявка (лида не было, когда составляли очередь), повторная заявка и
-// наступившее время перезвона встают наверх очереди. Тексты — как RULE_SAY в функции lead-queue: по-узбекски, как у ИИ.
-const leadLiveSay = {
-  fresh: "Tanishing, farzandning yoshi va qiziqishini so‘rang, sinov darsiga taklif qiling",
-  repeat: "Qayta ariza qoldirgan — qiziqishi yuqori, sinov darsiga yozing",
-  callback: "Va’da qilingan qo‘ng‘iroq: qaror qilishdimi, savollari bormi — so‘rang",
-};
-function leadAdviceNextStep(advice) {
-  for (const raw of String(advice || "").split(/\n+/)) {
-    const found = /^\s*(?:Keyingi qadam|Qadam)\s*:\s*(.+)$/i.exec(raw.replace(/\*/g, ""));
-    if (found) return found[1].trim();
+// <queue-rules> Правила очереди звонков. Блок одинаков в app.js и в supabase/functions/lead-queue/index.ts (там у
+// параметров дописан тип any) — менять обе стороны вместе.
+const LEAD_QUEUE_GROUPS = ["callback", "new", "meeting", "no_show", "attended", "idle"];
+const LEAD_QUEUE_DAY_MS = 24 * 60 * 60 * 1000;
+const leadQueueDay = (ms) => Math.floor((ms + 5 * 60 * 60 * 1000) / LEAD_QUEUE_DAY_MS); // номер дня по Ташкенту (UTC+5)
+// Строка ИИ-подсказки по метке: «Xulosa», «Ayting», «Holat».
+function leadTipLine(tip, label) {
+  for (const raw of String(tip || "").split(/\n+/)) {
+    const line = raw.replace(/\*/g, "").trim();
+    if (line.toLowerCase().startsWith(label.toLowerCase() + ":")) return line.slice(label.length + 1).trim();
   }
   return "";
 }
-function leadLiveItem(record, nowMs) {
+// Что сейчас делать с лидом. null — в очереди ему не место: ученик или ждёт назначенного времени.
+function leadQueueItem(record, nowMs, isStudent) {
   const values = record.values || {};
   const status = String(values["Статус консультации"] || "new");
+  if (isStudent || status === "student") return null;
+  const survey = values["Опрос"] && typeof values["Опрос"] === "object" ? values["Опрос"] : {};
   const note = String(values["Результат последнего звонка"] || "").trim();
-  const nextStep = note ? leadAdviceNextStep(values["ИИ-комментарий"]) : "";
-  const batchMs = callQueue ? Date.parse(callQueue.createdAt) : NaN;
-  // 1. Наступило время перезвона, и после этого лид никто не трогал. Если перезвон был просрочен уже тогда, когда ИИ
-  //    составлял очередь, и лид в неё попал — место ему дал ИИ.
-  // Время перезвона стоит не только у статуса «Перезвонить»: его ставят и недозвон, и «Думает» после консультации.
-  if (status !== "student" && values[callbackTimeField]) {
-    const due = Date.parse(String(values[callbackTimeField] || ""));
-    const touched = Date.parse(record.updated_at || "") || 0;
-    if (Number.isFinite(due) && due <= nowMs && touched <= due && (!callQueue?.items.has(String(record.id)) || due > batchMs)) {
-      return { live: "callback", at: due, reason: "Qayta aloqa vaqti keldi: " + callbackTimeText(values[callbackTimeField]), say: nextStep || leadLiveSay.callback };
+  const tip = String(values["ИИ-комментарий"] || "");
+  const log = Array.isArray(values["Звонки"]) ? values["Звонки"] : [];
+  const updatedMs = Date.parse(record.updated_at || record.created_at || "") || 0;
+  const lastLogMs = log.length ? Date.parse(String(log[log.length - 1].at || "")) || 0 : 0;
+  const lastCallMs = lastLogMs || (note ? updatedMs : 0);
+  const appliedMs = Date.parse(String(values.latest_submission_time || values.created_time || "")) || Date.parse(record.created_at || "") || 0;
+  const applications = Math.max(1, Math.floor(Number(values.submission_count) || 1));
+  const callbackMs = Date.parse(String(values["Время повторной связи"] || ""));
+  const meetingMs = Date.parse(String(survey.meetingAt || ""));
+  const heat = /^(issiq|iliq|sovuq)/i.exec(leadTipLine(tip, "Holat"));
+  const item = (group, at, extra) => ({ group, at, hot: heat ? heat[1].toLowerCase() : "", say: leadTipLine(tip, "Ayting"), applications, ...(extra || {}) });
+  // 1. Подошло время перезвона: обещанный звонок, повтор после недозвона, «думает».
+  if (Number.isFinite(callbackMs) && callbackMs <= nowMs) return item("callback", callbackMs, null);
+  // 2. Заявка: ещё ни разу не звонили — или человек оставил заявку ещё раз после последнего звонка.
+  if (!note && status === "new") return item("new", appliedMs, null);
+  if (note && applications >= 2 && (lastLogMs ? appliedMs > lastLogMs : appliedMs >= updatedMs - 15 * 60 * 1000)) return item("new", appliedMs, { repeat: true });
+  // Звонок назначен на потом — лид ждёт своего времени.
+  if (Number.isFinite(callbackMs)) return null;
+  if (status === "booked") {
+    if (Number.isFinite(meetingMs)) {
+      // 3. Консультация сегодня — напомнить. Если сегодня уже звонили, второй раз не дёргаем.
+      if (meetingMs > nowMs) return leadQueueDay(meetingMs) === leadQueueDay(nowMs) && !(lastLogMs && leadQueueDay(lastLogMs) === leadQueueDay(nowMs)) ? item("meeting", meetingMs, null) : null;
+      // 4. Время консультации прошло больше часа назад, а приход не отмечен.
+      return nowMs - meetingMs > 60 * 60 * 1000 ? item("no_show", meetingMs, null) : null;
     }
+    // Записан без времени встречи (старые записи): через сутки спрашиваем, пришёл ли.
+    return nowMs - lastCallMs > LEAD_QUEUE_DAY_MS ? item("no_show", lastCallMs, { noTime: true }) : null;
   }
-  const latest = Date.parse(values.latest_submission_time || values.created_time || "") || Date.parse(record.created_at || "") || 0;
-  const base = callQueue?.baseline?.[record.id];
-  // 2. Новая заявка: лида не было, когда составляли очередь (или очереди ещё нет), и ему ещё не звонили.
-  if (base === undefined) {
-    if (!note && status === "new" && (callQueue || nowMs - latest < 7 * 86400000)) return { live: "fresh", at: latest, reason: "Yangi ariza — hali qo‘ng‘iroq qilinmagan", say: leadLiveSay.fresh };
-    return null;
-  }
-  // 3. Повторная заявка после составления очереди, и с тех пор лиду не звонили.
-  const count = Number(values.submission_count) || 1;
-  if (count >= 2 && latest > batchMs && base === callQueueBaseline(values)) {
-    return { live: "repeat", at: latest, reason: "Yana ariza qoldirdi (" + count + " marta) — qiziqishi yuqori", say: nextStep || leadLiveSay.repeat };
-  }
-  return null;
+  // 5. Был на консультации, но ещё не ученик.
+  if (status === "attended") return item("attended", lastCallMs, null);
+  // 6. Разговор был, а следующего шага нет: позвонить ещё раз или отправить в архив.
+  return item("idle", lastCallMs || updatedMs, null);
 }
-function renderCallQueuePanel(tab, show, stats) {
+// Порядок очереди: группы — по списку LEAD_QUEUE_GROUPS, внутри группы — как удобнее звонить.
+function leadQueueOrder(a, b, nowMs) {
+  const byGroup = LEAD_QUEUE_GROUPS.indexOf(a.group) - LEAD_QUEUE_GROUPS.indexOf(b.group);
+  if (byGroup) return byGroup;
+  if (a.group === "callback") {
+    // Сначала обещанные на сегодня — по времени; за ними просроченные с прошлых дней — самые недавние первыми.
+    const aToday = leadQueueDay(a.at) === leadQueueDay(nowMs), bToday = leadQueueDay(b.at) === leadQueueDay(nowMs);
+    if (aToday !== bToday) return aToday ? -1 : 1;
+    return aToday ? a.at - b.at : b.at - a.at;
+  }
+  if (a.group === "meeting") return a.at - b.at; // ближайшая консультация первой
+  if (a.group === "idle") {
+    // Внутри «нет следующего шага» — по оценке ИИ: горячие, тёплые, без оценки, холодные.
+    const heat = { issiq: 0, iliq: 1, "": 2, sovuq: 3 };
+    if (heat[a.hot] !== heat[b.hot]) return heat[a.hot] - heat[b.hot];
+  }
+  return b.at - a.at; // заявки, пропущенные консультации и остальные — самые свежие первыми
+}
+// </queue-rules>
+// Почему лид в очереди — короткая подпись для карточки и списка «Дальше в очереди».
+function leadQueueReason(item) {
+  const time = item.at ? callbackTimeText(new Date(item.at).toISOString()) : "";
+  if (item.group === "callback") return "Пора перезвонить · " + time;
+  if (item.group === "new") return item.repeat ? "Повторная заявка · " + item.applications + "-я" : "Новая заявка · " + time;
+  if (item.group === "meeting") return "Сегодня консультация · " + time.slice(6);
+  if (item.group === "no_show") return item.noTime ? "Записан, приход не отмечен" : "Приход не отмечен · " + time;
+  if (item.group === "attended") return "Был на консультации, ещё не ученик";
+  return "Нет следующего шага";
+}
+// Что сказать, когда разговора ещё не было и фразы от ИИ нет: подсказка по сценарию (по-узбекски, как фразы ИИ).
+// Те же тексты — в функции lead-queue.
+const leadQueueOpeners = {
+  new: "Tanishing, farzandning yoshi va qiziqishini so‘rang, sinov darsiga taklif qiling",
+  repeat: "Qayta ariza qoldirgan — qiziqishi yuqori, sinov darsiga yozing",
+};
+function leadQueueSay(item) { return item.say || (item.group === "new" ? leadQueueOpeners[item.repeat ? "repeat" : "new"] : ""); }
+// Полоса над очередью: сколько лидов ждут звонка сейчас, сколько — назначенного времени и сколько звонков записано сегодня.
+function renderCallQueuePanel(show, stats) {
   const panel = $("callQueuePanel");
   if (!panel) return;
   panel.classList.toggle("hidden", !show);
   if (!show) { panel.innerHTML = ""; return; }
-  const canBuild = canManageCustomTab(tab);
-  const today = callbackTimeText(new Date().toISOString()).slice(0, 5);
-  const stale = Boolean(callQueue) && callbackTimeText(callQueue.createdAt).slice(0, 5) !== today;
-  const button = canBuild ? '<button class="button ' + (!callQueue || stale ? "primary" : "secondary") + ' call-queue-build" id="callQueueBuild" type="button"' + (callQueueBusy ? ' disabled>ИИ составляет очередь… около минуты' : '>🤖 ИИ maslahat') + '</button>' : "";
-  panel.classList.toggle("is-busy", callQueueBusy);
-  const info = callQueue
-    ? '<p class="call-queue-meta"><span>Составлена</span> <time datetime="' + escapeHtml(callQueue.createdAt) + '">' + escapeHtml(callbackTimeText(callQueue.createdAt)) + '</time>' + (callQueue.by ? ' · <span class="call-queue-by">' + escapeHtml(callQueue.by) + '</span>' : '') + ' · <span>' + (callQueue.ai ? "ИИ" : "по правилам") + '</span></p>'
-      + '<div class="call-queue-progress"><span>Позвонили</span><b>' + stats.done + ' / ' + stats.total + '</b><progress value="' + stats.done + '" max="' + Math.max(1, stats.total) + '"></progress></div>'
-      + (stale ? '<p class="call-queue-stale">' + (canBuild ? "Очередь составлена не сегодня. Нажмите «ИИ maslahat», чтобы обновить." : "Очередь составлена не сегодня.") + '</p>' : '')
-    : '<p class="call-queue-meta">' + (canBuild ? "Очередь ещё не составлена. ИИ составляет её сам к 13:00 (пн–сб). Составить сейчас — кнопка «ИИ maslahat»." : "Очередь ещё не составлена. ИИ составляет её сам к 13:00 (пн–сб).") + '</p>';
-  panel.innerHTML = '<div class="call-queue-head"><div class="call-queue-info">' + info + '</div>' + button + '</div>';
-  const build = $("callQueueBuild");
-  if (build) build.onclick = () => buildCallQueue(tab, build);
-}
-async function buildCallQueue(tab, button) {
-  if (callQueueBusy) return;
-  callQueueBusy = true;
-  button.disabled = true;
-  button.textContent = "ИИ составляет очередь… около минуты";
-  $("callQueuePanel")?.classList.add("is-busy");
-  let data = null, failure = "";
-  try {
-    const result = await db.functions.invoke("lead-queue", { body: { action: "build" } });
-    data = result.data;
-    if (result.error) failure = result.error.context?.status === 403 ? "forbidden" : "failed";
-  } catch { failure = "failed"; }
-  if (!failure && !data?.ok) failure = String(data?.error || "failed");
-  callQueueBusy = false;
-  if (failure) {
-    const current = $("callQueueBuild");
-    if (current) { current.disabled = false; current.textContent = "🤖 ИИ maslahat"; }
-    $("callQueuePanel")?.classList.remove("is-busy");
-    toast(failure === "too_soon" ? "Очередь только что пересчитали — подождите минуту" : failure === "forbidden" ? "Нет прав на пересчёт очереди" : failure === "empty" ? "Сейчас некому звонить: подходящих лидов нет" : "Не удалось составить очередь. Попробуйте ещё раз.");
-    return;
-  }
-  await showCustomTab(tab, { filter: "queue" });
-  toast(data.ai ? "Очередь готова: " + data.count + " лидов. Операторам уйдёт в Telegram"
-    : data.ai_error === "billing" ? "Баланс ИИ закончился — очередь по правилам: " + data.count + " лидов"
-    : "ИИ недоступен — очередь по правилам: " + data.count + " лидов");
+  const part = (label, value) => '<span class="call-queue-stat"><span>' + label + '</span><b>' + value + '</b></span>';
+  panel.innerHTML = '<div class="call-queue-stats">' + part("Звонить сейчас", stats.now) + part("Ждут своего времени", stats.later) + part("Записано звонков сегодня", stats.today) + '</div>';
 }
 // Имя и телефон ученика: телефон — нажимаемая ссылка для звонка.
 function fillStudentLead(node, values) {
@@ -1923,7 +1909,7 @@ function openCallDialog(tab, record, onChange) {
     if (pick.note) entry.note = pick.note;
     const outcome = callOutcome(entry, status);
     // «Опрос» остаётся копилкой известного о лиде (ребёнок, цель, кто решает — из прежних анкет); звонок обновляет в нём
-    // результат, время следующего звонка и встречи: по этим полям очередь ИИ (lead-queue) решает, кому звонить.
+    // результат, время следующего звонка и встречи: по этим полям очередь звонков решает, кому звонить.
     const survey = { ...oldSurvey, outcome: callResults[kind].uz, nextCallAt: next, meetingAt: kind === "booked" ? meeting : outcome.status === "booked" ? oldSurvey.meetingAt || "" : "", note: pick.note, at, by };
     if (kind === "refused") survey.objection = pick.reasons.slice();
     const nextValues = { ...values, "Опрос": survey, "Результат последнего звонка": composeCallNote(entry), [callLogField]: [...leadCallLog(values), entry].slice(-callLogLimit), "Последний изменивший": by };
@@ -2057,8 +2043,8 @@ function leadCallHistoryHtml(values) {
     return '<p><time>' + escapeHtml(callbackTimeText(entry.at)) + '</time><span>' + escapeHtml(result) + '</span>' + (then ? '<i>→</i><span>' + escapeHtml(then) + '</span>' : '') + (entry.by ? '<small>' + escapeHtml(entry.by) + '</small>' : '') + '</p>';
   }).join("") + '</div>';
 }
-// Подсказка очереди на карточке: почему звонить сейчас и что сказать. Больше от ИИ на карточке ничего нет: итог
-// прошлого разговора показан отдельно, а «следующий шаг» из него лежит под «Подробнее».
+// Подсказка очереди на карточке: почему лид в очереди (правило) и что сказать (фраза ИИ по прошлому разговору).
+// Итог прошлого разговора показан на карточке отдельно.
 function leadQueueHintHtml(queue) {
   const rows = [["why", "Почему сейчас", queue?.reason], ["say", "Что сказать", queue?.say]].filter(([, , text]) => String(text || "").trim());
   return rows.length ? '<div class="lead-advice is-queue-advice">' + rows.map(([kind, title, text]) => '<div class="lead-advice-row is-' + kind + '"><span class="lead-advice-label">' + escapeHtml(title) + '</span><p>' + escapeHtml(text) + '</p></div>').join("") + '</div>' : "";
@@ -2126,8 +2112,11 @@ function customRecordCard(record, fields, canManage, position = 0, queue = null)
     // Пока ИИ итог не написал, запись оператора видна сразу, по строкам.
     const callSummary = leadCallSummary(aiComment);
     const noteRows = callResult ? leadCallDetailsHtml(callResult) : "";
-    const nextStep = leadAdviceNextStep(aiComment);
-    const extra = (nextStep ? '<div class="lead-call-detail-list"><div class="lead-call-detail"><span>Следующий шаг</span><p>' + escapeHtml(nextStep) + '</p></div></div>' : "")
+    // «Что сказать» в очереди стоит наверху карточки, в общем списке — под «Подробнее». У подсказок прежнего вида
+    // (до 2026-11-24) вместо неё был «следующий шаг».
+    const sayNext = leadTipLine(aiComment, "Ayting"), nextStep = sayNext ? "" : leadTipLine(aiComment, "Keyingi qadam");
+    const tipRow = (label, text) => (text ? '<div class="lead-call-detail-list"><div class="lead-call-detail"><span>' + label + '</span><p>' + escapeHtml(text) + '</p></div></div>' : "");
+    const extra = tipRow("Что сказать", inQueueView ? "" : sayNext) + tipRow("Следующий шаг", nextStep)
       // Запись из прежнего опроса уже содержит строки о ребёнке и цели — второй раз их не показываем.
       + (/^(Kim bilan|Farzand|Maqsad|Qaror qiluvchi):/m.test(callResult) ? "" : leadKnownFactsHtml(values["Опрос"])) + leadCallHistoryHtml(values);
     const more = (body) => (body ? '<details class="lead-call-more"><summary>Подробнее</summary>' + body + '</details>' : "");
@@ -2197,7 +2186,7 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
     $("sourceBack").onclick = () => setPage("bloggers");
   } else {
     const isExcelLeads = tab.name === excelLeadsTabName;
-    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM</p><h1>' + escapeHtml(tabDisplayName(tab)) + '</h1>' + (isExcelLeads ? '<p class="subtle">Звонки, консультации и ученики. Новые заявки приходят из Facebook и Excel.</p>' : '') + '</div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button" title="Столбцы: имя, телефон и created_time — исходная дата лида">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><div id="leadModeSwitch" class="lead-mode-switch" role="tablist" aria-label="Режим работы с лидами"><button type="button" class="lead-mode is-queue" data-lead-mode="queue" role="tab"><span>🔥 Очередь ИИ</span><b data-mode-count="queue">0</b></button><button type="button" class="lead-mode" data-lead-mode="all" role="tab"><span>Все лиды</span><b data-mode-count="all">0</b></button></div><section id="callQueuePanel" class="call-queue-panel hidden" aria-live="polite"></section><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button><button type="button" class="lead-status-column is-student" data-lead-filter="student"><span>Ученики</span><b data-count="student">0</b></button><button type="button" class="lead-status-column is-archive" data-lead-filter="archive"><span>Архив</span><b data-count="archive">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<button type="button" id="studentSearchHint" class="student-search-hint hidden"></button><div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
+    page.innerHTML = '<div class="custom-record-page-header"><div><p class="eyebrow">CRM</p><h1>' + escapeHtml(tabDisplayName(tab)) + '</h1>' + (isExcelLeads ? '<p class="subtle">Звонки, консультации и ученики. Новые заявки приходят из Facebook и Excel.</p>' : '') + '</div>' + (canManage ? (isExcelLeads ? '<div class="excel-lead-page-actions"><button class="button secondary" id="excelLeadTemplate" type="button">Скачать шаблон</button><button class="button secondary" id="excelLeadUpload" type="button" title="Столбцы: имя, телефон и created_time — исходная дата лида">Загрузить Excel</button><button class="button primary" id="customAddRecord" type="button">＋ Добавить</button><input class="hidden" id="excelLeadFile" type="file" accept=".xlsx,.xls,.csv"></div>' : '<button class="button primary" id="customAddRecord" type="button">＋ Добавить запись</button>') : '') + '</div>' + (isExcelLeads ? '<div id="excelLeadImportMessage" class="message hidden" role="status"></div><div id="leadModeSwitch" class="lead-mode-switch" role="tablist" aria-label="Режим работы с лидами"><button type="button" class="lead-mode is-queue" data-lead-mode="queue" role="tab"><span>🔥 Очередь</span><b data-mode-count="queue">0</b></button><button type="button" class="lead-mode" data-lead-mode="all" role="tab"><span>Все лиды</span><b data-mode-count="all">0</b></button></div><section id="callQueuePanel" class="call-queue-panel hidden" aria-live="polite"></section><section id="highIntentLeads" class="high-intent-panel hidden" aria-live="polite"></section><nav id="leadStatusColumns" class="lead-status-columns" aria-label="Колонки статусов консультации"><button type="button" class="lead-status-column is-active" data-lead-filter="all"><span>Все</span><b data-count="all">0</b></button><button type="button" class="lead-status-column is-booked" data-lead-filter="booked"><span>Записались</span><b data-count="booked">0</b></button><button type="button" class="lead-status-column is-attended" data-lead-filter="attended"><span>Пришли</span><b data-count="attended">0</b></button><button type="button" class="lead-status-column is-no-answer" data-lead-filter="no_answer"><span>Не ответили</span><b data-count="no_answer">0</b></button><button type="button" class="lead-status-column is-callback" data-lead-filter="callback"><span>Перезвонить</span><b data-count="callback">0</b></button><button type="button" class="lead-status-column is-student" data-lead-filter="student"><span>Ученики</span><b data-count="student">0</b></button><button type="button" class="lead-status-column is-archive" data-lead-filter="archive"><span>Архив</span><b data-count="archive">0</b></button></nav>' : '') + '<div class="custom-record-toolbar"><label class="search-box"><span>⌕</span><input id="customRecordSearch" type="search" placeholder="Поиск по имени и телефону" autocomplete="off"></label><span id="customRecordCount" class="custom-record-count"></span></div>' + (isExcelLeads ? '<button type="button" id="studentSearchHint" class="student-search-hint hidden"></button><div class="excel-lead-list-head"><span>ИМЯ</span><span>ТЕЛЕФОН</span><button class="excel-lead-date-sort" id="excelLeadDateSort" type="button" aria-label="Сортировать по дате создания лида">ДАТА ЛИДА <span aria-hidden="true">↓</span></button><span></span></div>' : '') + '<div id="customRecordList" class="crm-list"><div class="loading-row">Загрузка…</div></div>';
   }
   if (nestedInBloggers) {
     const sourceRows = state.promos.filter(isFargonaTezkorPromo);
@@ -2207,7 +2196,7 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
   }
   const result = await db.from("custom_records").select("*").eq("tab_id", tab.id).order("created_at", { ascending: false });
   if (result.error) { if (!nestedInBloggers) $("customRecordList").textContent = result.error.message; return; }
-  if (tab.name === excelLeadsTabName) await Promise.all([loadStudentSummaries(tab.id), loadCallQueue(tab.id), loadLeadArchive(tab.id)]); else { studentSummary.clear(); callQueue = null; leadArchive = { rows: [], lost: [] }; }
+  if (tab.name === excelLeadsTabName) await Promise.all([loadStudentSummaries(tab.id), loadLeadArchive(tab.id)]); else { studentSummary.clear(); leadArchive = { rows: [], lost: [] }; }
   const fields = Array.isArray(tab.fields) ? tab.fields : [];
   const sourceRows = nestedInBloggers ? state.promos.filter(isFargonaTezkorPromo) : [];
   const sourceUrls = new Set(sourceRows.map((row) => String(row.permalink || "").replace(/\/$/, "").toLowerCase()));
@@ -2223,40 +2212,46 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
     const recordById = new Map(customRows.map((record) => [String(record.id), record]));
     let leadSortAscending = false;
     const leadFilters = ["queue", "all", "booked", "attended", "no_answer", "callback", "student", "archive"];
-    // Лиды открываются на очереди ИИ: порядок работы задаёт она. «Все лиды» — соседний режим для поиска и просмотра.
+    // Лиды открываются на очереди звонков: порядок работы задаёт она. «Все лиды» — соседний режим для поиска и просмотра.
     let leadStatusFilter = tab.name !== excelLeadsTabName ? "all" : leadFilters.includes(options.filter) ? options.filter : "queue";
     // Ученики (есть карточка ученика или статус «student») лежат только под кнопкой «Ученики»: в остальных списках их нет.
     const studentsSeparate = tab.name === excelLeadsTabName;
     const isStudentRecord = (record) => studentsSeparate && (String(record.values?.["Статус консультации"] || "") === "student" || studentSummary.has(record.id));
-    // Очередь на сейчас: сверху новые заявки и наступившие перезвоны (правила), потом партия ИИ по порядку,
-    // внизу — кому уже позвонили после составления очереди (baseline лида изменился).
+    // Очередь на сейчас — по правилам (leadQueueItem, leadQueueOrder). later — сколько лидов ждут назначенного
+    // времени; calledToday — кому сегодня уже позвонили и кто из очереди вышел.
     const queueView = () => {
       const nowMs = Date.now();
-      const live = [], undone = [], done = [];
+      const entries = [];
+      let later = 0;
       if (tab.name === excelLeadsTabName) customRows.forEach((record) => {
         if (isStudentRecord(record)) return;
-        const liveItem = leadLiveItem(record, nowMs);
-        if (liveItem) { live.push({ record, rank: 0, done: false, ...liveItem }); return; }
-        const item = callQueue?.items.get(String(record.id));
-        if (!item) return;
-        const base = callQueue.baseline?.[record.id];
-        const called = base !== undefined && base !== callQueueBaseline(record.values);
-        (called ? done : undone).push({ record, live: "", done: called, ...item });
+        const item = leadQueueItem(record, nowMs, false);
+        if (!item) { later++; return; }
+        entries.push({ record, ...item, reason: leadQueueReason(item), say: leadQueueSay(item), live: item.group === "callback" || item.group === "new" });
       });
-      // Новые и повторные заявки — самые свежие первыми; за ними перезвоны — самый давний срок первым.
-      live.sort((a, b) => (Number(a.live === "callback") - Number(b.live === "callback")) || (a.live === "callback" ? a.at - b.at : b.at - a.at));
-      undone.sort((a, b) => a.rank - b.rank);
-      done.sort((a, b) => a.rank - b.rank);
-      const entries = [...live, ...undone, ...done];
-      return { entries, waiting: live.length + undone.length, total: undone.length + done.length, done: done.length, byId: new Map(entries.map((entry) => [entry.record.id, entry])) };
+      entries.sort((a, b) => leadQueueOrder(a, b, nowMs));
+      entries.forEach((entry, index) => { entry.rank = index + 1; });
+      const byId = new Map(entries.map((entry) => [entry.record.id, entry]));
+      const lastCallDay = (values) => { const log = leadCallLog(values); const at = log.length ? Date.parse(log[log.length - 1].at || "") : NaN; return Number.isFinite(at) ? leadQueueDay(at) : -1; };
+      const calledToday = tab.name !== excelLeadsTabName ? [] : customRows.filter((record) => !byId.has(record.id) && !isStudentRecord(record) && lastCallDay(record.values) === leadQueueDay(nowMs));
+      return { entries, later, calledToday, byId };
+    };
+    // Сколько звонков записано сегодня: по журналам «Звонки» лидов в работе и ушедших сегодня в архив.
+    const callsToday = () => {
+      const today = leadQueueDay(Date.now());
+      let count = 0;
+      const add = (values) => leadCallLog(values).forEach((entry) => { const at = Date.parse(entry?.at || ""); if (Number.isFinite(at) && leadQueueDay(at) === today) count++; });
+      customRows.forEach((record) => add(record.values));
+      leadArchive.rows.forEach((row) => add(row.values));
+      return count;
     };
     // Отпечаток того, что сейчас на экране: автообновление перерисовывает список, только если он изменился.
     let lastLiveSignature = "";
     const leadsSignature = () => {
       const nowMs = Date.now();
-      return (callQueue?.id || "") + "|" + leadArchive.rows.length + "|" + customRows.map((record) => {
+      return leadArchive.rows.length + "|" + customRows.map((record) => {
         const student = studentSummary.get(record.id);
-        return record.id + ":" + callQueueNoteSig(JSON.stringify(record.values || {})) + ":" + (leadLiveItem(record, nowMs)?.live || "") + ":" + (student ? student.price + "/" + student.paid : "");
+        return record.id + ":" + leadTextSig(JSON.stringify(record.values || {})) + ":" + (leadQueueItem(record, nowMs, isStudentRecord(record))?.group || "") + ":" + (student ? student.price + "/" + student.paid : "");
       }).join(",");
     };
     // В очереди оператор меняет статусы и пишет итоги — после этого остаёмся в очереди, а не прыгаем в колонку статуса.
@@ -2275,12 +2270,12 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
         if (status === "no_answer") counts.no_answer++;
         if (status === "callback") counts.callback++;
       });
-      // Переключатель режимов: очередь ИИ (главная) или весь список. В очереди фильтры и поиск не нужны.
+      // Переключатель режимов: очередь звонков (главная) или весь список. В очереди фильтры и поиск не нужны.
       document.querySelectorAll("#leadModeSwitch [data-lead-mode]").forEach((button) => {
         const active = (button.dataset.leadMode === "queue") === inQueue;
         button.classList.toggle("is-active", active);
         button.setAttribute("aria-selected", String(active));
-        button.querySelector("[data-mode-count]").textContent = String(button.dataset.leadMode === "queue" ? queue.waiting : counts.all);
+        button.querySelector("[data-mode-count]").textContent = String(button.dataset.leadMode === "queue" ? queue.entries.length : counts.all);
       });
       page.classList.toggle("is-queue-mode", inQueue);
       columns.classList.toggle("hidden", inQueue);
@@ -2323,7 +2318,7 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
       });
       if (tab.name === excelLeadsTabName) {
         renderHighIntentLeads(leadStatusFilter === "student" || inQueue || inArchive ? [] : visible);
-        renderCallQueuePanel(tab, inQueue, { total: queue.total, done: queue.done });
+        renderCallQueuePanel(inQueue, { now: queue.entries.length, later: queue.later, today: callsToday() });
         // У учеников третья колонка — оплата, а не дата лида: заголовки колонок там только путали бы.
         page.querySelector(".excel-lead-list-head")?.classList.toggle("hidden", inQueue || inArchive || leadStatusFilter === "student");
       }
@@ -2348,29 +2343,29 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
         listHtml = (archiveVisible.map((row, index) => archivedLeadCard(row, canManage, index)).join("") || '<div class="empty-state">' + (query ? "По этому запросу записей нет." : "Архив пуст.") + '</div>') + lostNote;
       } else if (inQueue) {
         // По одному лиду на экране: позвонил → записал звонок → открывается следующий. Пропущенные уходят в конец очереди.
-        const waiting = queue.entries.filter((entry) => !entry.done);
+        const waiting = queue.entries;
         let pool = waiting.filter((entry) => !queueSkipped.has(String(entry.record.id)));
         if (!pool.length) { queueSkipped.clear(); pool = waiting; }
         const current = waiting.find((entry) => String(entry.record.id) === queueFocusId) || pool[0];
-        const nameOf = (entry) => escapeHtml(entry.record.values?.["Имя"] || "Без имени");
+        const nameOf = (record) => escapeHtml(record.values?.["Имя"] || "Без имени");
         if (current) {
           queueCurrentId = String(current.record.id);
           const rest = [...pool, ...waiting.filter((entry) => !pool.includes(entry))].filter((entry) => entry !== current);
           listHtml = '<h2 class="queue-section is-next"><span>Следующий звонок</span>' + (rest.length ? '<i>·</i><span>ещё в очереди</span><b>' + rest.length + '</b>' : '') + '</h2>'
             + customRecordCard(current.record, fields, canManage, 0, current)
             + (rest.length ? '<div class="queue-focus-nav"><button class="button secondary" id="queueSkip" type="button">Пропустить →</button></div>'
-              + '<details class="queue-rest"><summary><span>Дальше в очереди</span><b>' + rest.length + '</b></summary>' + rest.map((entry) => '<button type="button" class="queue-rest-item" data-queue-jump="' + escapeHtml(entry.record.id) + '"><b>' + nameOf(entry) + '</b><span>' + escapeHtml(entry.reason || "") + '</span></button>').join("") + '</details>' : '');
-        } else if (callQueue) {
-          // Очереди ещё нет — это объясняет панель над списком. Очередь есть, но звонить больше некому — подсказываем.
-          listHtml = '<div class="empty-state queue-finished">Очередь пройдена: всем позвонили. Остальные лиды — во вкладке «Все лиды».</div>';
+              + '<details class="queue-rest"><summary><span>Дальше в очереди</span><b>' + rest.length + '</b></summary>' + rest.map((entry) => '<button type="button" class="queue-rest-item" data-queue-jump="' + escapeHtml(entry.record.id) + '"><b>' + nameOf(entry.record) + '</b><span>' + escapeHtml(entry.reason || "") + '</span></button>').join("") + '</details>' : '');
+        } else {
+          listHtml = '<div class="empty-state queue-finished">Сейчас звонить некому: все лиды ждут назначенного времени. Весь список — во вкладке «Все лиды».</div>';
         }
-        const called = queue.entries.filter((entry) => entry.done);
-        if (called.length) listHtml += '<details class="queue-rest is-done"><summary><span>Уже позвонили</span><b>' + called.length + '</b></summary>' + called.map((entry) => '<p class="queue-rest-item"><b>' + nameOf(entry) + '</b></p>').join("") + '</details>';
+        // Кому сегодня уже позвонили: видно, что день идёт, и куда лид ушёл из очереди.
+        const called = queue.calledToday;
+        if (called.length) listHtml += '<details class="queue-rest is-done"><summary><span>Сегодня позвонили</span><b>' + called.length + '</b></summary>' + called.map((record) => '<p class="queue-rest-item"><b>' + nameOf(record) + '</b>' + leadStatusHtml(record.values || {}) + '</p>').join("") + '</details>';
       } else {
-        // В общем списке лид из очереди помечен значком: видно, что ИИ уже поставил его на звонок.
+        // В общем списке лид из очереди помечен значком: видно, что ему пора звонить.
         listHtml = visible.map((record, index) => {
           const entry = queue.byId.get(record.id);
-          return customRecordCard(record, fields, canManage, index, entry && !entry.done ? { ...entry, badge: true } : null);
+          return customRecordCard(record, fields, canManage, index, entry ? { ...entry, badge: true } : null);
         }).join("") || '<div class="empty-state">' + (query ? "По этому запросу записей нет." : "Записей пока нет.") + '</div>';
       }
       $("customRecordList").innerHTML = listHtml;
@@ -2445,20 +2440,20 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
     renderCustomRecords();
     if (tab.name === excelLeadsTabName) {
       // Раз в минуту открытый список сам подтягивает новые заявки и чужие изменения: новая заявка и наступивший перезвон
-      // встают наверх очереди без кнопок. Не мешаем, пока открыто окно или меню, идёт набор текста или пересчёт очереди.
+      // встают в очередь сами. Не мешаем, пока открыто окно или меню или идёт набор текста.
       let loading = false;
       // Кнопка действия выключена, пока её запрос в пути (статус, удаление): в этот момент список не подменяем.
-      const busy = () => callQueueBusy || Boolean(document.querySelector("dialog[open], details.lead-more[open]")) || Boolean(page.querySelector("#customRecordList button:disabled"));
+      const busy = () => Boolean(document.querySelector("dialog[open], details.lead-more[open]")) || Boolean(page.querySelector("#customRecordList button:disabled"));
       const refreshLeads = async () => {
         if (state.selectedCustomTab?.id !== tab.id || !page.isConnected || !page.classList.contains("active")) { stopLeadsLive(); return; }
         const focused = document.activeElement;
         if (loading || busy() || document.hidden || (focused && /^(INPUT|TEXTAREA|SELECT)$/.test(focused.tagName))) return;
         loading = true;
         try {
-          const liveBefore = new Set(queueView().entries.filter((entry) => entry.live).map((entry) => entry.record.id));
+          const queuedBefore = new Set(queueView().entries.map((entry) => entry.record.id));
           const fresh = await db.from("custom_records").select("*").eq("tab_id", tab.id).order("created_at", { ascending: false });
           if (fresh.error) return;
-          await Promise.all([loadStudentSummaries(tab.id), loadCallQueue(tab.id), loadLeadArchive(tab.id)]);
+          await Promise.all([loadStudentSummaries(tab.id), loadLeadArchive(tab.id)]);
           // Пока шла загрузка, могли уйти со страницы, открыть окно или нажать кнопку — тогда ничего не трогаем.
           if (state.selectedCustomTab?.id !== tab.id || !page.isConnected || busy()) return;
           customRows.splice(0, customRows.length, ...(fresh.data || []));
@@ -2466,8 +2461,9 @@ async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFar
           customRows.forEach((record) => recordById.set(String(record.id), record));
           if (leadsSignature() === lastLiveSignature) return;
           renderCustomRecords();
-          const arrived = queueView().entries.filter((entry) => entry.live && !liveBefore.has(entry.record.id));
-          if (arrived.length) toast(arrived.some((entry) => entry.live !== "callback") ? "⚡ Новая заявка — наверху очереди" : "⏰ Пора перезвонить — лид наверху очереди");
+          const arrived = queueView().entries.filter((entry) => !queuedBefore.has(entry.record.id));
+          if (arrived.some((entry) => entry.group === "new")) toast("⚡ Новая заявка — в очереди");
+          else if (arrived.some((entry) => entry.group === "callback")) toast("⏰ Пора перезвонить — лид в очереди");
         } finally { loading = false; }
       };
       leadsLiveRefresh = refreshLeads;
