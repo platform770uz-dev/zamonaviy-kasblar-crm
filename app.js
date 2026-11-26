@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-31";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-32";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -501,9 +501,11 @@ function renderHome() {
 function renderLeads() {
   const list = $("leadList");
   if (!state.manager || !state.leadAccess) {
-    $("leadsNotice").textContent = state.manager ? "Не удалось загрузить заявки. Обновите страницу." : "Вакансии доступны только руководителю.";
-    $("leadsNotice").classList.remove("hidden");
-    list.innerHTML = "";
+    // Пока заявки грузятся, показываем «Загрузка…», а не ошибку.
+    const loading = state.manager && !state.leadsLoaded;
+    $("leadsNotice").textContent = loading ? "" : state.manager ? "Не удалось загрузить заявки. Обновите страницу." : "Вакансии доступны только руководителю.";
+    $("leadsNotice").classList.toggle("hidden", loading);
+    list.innerHTML = loading ? '<div class="loading-row">Загрузка…</div>' : "";
     $("leadEmpty").classList.add("hidden");
     return;
   }
@@ -640,6 +642,7 @@ async function loadCoreSections() {
       vacancyTab ? db.from("custom_records").select("id,values,created_at").eq("tab_id", vacancyTab.id).order("created_at", { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null })
     ]);
     state.leadAccess = !leads.error || !records.error;
+    state.leadsLoaded = true;
     state.leads = leads.data || [];
     state.vacancyRecords = records.data || [];
     state.candidates = [...state.leads.map(hrFromLead), ...state.vacancyRecords.map(hrFromRecord)]
