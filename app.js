@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-32";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-33";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -290,6 +290,7 @@ const hrQuestionRules = [
   { test: /^sotuv yoki mijoz/, label: "Опыт продаж", good: /yil/, warn: /yoq/ },
   { test: /^belgilangan oyliksiz|faqat foizga/, label: "Работа только за %", good: /^ha\b/, warn: /avval/, bad: /^yoq\b/ },
   { test: /^dushanbadan shanbagacha toliq kun/, label: "Полный день, пн–сб", good: /^ha\b/, bad: /^yoq\b/ },
+  { test: /^(necha yosh|yoshingiz)/, label: "Возраст", good: /^(21|26|31|41)\s*[–-]/, bad: /^18\s*[–-]|^51/ }, // подходит 21–50 (решение владельца, 26.11.2026)
   { test: /^avtomobilingiz.*marka/, label: "Авто (марка)" },
   { test: /^avtomobilingiz.*yoqilg/, label: "Топливо" },
   // Администратор Qirg‘uli

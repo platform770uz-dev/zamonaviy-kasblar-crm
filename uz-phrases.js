@@ -60,7 +60,7 @@ export const uzPhrases = {
   "Не удалось загрузить заявки. Обновите страницу.": "Arizalarni yuklab bo‘lmadi. Sahifani yangilang.",
   "Часть заявок не загрузилась. Обновите страницу.": "Arizalarning bir qismi yuklanmadi. Sahifani yangilang.",
   "График пн–сб 10–18": "Grafik du–sha 10–18", "Полный день в Qirg‘uli": "Qirg‘ulida to‘liq kun", "Опыт мобилографа": "Mobilograf tajribasi",
-  "Готов учиться": "O‘rganishga tayyor",
+  "Готов учиться": "O‘rganishga tayyor", "Возраст": "Yosh",
   // Шоу
   "Заявки на ТВ-шоу": "TV-shou arizalari", "Бренд-фейс и мобилографы в одном списке.": "Brend-feys va mobilograflar bitta ro‘yxatda.",
   "Добавить заявку": "Ariza qo‘shish", "Заявок пока нет": "Hozircha arizalar yo‘q", "Добавьте первую заявку участника.": "Birinchi ishtirokchi arizasini qo‘shing.",
