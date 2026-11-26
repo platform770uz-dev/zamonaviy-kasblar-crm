@@ -960,3 +960,53 @@ button.queue-rest-item:hover{background:#f7f8f7}
   .hr-chip{font-size:11px}
   .hr-group-title{font-size:14px}
 }
+
+/* ---------- polish-31: Вакансии — папка на каждую кампанию, внутри полки по этапам найма ---------- */
+.hr-folders{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.hr-folder{display:flex;align-items:flex-start;gap:12px;width:100%;min-height:118px;padding:16px;border:1px solid var(--line);border-radius:14px;background:#fff;color:var(--ink);text-align:left;box-shadow:0 1px 2px #1118270a;transition:border-color .15s,box-shadow .15s,transform .15s}
+.hr-folder:hover{border-color:#cfe9df;box-shadow:0 6px 18px #11182712;transform:translateY(-1px)}
+.hr-folder:focus-visible,.hr-verdict-chip:focus-visible,.hr-shelf-title:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hr-folder-icon{flex:0 0 auto;width:40px;height:40px;display:grid;place-items:center;border-radius:11px;background:var(--accent-soft);font-size:20px;line-height:1}
+.hr-folder-body{display:grid;gap:9px;min-width:0}
+.hr-folder-title{font-size:15px;font-weight:720;line-height:1.3;overflow-wrap:anywhere}
+.hr-folder-stats{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;color:var(--muted);font-size:12px}
+.hr-folder-new,.hr-folder-total{display:inline-flex;align-items:center;gap:6px}
+.hr-folder-new b{min-width:24px;padding:1px 8px;border-radius:999px;background:var(--accent);color:#fff;font-size:12px;font-weight:750;text-align:center;font-variant-numeric:tabular-nums}
+.hr-folder-new.is-zero b{background:#eef0ef;color:#7a827e}
+.hr-folder-total b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+.hr-folder-date{display:flex;flex-wrap:wrap;gap:2px 6px;color:var(--quiet);font-size:11.5px}
+.hr-folder-date b{color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums}
+/* Открытая папка */
+.lead-list.is-folder{gap:0}
+.hr-folder-head{display:grid;gap:14px;margin-bottom:16px}
+.hr-back{justify-self:start;min-height:34px;padding:0 12px}
+.hr-folder-heading{display:flex;align-items:flex-start;gap:12px}
+.hr-folder-heading-text{min-width:0}
+.hr-folder-heading h2{margin:0;font-size:20px;line-height:1.25;letter-spacing:-.01em;overflow-wrap:anywhere}
+.hr-folder-forms{display:flex;flex-wrap:wrap;gap:2px 8px;margin:6px 0 0;color:var(--muted);font-size:12px}
+.hr-folder-forms b{color:#4e5852;font-weight:600;overflow-wrap:anywhere}
+.hr-folder-forms b+b::before{content:"·";margin-right:8px;color:var(--quiet)}
+.hr-verdict-filter{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px;padding-bottom:4px}
+.hr-verdict-chip{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;height:32px;padding:0 12px;border:1px solid var(--line);border-radius:999px;background:#fff;color:#42454b;font-size:12.5px;font-weight:600}
+.hr-verdict-chip b{color:var(--muted);font-weight:700;font-variant-numeric:tabular-nums}
+.hr-verdict-chip.good b{color:#14795f}.hr-verdict-chip.warn b{color:#8a5a12}.hr-verdict-chip.bad b{color:#a4473f}
+.hr-verdict-chip.is-active{background:#16211d;border-color:#16211d;color:#fff}.hr-verdict-chip.is-active b{color:#d9e7e1}
+.hr-shelves{display:grid;gap:6px}
+.hr-shelf{padding-top:12px;border-top:1px solid #f0f0f1}
+.hr-shelf-title{display:flex;align-items:center;gap:8px;margin:0 0 10px;color:#16211d;font-size:12px;font-weight:760;letter-spacing:.05em;text-transform:uppercase;list-style:none;cursor:pointer}
+.hr-shelf-title::-webkit-details-marker{display:none}
+.hr-shelf-title::before{content:"▸";color:var(--quiet);font-size:11px;transition:transform .15s}
+details[open]>.hr-shelf-title::before{transform:rotate(90deg)}
+.hr-shelf-count{min-width:24px;padding:1px 8px;border-radius:999px;background:#f1f3f2;color:#4e5852;font-size:11.5px;letter-spacing:0;text-align:center;font-variant-numeric:tabular-nums}
+.hr-shelf[data-stage="new"] .hr-shelf-count{background:var(--accent);color:#fff}
+.hr-shelf.is-empty{display:flex;align-items:center;gap:8px;padding-bottom:6px;color:var(--quiet);font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+.hr-shelf.is-empty::before{content:"▸";visibility:hidden;font-size:11px}
+.hr-shelf.is-empty .hr-shelf-count{background:#f6f7f7;color:var(--quiet)}
+.hr-shelf .lead-list{margin-bottom:8px}
+/* На телефоне поиск и «Обновить» остаются в одной строке (общее правило переносит кнопку вниз). */
+@media(max-width:720px){#leadsPage .toolbar{flex-wrap:nowrap}#leadsPage .toolbar .search-box{flex-basis:auto}}
+@media(max-width:640px){
+  .hr-folders{grid-template-columns:1fr;gap:10px}
+  .hr-folder{min-height:0;padding:14px}
+  .hr-folder-heading h2{font-size:18px}
+}

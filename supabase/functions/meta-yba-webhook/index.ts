@@ -2,10 +2,12 @@
 // «Загрузка лидов через Excel» с пометкой «Facebook» и приходит уведомлением в Telegram владельцам CRM.
 // Правила:
 //  1) формы академии берутся из секрета META_YBA_FORM_IDS и таблицы meta_lead_forms (route = 'academy');
-//     вакансии (route = 'hr') сохраняются в отдельную вкладку «Вакансии Facebook» (уведомление только владельцу),
+//     вакансии (route = 'hr') сохраняются во вкладку «Вакансии Facebook» (уведомление только владельцу); в CRM их
+//     показывает раздел «Вакансии»: папка на каждую вакансию по названию формы (hrFolderTitle в app.js);
 //     route = 'ignore' пропускается;
 //     незнакомая форма страницы регистрируется автоматически по вопросам анкеты первого лида: есть вопросы о работе
-//     (ish, ishlay olasizmi, vakansiya, работа…) → 'hr', иначе → 'academy'; в Telegram пометка о новой форме,
+//     (ish, ishlay olasizmi, vakansiya, работа…) → 'hr', иначе → 'academy'; имя формы берётся из Meta (как в Ads Manager)
+//     с пометкой «(авто)» — форма ещё не проверена; в Telegram пометка о новой форме,
 //     а у лидов ещё не проверенных форм академии сохраняются ответы анкеты, чтобы при ошибке перенести их без потерь;
 //  2) повторная доставка того же лида ничего не меняет; тот же телефон в списке не дублируется, а увеличивает
 //     счётчик заявок (как при загрузке Excel);
@@ -52,11 +54,37 @@ async function loadFormRoutes(): Promise<FormRoutes> {
   return { academy, hr, known, names, newForms: new Set<string>() };
 }
 
+// Название формы, как в Ads Manager: по нему CRM сразу заводит папку новой кампании в разделе «Вакансии».
+// Если Meta название не отдала (нет прав, сбой), остаётся «Новая вакансия … (авто)». Текст ошибки не пишем:
+// в нём может быть адрес запроса с токеном.
+async function fetchFormName(formId: string): Promise<string> {
+  const accessToken = Deno.env.get("META_PAGE_ACCESS_TOKEN") ?? "";
+  const version = Deno.env.get("META_GRAPH_API_VERSION") ?? "";
+  if (!accessToken || !/^\d+\.\d+$/.test(version) || !/^\d{1,40}$/.test(formId)) return "";
+  try {
+    const url = new URL(`https://graph.facebook.com/v${version}/${formId}`);
+    url.searchParams.set("fields", "name");
+    url.searchParams.set("access_token", accessToken);
+    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const body = await response.json().catch(() => ({})) as { name?: unknown; error?: { code?: unknown; error_subcode?: unknown } };
+    const name = typeof body?.name === "string" ? body.name.replace(/\s+/g, " ").trim().slice(0, 180) : "";
+    if (!response.ok || !name) {
+      await trace("form_name_error", `http ${response.status} code ${String(body?.error?.code ?? "")} subcode ${String(body?.error?.error_subcode ?? "")}`);
+      return "";
+    }
+    return name;
+  } catch (error) {
+    await trace("form_name_error", error instanceof Error ? error.name : "request failed");
+    return "";
+  }
+}
+
 // Незнакомая форма страницы: регистрируем её сами, чтобы лид не потерялся. Маршрут выбирают вопросы анкеты первого
 // лида (looksLikeVacancy): вакансия → 'hr', иначе → 'academy'. Имя «… (авто)» значит, что форму ещё никто не проверял;
 // в Telegram будет пометка. Если решение неверное, route в meta_lead_forms меняется одной командой.
 async function registerNewForm(routes: FormRoutes, formId: string, route: "academy" | "hr") {
-  const name = route === "hr" ? `Новая вакансия ${formId} (авто)` : `Новая форма ${formId} (авто)`;
+  const metaName = await fetchFormName(formId);
+  const name = metaName ? `${metaName} (авто)` : route === "hr" ? `Новая вакансия ${formId} (авто)` : `Новая форма ${formId} (авто)`;
   (route === "hr" ? routes.hr : routes.academy).add(formId);
   routes.known.add(formId);
   routes.names.set(formId, name);
@@ -280,7 +308,8 @@ async function notifyOwners(supabase: any, leadId: string, text: string, roles: 
   await supabase.from("yba_lead_notifications").update({ status: "sent", sent_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() }).eq("meta_lead_id", leadId);
 }
 
-// Заявка на вакансию (формы route = 'hr'): отдельная вкладка CRM «Вакансии Facebook»; о найме уведомляем только владельца.
+// Заявка на вакансию (формы route = 'hr'): вкладка CRM «Вакансии Facebook» (в меню её нет — кандидатов показывает
+// раздел «Вакансии», по папке на вакансию); о найме уведомляем только владельца.
 async function saveCandidate(lead: Record<string, unknown>, routes: FormRoutes) {
   const leadId = String(lead.id ?? "");
   const formId = String(lead.form_id ?? "");
@@ -310,6 +339,7 @@ async function saveCandidate(lead: Record<string, unknown>, routes: FormRoutes) 
     "Вакансия": vacancy.slice(0, 200),
     "Ответы формы": JSON.stringify(answers).slice(0, 4000),
     "Holat": "Yangi",
+    form_id: formId, // папка в CRM строится по названию формы; ID — на случай, если название поменяют
   };
   const { error: insertError } = await supabase.from("custom_records").upsert(
     { tab_id: CANDIDATES_TAB_ID, external_id: leadId, values, created_by: tabRow.created_by },
@@ -323,10 +353,10 @@ async function saveCandidate(lead: Record<string, unknown>, routes: FormRoutes) 
     `${isTestLead ? "🧪 TEST · " : ""}🧑‍💼 <b>Новая заявка на вакансию (Facebook)</b>`,
     `👤 ${esc(candidateName.slice(0, 160))}`,
     `📞 ${esc(candidatePhone.slice(0, 40))}`,
-    `💼 ${esc(vacancy)}`,
+    `💼 ${esc(vacancy.replace(/\s*\(авто\)$/, ""))}`,
   ];
-  if (routes.newForms.has(formId)) lines.push("⚠️ Новая форма: по вопросам анкеты определена как вакансия. Если это не вакансия, скажите.");
-  lines.push("", `<a href="${CRM_SITE}">Открыть CRM</a> → «Вакансии Facebook»`);
+  if (routes.newForms.has(formId)) lines.push("⚠️ Новая кампания: в CRM для неё появилась своя папка в разделе «Вакансии». Если это не вакансия, скажите.");
+  lines.push("", `<a href="${CRM_SITE}">Открыть CRM</a> → «Вакансии»`);
   await notifyOwners(supabase, leadId, lines.join("\n"), ["owner"]);
   return { saved: true, notified: true };
 }

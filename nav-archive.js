@@ -1,7 +1,7 @@
 // Боковое меню: «Архив», порядок пунктов и свои названия. Всё делается мышью:
 // перетаскивание пункта (на «Архив», в меню, вверх-вниз, выше и ниже «Архива»; сам «Архив» тоже двигается)
 // и правая кнопка («В архив», «Переименовать»). Выбор хранится в браузере (localStorage).
-// По умолчанию в меню остаётся «Загрузка лидов через Excel», остальное лежит в «Архиве».
+// По умолчанию в меню остаются «Загрузка лидов через Excel» и «Вакансии», остальное лежит в «Архиве».
 const KEY_ARCHIVE = "crm.navArchive.v1";
 const KEY_ORDER = "crm.navOrder.v1";
 const KEY_NAMES = "crm.navNames.v1";
@@ -28,7 +28,7 @@ const mainSeq = () => [...nav.children].filter((el) => el === archive || (el.cla
 const archiveItems = () => [...list.querySelectorAll(":scope > .nav-item")].filter((el) => keyOf(el));
 function wantsArchive(el, map) {
   const saved = map[keyOf(el)];
-  return typeof saved === "boolean" ? saved : el.dataset.excel !== "1";
+  return typeof saved === "boolean" ? saved : !(el.dataset.excel === "1" || el.dataset.view === "hr");
 }
 const isLabel = (node) => node.tagName === "SPAN" && !node.classList.contains("nav-icon") && !node.classList.contains("nav-count") && !node.classList.contains("nav-custom-label");
 
@@ -106,7 +106,32 @@ function moveItem(key, toArchive, refKey = "", after = false) {
   if (toArchive && list.querySelector(".nav-item.active")) archive.open = true;
 }
 
+// «Вакансии Facebook» больше не отдельный пункт: её кандидатов показывает раздел «Вакансии» (data-view="hr").
+// Если вкладка стояла в меню, один раз ставим «Вакансии» в меню на её место; своё название пункта переносим.
+function migrateVacancyItem() {
+  const old = "custom-5631f830-18bd-41dd-9fac-dc7c21baff7b";
+  const map = readJson(KEY_ARCHIVE, {});
+  const order = readJson(KEY_ORDER, []);
+  const names = readJson(KEY_NAMES, {});
+  if (!(old in map) && !order.includes(old) && !(old in names)) return;
+  const visible = map[old] === false;
+  delete map[old];
+  if (visible) map.hr = false;
+  writeJson(KEY_ARCHIVE, map);
+  if (order.includes(old)) {
+    const next = visible ? order.filter((key) => key !== "hr") : order.slice();
+    next.splice(next.indexOf(old), 1, ...(visible ? ["hr"] : []));
+    writeJson(KEY_ORDER, next);
+  }
+  if (old in names) {
+    if (visible && typeof names.hr !== "string") names.hr = names[old];
+    delete names[old];
+    writeJson(KEY_NAMES, names);
+  }
+}
+
 if (nav && archive && list && newTab) {
+  migrateVacancyItem();
   apply();
   // Пункты добавляются позже (вкладки из базы, панели результатов), поэтому следим за меню.
   new MutationObserver(apply).observe(nav, { childList: true, subtree: true });

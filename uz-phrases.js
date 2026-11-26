@@ -50,6 +50,17 @@ export const uzPhrases = {
   "☎ Позвонить": "☎ Qo‘ng‘iroq", "Сохранение…": "Saqlanmoqda…", "Не удалось сохранить. Попробуйте ещё раз.": "Saqlab bo‘lmadi. Qayta urinib ko‘ring.",
   "Кандидат сохранён": "Nomzod saqlandi", "Заявок не найдено": "Arizalar topilmadi",
   "Измените поиск или фильтр либо загляните позже.": "Qidiruv yoki filtrni o‘zgartiring yoki keyinroq tekshiring.",
+  // Вакансии: папки по кампаниям и полки по этапам (polish-31)
+  "Вакансии": "Vakansiyalar", "Каждая кампания — своя папка. Новая кампания появляется здесь сама.": "Har bir kampaniya — alohida papka. Yangi kampaniya bu yerda o‘zi paydo bo‘ladi.",
+  "Новые": "Yangilar", "Приняты": "Qabul qilinganlar", "Всего": "Jami", "Последняя заявка": "Oxirgi ariza", "← Все папки": "← Barcha papkalar",
+  "Форма в Ads Manager": "Ads Manager’dagi forma", "Формы в Ads Manager": "Ads Manager’dagi formalar", "Оценка анкеты": "Anketa bahosi",
+  "Подходят": "Mos keladi", "Уточнить": "Aniqlash kerak", "Не подходят": "Mos kelmaydi", "Без названия": "Nomsiz",
+  "Никого не нашли": "Hech kim topilmadi", "Измените поиск.": "Qidiruvni o‘zgartiring.",
+  "Вакансии доступны только руководителю": "Vakansiyalar faqat rahbarga ochiq", "Вакансии доступны только руководителю.": "Vakansiyalar faqat rahbarga ochiq.",
+  "Не удалось загрузить заявки. Обновите страницу.": "Arizalarni yuklab bo‘lmadi. Sahifani yangilang.",
+  "Часть заявок не загрузилась. Обновите страницу.": "Arizalarning bir qismi yuklanmadi. Sahifani yangilang.",
+  "График пн–сб 10–18": "Grafik du–sha 10–18", "Полный день в Qirg‘uli": "Qirg‘ulida to‘liq kun", "Опыт мобилографа": "Mobilograf tajribasi",
+  "Готов учиться": "O‘rganishga tayyor",
   // Шоу
   "Заявки на ТВ-шоу": "TV-shou arizalari", "Бренд-фейс и мобилографы в одном списке.": "Brend-feys va mobilograflar bitta ro‘yxatda.",
   "Добавить заявку": "Ariza qo‘shish", "Заявок пока нет": "Hozircha arizalar yo‘q", "Добавьте первую заявку участника.": "Birinchi ishtirokchi arizasini qo‘shing.",
@@ -313,6 +324,7 @@ export const uzPhrases = {
 };
 
 export const uzPatterns = [
+  [/^Новая вакансия · форма …(\d+)$/, "Yangi vakansiya · forma …$1"],
   [/^Напоминание поставлено: (.+)$/, "Eslatma qo‘yildi: $1"],
   [/^Перезвонить · (.+)$/, "Qayta aloqa · $1"],
   [/^Ученик · долг (.+)$/, "O‘quvchi · qarz $1"],

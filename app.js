@@ -1,12 +1,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-30";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-31";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
 });
 const $ = (id) => document.getElementById(id);
-const state = { user: null, crmRole: null, selectedCustomRecord: null, leads: [], orders: [], promos: [], shows: [], tabs: [], selectedLead: null, selectedOrder: null, ownerToken: "", leadAccess: false, manager: false, language: localStorage.getItem("crm-language") || "uz" };
+// Открытая папка раздела «Вакансии» переживает обновление страницы.
+function readHrFolder() { try { return localStorage.getItem("crm.hrFolder.v1") || ""; } catch { return ""; } }
+const state = { user: null, crmRole: null, selectedCustomRecord: null, leads: [], orders: [], promos: [], shows: [], tabs: [], selectedLead: null, selectedOrder: null, candidates: [], vacancyRecords: [], leadsWarning: "", hrFolder: readHrFolder(), hrVerdict: "all", hrClosedShelves: new Set(["rejected"]), ownerToken: "", leadAccess: false, manager: false, language: localStorage.getItem("crm-language") || "uz" };
 const excelLeadsTabName = "Загрузка лидов через Excel";
 // В базе вкладка называется по-старому (по этому имени её находят вебхук meta-yba-webhook и код CRM),
 // а в интерфейсе — коротко «Лиды». Само имя в базе не меняем.
@@ -167,6 +169,7 @@ async function restoreLastView() {
     const tab = saved?.type === "tab" ? state.tabs.find((item) => item.id === saved.id) : null;
     const pageAllowed = saved?.type === "page" && rememberablePages.has(saved.page) && (state.manager || !["dashboard", "hr"].includes(saved.page));
     if (pageAllowed) setPage(saved.page);
+    else if (tab && isVacancyTab(tab) && state.manager) setPage("hr"); // вкладку заменил раздел «Вакансии»
     else if (tab) await showCustomTab(tab);
     else if (saved?.type === "panel" && /^(ybaPublicResultsNav|intellektLabResultsNav)$/.test(String(saved.id))) openSavedPanel(saved.id);
     else await openDefaultView();
@@ -182,7 +185,7 @@ function openArchiveIfActive() {
 }
 function setPage(page) {
   if (page === "dashboard" && !state.manager) { toast("Дашборд доступен только руководителю"); page = "bloggers"; }
-  if (page === "hr" && !state.manager) { toast("HR-лиды доступны только руководителю"); page = "bloggers"; }
+  if (page === "hr" && !state.manager) { toast("Вакансии доступны только руководителю"); page = "bloggers"; }
   const pageId = ({ bloggers: "homePage", hr: "leadsPage", shows: "ordersPage" })[page] || page + "Page";
   document.querySelectorAll(".page").forEach((node) => node.classList.toggle("active", node.id === pageId));
   document.querySelectorAll("[data-view]").forEach((node) => node.classList.toggle("active", node.dataset.view === page));
@@ -221,39 +224,97 @@ function showCRM() {
   document.querySelectorAll(".page").forEach((node) => node.classList.toggle("active", node.id === "bootPage"));
   document.querySelectorAll("[data-view]").forEach((node) => node.classList.remove("active"));
 }
-// ---------- HR: вакансии и ответы анкет (polish-30) ----------
-// Вакансия определяется по ID формы. Ответы Meta приходят с ключами из текста вопроса
-// (подчёркивания, обрезка), а значения — вида «ha,_o‘zimniki»: здесь им даны короткие подписи
-// и правила «подходит / уточнить / не подходит». Новую форму вакансии добавляй в hrVacancies.
+// ---------- Вакансии: папка на каждую кампанию (polish-31) ----------
+// Кандидаты приходят двумя путями: прямой вебхук Meta (meta-yba-webhook) пишет их во вкладку «Вакансии Facebook»
+// (custom_records; своего пункта меню у неё нет), а старый путь через Make и сайт вакансии — в meta_admin_leads.
+// Папка = вакансия: название формы из Ads Manager без служебных частей («Ishga ariza», месяц, «hajm», «-copy»),
+// поэтому копии одной формы и одна вакансия из обоих источников попадают в одну папку, а новая кампания сама
+// получает свою папку. Внутри папки кандидаты лежат на полках по этапам найма.
+const vacancyTabId = "5631f830-18bd-41dd-9fac-dc7c21baff7b";
+const vacancyTabName = "Вакансии Facebook";
+const isVacancyTab = (tab) => tab?.id === vacancyTabId || tab?.name === vacancyTabName;
+// Формы старого пути (Make, сайт) по ID. Подписи совпадают с названиями папок Facebook, чтобы заявки сошлись.
 const hrVacancies = {
-  "1978722713097224": { title: "Агент по продажам с личным авто", icon: "💼" },
-  "1116743630843921": { title: "Водитель-координатор", icon: "🚗" },
-  "1471428244799477": { title: "Администратор (Qirg‘uli)", icon: "🗂" },
-  "zamonaviy-kasb-vakansiya": { title: "B2B-представитель (сайт вакансии)", icon: "🌐" }
+  "1978722713097224": { title: "Sotuv agenti · Farg'ona" },
+  "1116743630843921": { title: "Водитель-координатор" },
+  "1471428244799477": { title: "Administrator Qirg‘uli" },
+  "zamonaviy-kasb-vakansiya": { title: "B2B-представитель (сайт вакансии)" }
 };
-const hrOtherVacancy = { title: "Другая форма", icon: "📄" };
-const hrVacancyKey = (lead) => (hrVacancies[lead?.meta_form_id] ? lead.meta_form_id : "other");
-const hrVacancy = (lead) => hrVacancies[lead?.meta_form_id] || hrOtherVacancy;
-const hrKey = (value) => String(value ?? "").toLowerCase().replace(/[‘’ʻʼ`']/g, "'").replace(/[_\s]+/g, " ").trim();
-// test — по ключу вопроса (с начала ключа: в длинных вопросах встречаются чужие слова);
-// good / warn / bad — по ответу (оба сравниваются через hrKey). verdict: false — ответ не влияет на вердикт.
+const hrOtherVacancy = { title: "Другая форма" };
+// Для сравнения: нижний регистр, без апострофов (вебхук хранит вопросы без них), «_» и пробелы → один пробел.
+const hrKey = (value) => String(value ?? "").toLowerCase().replace(/[‘’ʻʼ`']/g, "").replace(/[_\s]+/g, " ").trim();
+const hrGenericPart = /^(ishga ariza|ishga|ariza|ish|vakansiya|vakansiyasi|vacancy|вакансия|form|forma|форма|hajm|lead|leads|test)$/;
+const hrDatePart = /^((yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|sentabr|oktabr|noyabr|dekabr|jan|feb|mar|apr|jun|jul|aug|sep|oct|okt|nov|noy|dec|dek)[a-z]*\.?\s*)?20\d\d$|^\d{1,2}[./]\d{1,2}([./]\d{2,4})?$/;
+// «Sotuv agenti | Farg'ona | Ishga ariza | Nov 2026 | hajm» → «Sotuv agenti · Farg'ona».
+function hrFolderTitle(name) {
+  const raw = String(name ?? "").replace(/\s*\(авто\)\s*$/, "").replace(/\s+/g, " ").trim();
+  const auto = raw.match(/^Новая вакансия (\d+)$/);
+  if (auto) return "Новая вакансия · форма …" + auto[1].slice(-4);
+  const cleaned = raw.replace(/\([^)]*\)/g, " ").replace(/[\s-]*\bcopy\b/gi, "").replace(/\s+/g, " ").trim();
+  const parts = cleaned.split(/\s*\|\s*|\s+[—–]\s+/).map((part) => part.trim()).filter(Boolean);
+  const keep = parts.filter((part) => {
+    const key = hrKey(part);
+    return !hrGenericPart.test(key.replace(/\s+20\d\d$/, "")) && !hrDatePart.test(key);
+  });
+  return (keep.length ? keep : parts).slice(0, 2).join(" · ") || raw || "Без названия";
+}
+function hrFolderIcon(title) {
+  const key = hrKey(title);
+  if (/haydovchi|водител|driver|kuryer|курьер/.test(key)) return "🚗";
+  if (/sotuv|продаж|sales|agent|агент|b2b|представител/.test(key)) return "💼";
+  if (/admin|администр/.test(key)) return "🗂";
+  if (/mobilograf|montaj|video|монтаж/.test(key)) return "🎬";
+  if (/brend|brand|face/.test(key)) return "⭐";
+  return "📁";
+}
+// Этапы найма = полки внутри папки. Во вкладке «Вакансии Facebook» этап хранится в «Holat» по-узбекски.
+const hrStages = ["new", "contacted", "interview", "hired", "rejected"];
+const hrShelfTitles = { new: "Новые", contacted: "Связались", interview: "Собеседование", hired: "Приняты", rejected: "Отказ" };
+const hrHolat = { new: "Yangi", contacted: "Bog‘lanildi", interview: "Suhbat", hired: "Qabul qilindi", rejected: "Rad etildi" };
+function hrStageFromHolat(value) {
+  const key = hrKey(value);
+  if (/^(boglan|связал|contacted)/.test(key)) return "contacted";
+  if (/^(suhbat|собесед|interview)/.test(key)) return "interview";
+  if (/^(qabul|принят|hired)/.test(key)) return "hired";
+  if (/^(rad|отказ|rejected)/.test(key)) return "rejected";
+  return "new";
+}
+// Ответы Meta: ключ — текст вопроса, значение — вида «yo‘q,_faqat_tushdan_keyin». Здесь им даны короткие подписи
+// и правила «подходит / уточнить / не подходит» (test — по ключу с начала, good / warn / bad — по ответу, всё через hrKey).
+// verdict: false — ответ не влияет на общий вывод. Вопрос без правила показывается как есть.
 const hrQuestionRules = [
-  { test: /^shartlarni tushundingizmi/, label: "Условия понятны", good: /^ha/, bad: /^yo'q/ },
-  { test: /^shaxsiy avtomobil/, label: "Своё авто", good: /^ha|oilam/, bad: /^yo'q/ },
-  { test: /^rus tili/, label: "Русский язык", good: /erkin|o'rtacha/, bad: /olmayman/ },
-  { test: /^sotuv yoki mijoz/, label: "Опыт продаж", good: /yil/ },
-  { test: /^belgilangan oyliksiz|faqat foizga/, label: "Работа только за %", good: /^ha/, warn: /avval/, bad: /^yo'q/ },
-  { test: /^dushanbadan shanbagacha to'liq kun/, label: "Полный день, пн–сб", good: /^ha/, bad: /^yo'q/ },
+  // Агент по продажам с личным авто
+  { test: /^shartlarni tushundingizmi/, label: "Условия понятны", good: /^ha\b/, bad: /^yoq\b/ },
+  { test: /^shaxsiy avtomobil/, label: "Своё авто", good: /^ha\b|oilam/, bad: /^yoq\b/ },
+  { test: /^rus til/, label: "Русский язык", good: /erkin|ortacha|yaxshi/, bad: /olmayman|bilmayman/ },
+  { test: /^sotuv yoki mijoz/, label: "Опыт продаж", good: /yil/, warn: /yoq/ },
+  { test: /^belgilangan oyliksiz|faqat foizga/, label: "Работа только за %", good: /^ha\b/, warn: /avval/, bad: /^yoq\b/ },
+  { test: /^dushanbadan shanbagacha toliq kun/, label: "Полный день, пн–сб", good: /^ha\b/, bad: /^yoq\b/ },
   { test: /^avtomobilingiz.*marka/, label: "Авто (марка)" },
   { test: /^avtomobilingiz.*yoqilg/, label: "Топливо" },
+  // Администратор Qirg‘uli
+  { test: /^dushanbadan shanbagacha soat/, label: "График пн–сб 10–18", good: /^ha\b/, warn: /tushdan keyin/, bad: /^yoq\b/ },
+  { test: /^hozir .*(oqiysiz|talaba)/, label: "Учится сейчас", good: /^yoq\b/, warn: /^ha\b/ },
+  { test: /^(kirguli|qirguli|kirgili)/, label: "Живёт в Qirg‘uli или может ездить", good: /^ha\b/, bad: /^yoq\b/ },
+  // Мобилограф
+  { test: /^fargona .*toliq ishlay/, label: "Полный день в Qirg‘uli", good: /^ha\b/, bad: /^yoq\b/ },
+  { test: /^mobilograf sifatida/, label: "Опыт мобилографа", good: /^ha\b/ },
+  { test: /^yangi vazifalarga/, label: "Готов учиться", good: /^ha\b/, bad: /^yoq\b/ },
+  // Сайт вакансии
   { test: /^city$/, label: "Город" },
   { test: /^license$/, label: "Права B", good: /^yes$/, bad: /^no$/ },
   { test: /^car$/, label: "Своё авто", good: /^yes$/, bad: /^no$/ },
   { test: /^fuel$/, label: "Топливо" },
   { test: /^schedule$/, label: "График", good: /^yes$/, warn: /^discuss$/, bad: /^no$/ },
   { test: /^total score$/, label: "Тест, баллов из 5" },
-  { test: /^answer \d+ /, label: (key) => key.replace(/^answer \d+ /, ""), good: /(^|— )(верно|to'g'ri)$/, bad: /неверно|noto'g'ri/, verdict: false }
+  { test: /^answer \d+ /, label: (full) => full.replace(/^answer \d+ /i, ""), good: /(^|— )(верно|togri)$/, bad: /неверно|notogri/, verdict: false }
 ];
+// Вопрос новой кампании без своего правила: «…olasizmi? / tayyormisiz? / bormi? / rozimisiz?» — «ha» подходит,
+// «yo‘q» нет (про опыт — «уточнить»). Подпись остаётся текстом вопроса.
+function hrGenericRule(key) {
+  if (!/(olasizmi|tayyormisiz|bormi|rozimisiz|bilasizmi)\??$/.test(key)) return null;
+  return /tajriba/.test(key) ? { good: /^ha\b/, warn: /^yoq\b/ } : { good: /^ha\b/, bad: /^yoq\b/ };
+}
 // Служебные поля и контакты (они уже в шапке карточки) в анкете не показываем.
 const hrHiddenKeys = /^(full name|name|first name|phone|phone number|telefon|ism|source|consent|submitted at|language|total max|communication max|flexibility max|communication score|flexibility score)$/;
 const hrValueLabels = { yes: "Да", no: "Нет", discuss: "Обсудить" };
@@ -270,26 +331,26 @@ function hrLabelText(key) {
 function hrTone(rule, value) {
   const text = hrKey(value);
   if (!rule) return "";
-  if (rule.bad && rule.bad.test(text)) return "bad";
   if (rule.warn && rule.warn.test(text)) return "warn";
+  if (rule.bad && rule.bad.test(text)) return "bad";
   if (rule.good && rule.good.test(text)) return "good";
   return "";
 }
-function hrAnswers(lead) {
+function hrAnswers(c) {
   const rows = [];
-  for (const [key, raw] of Object.entries(lead?.meta_answers || {})) {
+  for (const [key, raw] of Object.entries(c?.answers || {})) {
     const normalized = hrKey(key);
     if (hrHiddenKeys.test(normalized) || raw == null || (typeof raw === "object" && !Array.isArray(raw))) continue;
     const value = hrValueText(raw);
     if (!value) continue;
-    const rule = hrQuestionRules.find((item) => item.test.test(normalized));
-    const label = rule ? (typeof rule.label === "function" ? hrLabelText(rule.label(normalized)) : rule.label) : hrLabelText(key);
+    const rule = hrQuestionRules.find((item) => item.test.test(normalized)) || hrGenericRule(normalized);
     const full = hrLabelText(key);
+    const label = rule?.label ? (typeof rule.label === "function" ? hrLabelText(rule.label(full)) : rule.label) : full;
     rows.push({ label: label.length > 70 ? label.slice(0, 68).trimEnd() + "…" : label, full, value, tone: hrTone(rule, raw), verdict: rule?.verdict !== false });
   }
-  // Ранние анкеты администратора: ответы лежат в колонках, meta_answers пустой.
-  if (!rows.length) {
-    [["Живёт в Qirg‘uli или может ездить", lead?.kirgili_answer, { good: /^ha/, bad: /^yo'q/ }], ["Учится сейчас", lead?.study_answer], ["Удобное время", lead?.availability]]
+  // Ранние анкеты администратора (Make): ответы лежат в колонках, meta_answers пустой.
+  if (!rows.length && c?.legacy) {
+    [["Живёт в Qirg‘uli или может ездить", c.legacy.kirgili_answer, { good: /^ha\b/, bad: /^yoq\b/ }], ["Учится сейчас", c.legacy.study_answer], ["Удобное время", c.legacy.availability]]
       .forEach(([label, raw, rule]) => {
         const value = hrValueText(raw);
         if (value) rows.push({ label, full: label, value, tone: hrTone(rule, raw), verdict: true });
@@ -313,54 +374,109 @@ function hrChip(row) {
   return '<span class="hr-chip ' + (row.tone || "neutral") + '" title="' + escapeHtml(row.full + ": " + row.value) + '"><span class="hr-chip-label">' + escapeHtml(row.label) +
     '</span><b>' + (mark ? '<i aria-hidden="true">' + mark + "</i>" : "") + "<span>" + escapeHtml(row.value) + "</span></b></span>";
 }
-function leadSearchText(lead) {
-  return [lead.full_name, lead.phone, lead.crm_note, hrVacancy(lead).title, ...hrAnswers(lead).map((row) => row.value)]
-    .join(" ").toLowerCase();
+// Кандидат в одном виде для обоих источников. rows и verdict считаются один раз: ответы анкеты не меняются.
+function hrCandidate(base) {
+  const c = { search: null, ...base };
+  c.folderKey = hrKey(c.folderTitle);
+  c.rows = hrAnswers(c);
+  c.verdict = hrVerdict(c.rows);
+  return c;
 }
-function filteredLeads() {
-  const query = $("leadSearch").value.trim().toLowerCase();
-  const filter = $("leadFilter").value;
-  const vacancy = $("leadVacancy").value;
-  return state.leads.filter((lead) => {
-    const status = lead.pipeline_status || "new";
-    return (filter === "all" || filter === status) && (vacancy === "all" || hrVacancyKey(lead) === vacancy) &&
-      (!query || leadSearchText(lead).includes(query));
+function hrFromLead(lead) {
+  const title = (hrVacancies[lead.meta_form_id] || hrOtherVacancy).title;
+  return hrCandidate({
+    uid: "m:" + lead.meta_lead_id, source: "meta", raw: lead, name: lead.full_name || "", phone: lead.phone || "",
+    date: lead.meta_created_at || lead.received_at, stage: statuses[lead.pipeline_status] ? lead.pipeline_status : "new",
+    note: lead.crm_note || "", formName: title, folderTitle: title, answers: lead.meta_answers || {}, legacy: lead
   });
 }
-// Список вакансий в фильтре — только те, по которым есть заявки (порядок — по свежести заявок).
-function renderLeadVacancyOptions() {
-  const select = $("leadVacancy");
-  const keys = [...new Set(state.leads.map(hrVacancyKey))];
-  const signature = keys.join("|");
-  if (select.dataset.signature === signature) return;
-  const current = select.value;
-  select.innerHTML = '<option value="all">Все вакансии</option>' + keys.map((key) => {
-    const vacancy = hrVacancies[key] || hrOtherVacancy;
-    return '<option value="' + escapeHtml(key) + '">' + escapeHtml(vacancy.title) + "</option>";
-  }).join("");
-  select.value = keys.includes(current) ? current : "all";
-  select.dataset.signature = signature;
-  select.classList.toggle("hidden", keys.length < 2);
+function hrFromRecord(record) {
+  const values = record.values || {};
+  let answers = {};
+  try {
+    const parsed = JSON.parse(values["Ответы формы"] || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) answers = parsed;
+  } catch { /* ответы не в JSON — карточка покажется без них */ }
+  const formName = String(values["Вакансия"] || "").replace(/\s*\(авто\)\s*$/, "").trim() || "Без названия";
+  return hrCandidate({
+    uid: "c:" + record.id, source: "fb", raw: record, name: String(values["Имя"] || ""), phone: String(values["Телефон"] || ""),
+    date: record.created_at, stage: hrStageFromHolat(values.Holat), note: String(values["Заметка"] || ""),
+    formName, folderTitle: hrFolderTitle(formName), answers, legacy: null
+  });
 }
-function hrLeadCard(lead, index) {
-  const rows = hrAnswers(lead);
-  const chips = rows.slice(0, 5).map(hrChip).join("") + (rows.length > 5 ? '<span class="hr-chip more">+' + (rows.length - 5) + "</span>" : "");
-  const phone = lead.phone ? escapeHtml(lead.phone) : "<span>Телефон не указан</span>";
-  const note = String(lead.crm_note || "").trim() ? '<span class="hr-card-note"><i aria-hidden="true">✎</i><span>Есть заметка</span></span>' : "";
-  const verdict = hrVerdictBadge(hrVerdict(rows));
-  return '<button class="lead-card hr-card lead-open" data-lead-index="' + index + '"><span class="lead-card-top"><span class="mini-avatar">' +
-    escapeHtml(initials(lead.full_name)) + '</span><span class="lead-card-info"><span class="lead-card-name">' +
-    (lead.full_name ? escapeHtml(lead.full_name) : "<span>Без имени</span>") + '</span><span class="lead-card-secondary hr-card-meta"><span>' + phone +
-    '</span><span aria-hidden="true">·</span><span>' + escapeHtml(dateText(lead.meta_created_at || lead.received_at)) + "</span></span></span>" +
-    statusPill(lead.pipeline_status || "new") + "</span>" + (chips ? '<span class="hr-card-chips">' + chips + "</span>" : "") +
+function hrSearchText(c) {
+  if (c.search == null) c.search = [c.name, c.phone, c.note, c.folderTitle, c.formName, ...c.rows.map((row) => row.value)].join(" ").toLowerCase();
+  return c.search;
+}
+// Папки по свежести последней заявки; название папки — по самой свежей заявке.
+function hrFolders(list) {
+  const map = new Map();
+  for (const c of list) {
+    let folder = map.get(c.folderKey);
+    if (!folder) { folder = { key: c.folderKey, title: c.folderTitle, items: [], forms: [], last: -1 }; map.set(c.folderKey, folder); }
+    folder.items.push(c);
+    if (!folder.forms.includes(c.formName)) folder.forms.push(c.formName);
+    const time = Date.parse(c.date) || 0;
+    if (time > folder.last) { folder.last = time; folder.title = c.folderTitle; }
+  }
+  for (const folder of map.values()) folder.icon = hrFolderIcon(folder.title);
+  return [...map.values()].sort((a, b) => b.last - a.last);
+}
+function hrCandidateCard(c, withStage = true) {
+  const chips = c.rows.slice(0, 5).map(hrChip).join("") + (c.rows.length > 5 ? '<span class="hr-chip more">+' + (c.rows.length - 5) + "</span>" : "");
+  const phone = c.phone ? escapeHtml(c.phone) : "<span>Телефон не указан</span>";
+  const note = c.note.trim() ? '<span class="hr-card-note"><i aria-hidden="true">✎</i><span>Есть заметка</span></span>' : "";
+  const verdict = hrVerdictBadge(c.verdict);
+  return '<button type="button" class="lead-card hr-card lead-open" data-uid="' + escapeHtml(c.uid) + '"><span class="lead-card-top"><span class="mini-avatar">' +
+    escapeHtml(initials(c.name)) + '</span><span class="lead-card-info"><span class="lead-card-name">' +
+    (c.name ? escapeHtml(c.name) : "<span>Без имени</span>") + '</span><span class="lead-card-secondary hr-card-meta"><span>' + phone +
+    '</span><span aria-hidden="true">·</span><span>' + escapeHtml(dateText(c.date)) + "</span></span></span>" +
+    (withStage ? statusPill(c.stage) : "") + "</span>" + (chips ? '<span class="hr-card-chips">' + chips + "</span>" : "") +
     (verdict || note ? '<span class="hr-card-foot">' + verdict + note + "</span>" : "") + "</button>";
 }
-function leadCard(lead, index, compact) {
-  if (!compact) return hrLeadCard(lead, index);
-  const sub = lead.phone || "Telefon kiritilmagan";
-  return '<button class="mini-row lead-open" data-lead-index="' + index + '"><span class="mini-avatar">' + escapeHtml(initials(lead.full_name)) +
-    '</span><span class="mini-main"><b>' + escapeHtml(lead.full_name || "Nomsiz nomzod") + '</b><small>' + escapeHtml(sub) +
-    '</small></span>' + statusPill(lead.pipeline_status || "new") + "</button>";
+function hrFolderTile(folder) {
+  const fresh = folder.items.filter((c) => c.stage === "new").length;
+  return '<button type="button" class="hr-folder" data-folder="' + escapeHtml(folder.key) + '"><span class="hr-folder-icon" aria-hidden="true">' + folder.icon +
+    '</span><span class="hr-folder-body"><span class="hr-folder-title">' + escapeHtml(folder.title) + '</span><span class="hr-folder-stats">' +
+    '<span class="hr-folder-new' + (fresh ? "" : " is-zero") + '"><span>Новые</span><b>' + fresh + "</b></span>" +
+    '<span class="hr-folder-total"><span>Всего</span><b>' + folder.items.length + "</b></span></span>" +
+    '<span class="hr-folder-date"><span>Последняя заявка</span><b>' + escapeHtml(dateText(folder.last > 0 ? folder.last : null)) + "</b></span></span></button>";
+}
+function hrFolderView(folder, query) {
+  const matches = folder.items.filter((c) => !query || hrSearchText(c).includes(query));
+  const counts = { all: matches.length, good: 0, warn: 0, bad: 0 };
+  matches.forEach((c) => { if (c.verdict) counts[c.verdict.tone]++; });
+  const verdict = state.hrVerdict !== "all" && counts[state.hrVerdict] ? state.hrVerdict : "all";
+  const shown = matches.filter((c) => verdict === "all" || c.verdict?.tone === verdict);
+  const filters = [["all", "Все"], ["good", "Подходят"], ["warn", "Уточнить"], ["bad", "Не подходят"]]
+    .filter(([key]) => key === "all" || counts[key] > 0)
+    .map(([key, label]) => '<button type="button" class="hr-verdict-chip ' + key + (verdict === key ? " is-active" : "") + '" data-verdict="' + key + '" aria-pressed="' + (verdict === key) +
+      '"><span>' + label + "</span><b>" + counts[key] + "</b></button>").join("");
+  const shelves = hrStages.map((stage) => {
+    const items = shown.filter((c) => c.stage === stage);
+    if (!items.length) return '<div class="hr-shelf is-empty"><span class="hr-shelf-name">' + hrShelfTitles[stage] + '</span><b class="hr-shelf-count">0</b></div>';
+    return '<details class="hr-shelf" data-stage="' + stage + '"' + (state.hrClosedShelves.has(stage) ? "" : " open") + '><summary class="hr-shelf-title"><span class="hr-shelf-name">' +
+      hrShelfTitles[stage] + '</span><b class="hr-shelf-count">' + items.length + '</b></summary><div class="lead-list">' + items.map((c) => hrCandidateCard(c, false)).join("") + "</div></details>";
+  }).join("");
+  const forms = folder.forms.filter((name) => name && name !== folder.title && !/^Новая вакансия \d+$/.test(name));
+  return '<div class="hr-folder-head"><button type="button" class="button secondary hr-back" data-hr-back>← Все папки</button>' +
+    '<div class="hr-folder-heading"><span class="hr-folder-icon" aria-hidden="true">' + folder.icon + '</span><div class="hr-folder-heading-text"><h2>' + escapeHtml(folder.title) + "</h2>" +
+    (forms.length ? '<p class="hr-folder-forms"><span>' + (forms.length > 1 ? "Формы в Ads Manager" : "Форма в Ads Manager") + "</span>" + forms.map((name) => "<b>" + escapeHtml(name) + "</b>").join("") + "</p>" : "") +
+    "</div></div></div>" + (counts.all > 1 && filters ? '<div class="hr-verdict-filter" role="group" aria-label="Оценка анкеты">' + filters + "</div>" : "") +
+    (shown.length ? '<div class="hr-shelves">' + shelves + "</div>" : '<div class="empty-state"><span class="empty-icon">◎</span><b>Никого не нашли</b><p class="subtle">Измените поиск.</p></div>');
+}
+function hrSearchView(folders, query) {
+  return folders.map((folder) => ({ folder, items: folder.items.filter((c) => hrSearchText(c).includes(query)) })).filter((group) => group.items.length)
+    .map(({ folder, items }) => '<section class="hr-group"><h2 class="hr-group-title"><span class="hr-group-icon" aria-hidden="true">' + folder.icon + "</span><span>" +
+      escapeHtml(folder.title) + '</span><span class="hr-group-count">' + items.length + '</span></h2><div class="lead-list">' + items.map((c) => hrCandidateCard(c)).join("") + "</div></section>").join("");
+}
+function openHrFolder(key) {
+  state.hrFolder = key;
+  state.hrVerdict = "all";
+  try { localStorage.setItem("crm.hrFolder.v1", key); } catch { /* память браузера недоступна */ }
+  $("leadSearch").value = "";
+  renderLeads();
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 function orderCard(order, index, compact) {
   const signed = order.status === "signed";
@@ -376,35 +492,37 @@ function orderCard(order, index, compact) {
     money(order.total_amount) + '</span><span class="order-card-secondary">' + escapeHtml(dateText(order.created_at)) + "</span></span></button>";
 }
 function renderHome() {
-  $("leadCountNav").textContent = state.manager ? String(state.leads.length) : "";
+  // В меню у «Вакансий» — сколько кандидатов ещё на полке «Новые».
+  $("leadCountNav").textContent = state.manager ? String(state.candidates.filter((c) => c.stage === "new").length) : "";
   $("showCountNav").textContent = String(state.shows.length);
   document.querySelectorAll('[data-view="hr"],[data-view="dashboard"]').forEach((item) => item.classList.toggle("hidden", !state.manager));
 }
+// Раздел «Вакансии»: без поиска — папки; в папке — полки по этапам; поиск без открытой папки — по всем папкам.
 function renderLeads() {
+  const list = $("leadList");
   if (!state.manager || !state.leadAccess) {
-    $("leadsNotice").textContent = "HR-лиды доступны только руководителю.";
+    $("leadsNotice").textContent = state.manager ? "Не удалось загрузить заявки. Обновите страницу." : "Вакансии доступны только руководителю.";
     $("leadsNotice").classList.remove("hidden");
-    $("leadList").innerHTML = "";
+    list.innerHTML = "";
     $("leadEmpty").classList.add("hidden");
     return;
   }
-  $("leadsNotice").classList.add("hidden");
-  renderLeadVacancyOptions();
-  const rows = filteredLeads();
-  // Группы по вакансиям: первой идёт вакансия с самой свежей заявкой (список уже отсортирован по дате).
-  const groups = new Map();
-  rows.forEach((lead) => {
-    const key = hrVacancyKey(lead);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(lead);
-  });
-  $("leadList").innerHTML = [...groups.entries()].map(([key, leads]) => {
-    const vacancy = hrVacancies[key] || hrOtherVacancy;
-    return '<section class="hr-group"><h2 class="hr-group-title"><span class="hr-group-icon" aria-hidden="true">' + vacancy.icon + "</span><span>" +
-      escapeHtml(vacancy.title) + '</span><span class="hr-group-count">' + leads.length + '</span></h2><div class="lead-list">' +
-      leads.map((lead) => leadCard(lead, state.leads.indexOf(lead), false)).join("") + "</div></section>";
-  }).join("");
-  $("leadEmpty").classList.toggle("hidden", rows.length > 0);
+  $("leadsNotice").textContent = state.leadsWarning;
+  $("leadsNotice").classList.toggle("hidden", !state.leadsWarning);
+  const query = $("leadSearch").value.trim().toLowerCase();
+  const folders = hrFolders(state.candidates);
+  const folder = state.hrFolder ? folders.find((item) => item.key === state.hrFolder) : null;
+  if (state.hrFolder && !folder && state.candidates.length) state.hrFolder = "";
+  const html = folder ? hrFolderView(folder, query) : query ? hrSearchView(folders, query) : folders.length ? '<div class="hr-folders">' + folders.map(hrFolderTile).join("") + "</div>" : "";
+  list.classList.toggle("is-folder", Boolean(folder));
+  list.innerHTML = html;
+  $("leadEmpty").classList.toggle("hidden", Boolean(html));
+  list.querySelectorAll("[data-folder]").forEach((button) => { button.onclick = () => openHrFolder(button.dataset.folder); });
+  list.querySelectorAll("[data-hr-back]").forEach((button) => { button.onclick = () => openHrFolder(""); });
+  list.querySelectorAll("[data-verdict]").forEach((button) => { button.onclick = () => { state.hrVerdict = button.dataset.verdict; renderLeads(); }; });
+  list.querySelectorAll("details.hr-shelf").forEach((shelf) => shelf.addEventListener("toggle", () => {
+    if (shelf.open) state.hrClosedShelves.delete(shelf.dataset.stage); else state.hrClosedShelves.add(shelf.dataset.stage);
+  }));
   bindOpenButtons();
 }
 function renderOrders() {
@@ -515,15 +633,25 @@ async function loadCoreSections() {
   renderHome(); renderPromos(); renderShows(); renderCustomTabs();
   restoreLastView();
   if (state.manager) {
-    const leads = await db.from("meta_admin_leads").select("meta_lead_id,meta_form_id,full_name,phone,kirgili_answer,study_answer,availability,meta_answers,meta_created_at,received_at,pipeline_status,crm_note").order("received_at", { ascending: false }).limit(300);
-    state.leadAccess = !leads.error; state.leads = leads.data || []; renderLeads();
-    if (leads.error) { $("leadsNotice").textContent = "Не удалось загрузить HR-лиды. Проверьте миграцию и права руководителя."; $("leadsNotice").classList.remove("hidden"); }
+    // Кандидаты из обоих источников: вкладка «Вакансии Facebook» (прямой вебхук Meta) и meta_admin_leads (Make, сайт).
+    const vacancyTab = state.tabs.find(isVacancyTab);
+    const [leads, records] = await Promise.all([
+      db.from("meta_admin_leads").select("meta_lead_id,meta_form_id,full_name,phone,kirgili_answer,study_answer,availability,meta_answers,meta_created_at,received_at,pipeline_status,crm_note").order("received_at", { ascending: false }).limit(300),
+      vacancyTab ? db.from("custom_records").select("id,values,created_at").eq("tab_id", vacancyTab.id).order("created_at", { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null })
+    ]);
+    state.leadAccess = !leads.error || !records.error;
+    state.leads = leads.data || [];
+    state.vacancyRecords = records.data || [];
+    state.candidates = [...state.leads.map(hrFromLead), ...state.vacancyRecords.map(hrFromRecord)]
+      .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+    state.leadsWarning = leads.error || records.error ? "Часть заявок не загрузилась. Обновите страницу." : "";
+    renderLeads();
     renderHome();
-  } else { state.leads = []; renderHome(); }
+  } else { state.leads = []; state.candidates = []; renderHome(); }
 }
 function bindOpenButtons() {
   document.querySelectorAll(".lead-open").forEach((button) => {
-    button.onclick = () => openLead(state.leads[Number(button.dataset.leadIndex)]);
+    button.onclick = () => openLead(state.candidates.find((c) => c.uid === button.dataset.uid));
   });
   document.querySelectorAll(".order-open").forEach((button) => {
     button.onclick = () => openOrder(state.orders[Number(button.dataset.orderIndex)]);
@@ -534,29 +662,30 @@ async function loadData() {
   $("showList").innerHTML = '<div class="loading-row">Загрузка…</div>';
   await loadCoreSections();
 }
-function openLead(lead) {
-  if (!lead) return;
-  state.selectedLead = lead;
-  const vacancy = hrVacancy(lead), rows = hrAnswers(lead);
-  $("leadDialogName").textContent = lead.full_name || "Без имени";
-  $("leadDialogVacancy").innerHTML = '<span aria-hidden="true">' + vacancy.icon + "</span><span>" + escapeHtml(vacancy.title) + "</span>";
+function openLead(c) {
+  if (!c) return;
+  state.selectedLead = c;
+  const rows = c.rows;
+  $("leadDialogName").textContent = c.name || "Без имени";
+  $("leadDialogVacancy").innerHTML = '<span aria-hidden="true">' + hrFolderIcon(c.folderTitle) + "</span><span>" + escapeHtml(c.folderTitle) + "</span>";
   const answers = rows.map((row) => {
     const mark = hrMark(row.tone);
     return '<div class="hr-answer ' + (row.tone || "neutral") + '"><span class="hr-answer-q" title="' + escapeHtml(row.full) + '">' + escapeHtml(row.label) +
       '</span><b class="hr-answer-a">' + (mark ? '<i aria-hidden="true">' + mark + "</i>" : "") + "<span>" + escapeHtml(row.value) + "</span></b></div>";
   }).join("");
-  $("leadDialogInfo").innerHTML = '<div class="hr-dialog-summary">' + hrVerdictBadge(hrVerdict(rows)) + '<span class="hr-dialog-date"><span>Заявка</span> ' +
-    escapeHtml(dateText(lead.meta_created_at || lead.received_at)) + "</span></div>" + detailRow("Телефон", lead.phone) +
+  const showForm = c.formName && c.formName !== c.folderTitle && !/^Новая вакансия \d+$/.test(c.formName);
+  $("leadDialogInfo").innerHTML = '<div class="hr-dialog-summary">' + hrVerdictBadge(c.verdict) + '<span class="hr-dialog-date"><span>Заявка</span> ' +
+    escapeHtml(dateText(c.date)) + "</span></div>" + detailRow("Телефон", c.phone) + (showForm ? detailRow("Форма в Ads Manager", c.formName) : "") +
     '<h3 class="hr-dialog-section">Ответы анкеты</h3><div class="hr-answers">' + (answers || '<p class="subtle">Ответов нет</p>') + "</div>";
-  $("leadStatus").value = lead.pipeline_status || "new";
-  $("leadNote").value = lead.crm_note || "";
+  $("leadStatus").value = c.stage;
+  $("leadNote").value = c.note;
   const call = $("leadCall");
-  if (lead.phone) {
-    call.href = phoneHref(lead.phone);
+  if (c.phone) {
+    call.href = phoneHref(c.phone);
     call.classList.remove("hidden");
   } else call.classList.add("hidden");
   const telegram = $("leadTelegram");
-  const telegramUrl = telegramHref(lead.phone);
+  const telegramUrl = telegramHref(c.phone);
   if (telegramUrl) {
     telegram.href = telegramUrl;
     telegram.classList.remove("hidden");
@@ -564,19 +693,32 @@ function openLead(lead) {
   showMessage("leadDialogMessage", "", "");
   $("leadDialog").showModal();
 }
+// Этап и заметка пишутся туда, откуда пришёл кандидат: meta_admin_leads или запись вкладки «Вакансии Facebook»
+// (этап — в «Holat» по-узбекски, заметка — в «Заметка»).
 $("saveLead").onclick = async () => {
-  const lead = state.selectedLead;
-  if (!lead) return;
+  const c = state.selectedLead;
+  if (!c) return;
   const button = $("saveLead");
   button.disabled = true;
   button.textContent = "Сохранение…";
-  const update = await db.from("meta_admin_leads")
-    .update({ pipeline_status: $("leadStatus").value, crm_note: $("leadNote").value.trim() })
-    .eq("meta_lead_id", lead.meta_lead_id).select("meta_lead_id,pipeline_status,crm_note").single();
-  if (update.error) {
+  const stage = hrStages.includes($("leadStatus").value) ? $("leadStatus").value : "new";
+  const note = $("leadNote").value.trim();
+  let saved = false;
+  if (c.source === "meta") {
+    const update = await db.from("meta_admin_leads").update({ pipeline_status: stage, crm_note: note })
+      .eq("meta_lead_id", c.raw.meta_lead_id).select("meta_lead_id,pipeline_status,crm_note").maybeSingle();
+    if (!update.error && update.data) { Object.assign(c.raw, update.data); saved = true; }
+  } else {
+    const values = { ...(c.raw.values || {}), Holat: hrHolat[stage] };
+    if (note) values["Заметка"] = note; else delete values["Заметка"];
+    const update = await db.from("custom_records").update({ values, updated_at: new Date().toISOString() })
+      .eq("id", c.raw.id).select("id,values").maybeSingle();
+    if (!update.error && update.data) { c.raw.values = update.data.values; saved = true; }
+  }
+  if (!saved) {
     showMessage("leadDialogMessage", "Не удалось сохранить. Попробуйте ещё раз.", "error");
   } else {
-    Object.assign(lead, update.data);
+    c.stage = stage; c.note = note; c.search = null;
     $("leadDialog").close();
     renderHome(); renderLeads();
     toast("Кандидат сохранён");
@@ -668,8 +810,6 @@ document.querySelectorAll("[data-new-order]").forEach((button) => button.onclick
 document.querySelectorAll("[data-view]").forEach((button) => button.onclick = () => setPage(button.dataset.view));
 document.querySelectorAll("[data-close]").forEach((button) => button.onclick = () => $(button.dataset.close).close());
 $("leadSearch").addEventListener("input", renderLeads);
-$("leadFilter").addEventListener("change", renderLeads);
-$("leadVacancy").addEventListener("change", renderLeads);
 $("refreshLeads").onclick = loadData;
 $("promoSearch").addEventListener("input", renderPromos);
 $("promoPeriod").addEventListener("change", renderPromos);
@@ -829,7 +969,8 @@ function isFargonaTezkorTab(tab) { return /^fargona\s+tezkor$/i.test(String(tab?
   const sidebarNav = document.querySelector(".side-nav");
   document.querySelectorAll(".custom-tab-nav,.custom-tab-page,.excel-leads-mobile-nav").forEach((node) => node.remove());
   for (const tab of state.tabs) {
-    if (isFargonaTezkorTab(tab) || isScriptTab(tab)) continue;
+    // «Вакансии Facebook» в меню нет: её кандидатов показывает раздел «Вакансии» по папкам.
+    if (isFargonaTezkorTab(tab) || isScriptTab(tab) || isVacancyTab(tab)) continue;
     const nav = document.createElement("button"); nav.className = "nav-item custom-tab-nav"; nav.dataset.view = "custom-" + tab.id; nav.dataset.bound = "1";
     nav.innerHTML = '<span class="nav-icon">' + escapeHtml(tab.name === excelLeadsTabName ? "☎" : tab.icon || "▤") + '</span><span>' + escapeHtml(tabDisplayName(tab)) + '</span>';
     // Куда попадёт пункт (меню или «Архив»), решает nav-archive.js; Excel-лиды по умолчанию остаются в меню.
@@ -2298,7 +2439,7 @@ document.addEventListener("click", (event) => {
     if (!menu.contains(event.target) || event.target.closest(".lead-more-menu button")) menu.open = false;
   });
 });
-async function showCustomTab(tab, options = {}) { const nestedInBloggers = isFargonaTezkorTab(tab); const canManage = canManageCustomTab(tab);
+async function showCustomTab(tab, options = {}) { if (isVacancyTab(tab) && state.manager) { setPage("hr"); return; } const nestedInBloggers = isFargonaTezkorTab(tab); const canManage = canManageCustomTab(tab);
   stopLeadsLive();
   state.selectedCustomTab = tab;
   saveView({ type: "tab", id: tab.id });
@@ -2710,7 +2851,7 @@ function renderAutopilot(){if(!$("autopilotFrom").value)$("autopilotFrom").value
 for(const id of ["autopilotBlogger","autopilotSmall","autopilotMedium","autopilotCount","autopilotFrom","autopilotTo"])$(id).addEventListener("input",renderAutopilot);
 $("copyAutopilotPrompt").onclick=async()=>{try{await navigator.clipboard.writeText($("autopilotPrompt").value);toast(state.language==="ru"?"Запрос скопирован":"So‘rov nusxalandi")}catch{$("autopilotPrompt").select();document.execCommand("copy")}};
 
-const i18n = { ru: { navHr: "HR-лиды", navBloggers: "Блогеры", navShows: "Заявки на шоу", navAutopilot: "Автопилот", autopilotTitle: "Автопилот", autopilotSubtitle: "Выберите блогера и параметры — CRM подготовит запрос.", newTab: "Новая вкладка", bloggersTitle: "Блогеры и реклама", bloggersSubtitle: "Автопилот и ресерч сгруппированы по профилю источника.", hrTitle: "HR-лиды по вакансии", hrSubtitle: "Ответы кандидатов и этап найма.", showsTitle: "Заявки на ТВ-шоу", showsSubtitle: "Бренд-фейс и мобилографы в одном списке.", addPromo: "Добавить рекламу", addShow: "Добавить заявку", researchTitle: "Ресерч в Chrome раз в 2 недели", last7: "Последние 7 дней", allTime: "За всё время", allStages: "Все этапы", new: "Новая", contacted: "Связались", interview: "Собеседование", hired: "Принята", rejected: "Отказ", reviewed: "Просмотрена", casting: "Кастинг", chosen: "Выбрана", allCategories: "Все категории", brandFace: "Бренд-фейс", mobileographer: "Мобилограф", promoSearch: "Бизнес, блогер или телефон", searchNamePhone: "Имя или телефон", showSearch: "Имя, телефон или город" }, uz: { navHr: "HR arizalari", navBloggers: "Blogerlar", navShows: "Shou arizalari", navAutopilot: "Avtopilot", autopilotTitle: "Avtopilot", autopilotSubtitle: "Blogerni tanlang — CRM qidiruv so‘rovini tayyorlaydi.", newTab: "Yangi bo‘lim", bloggersTitle: "Blogerlar va reklama", bloggersSubtitle: "Avtopilot natijalari manba profili bo‘yicha guruhlangan.", hrTitle: "Vakansiya bo‘yicha arizalar", hrSubtitle: "Nomzod javoblari va ishga olish bosqichi.", showsTitle: "TV-shou arizalari", showsSubtitle: "Brend-feys va mobilograflar bitta ro‘yxatda.", addPromo: "Reklama qo‘shish", addShow: "Ariza qo‘shish", researchTitle: "Chrome’da har 2 haftada qidiruv", last7: "Oxirgi 7 kun", allTime: "Barcha vaqt", allStages: "Barcha bosqichlar", new: "Yangi", contacted: "Bog‘lanildi", interview: "Suhbat", hired: "Qabul qilindi", rejected: "Rad etildi", reviewed: "Ko‘rib chiqildi", casting: "Kasting", chosen: "Tanlandi", allCategories: "Barcha toifalar", brandFace: "Brend-feys", mobileographer: "Mobilograf", promoSearch: "Biznes, bloger yoki telefon", searchNamePhone: "Ism yoki telefon", showSearch: "Ism, telefon yoki shahar" } };
+const i18n = { ru: { navHr: "Вакансии", navBloggers: "Блогеры", navShows: "Заявки на шоу", navAutopilot: "Автопилот", autopilotTitle: "Автопилот", autopilotSubtitle: "Выберите блогера и параметры — CRM подготовит запрос.", newTab: "Новая вкладка", bloggersTitle: "Блогеры и реклама", bloggersSubtitle: "Автопилот и ресерч сгруппированы по профилю источника.", hrTitle: "Вакансии", hrSubtitle: "Каждая кампания — своя папка. Новая кампания появляется здесь сама.", showsTitle: "Заявки на ТВ-шоу", showsSubtitle: "Бренд-фейс и мобилографы в одном списке.", addPromo: "Добавить рекламу", addShow: "Добавить заявку", researchTitle: "Ресерч в Chrome раз в 2 недели", last7: "Последние 7 дней", allTime: "За всё время", allStages: "Все этапы", new: "Новая", contacted: "Связались", interview: "Собеседование", hired: "Принята", rejected: "Отказ", reviewed: "Просмотрена", casting: "Кастинг", chosen: "Выбрана", allCategories: "Все категории", brandFace: "Бренд-фейс", mobileographer: "Мобилограф", promoSearch: "Бизнес, блогер или телефон", searchNamePhone: "Имя или телефон", showSearch: "Имя, телефон или город" }, uz: { navHr: "Vakansiyalar", navBloggers: "Blogerlar", navShows: "Shou arizalari", navAutopilot: "Avtopilot", autopilotTitle: "Avtopilot", autopilotSubtitle: "Blogerni tanlang — CRM qidiruv so‘rovini tayyorlaydi.", newTab: "Yangi bo‘lim", bloggersTitle: "Blogerlar va reklama", bloggersSubtitle: "Avtopilot natijalari manba profili bo‘yicha guruhlangan.", hrTitle: "Vakansiyalar", hrSubtitle: "Har bir kampaniya — alohida papka. Yangi kampaniya bu yerda o‘zi paydo bo‘ladi.", showsTitle: "TV-shou arizalari", showsSubtitle: "Brend-feys va mobilograflar bitta ro‘yxatda.", addPromo: "Reklama qo‘shish", addShow: "Ariza qo‘shish", researchTitle: "Chrome’da har 2 haftada qidiruv", last7: "Oxirgi 7 kun", allTime: "Barcha vaqt", allStages: "Barcha bosqichlar", new: "Yangi", contacted: "Bog‘lanildi", interview: "Suhbat", hired: "Qabul qilindi", rejected: "Rad etildi", reviewed: "Ko‘rib chiqildi", casting: "Kasting", chosen: "Tanlandi", allCategories: "Barcha toifalar", brandFace: "Brend-feys", mobileographer: "Mobilograf", promoSearch: "Biznes, bloger yoki telefon", searchNamePhone: "Ism yoki telefon", showSearch: "Ism, telefon yoki shahar" } };
 function applyLanguage() { document.documentElement.lang = state.language === "ru" ? "ru" : "uz-Latn"; document.querySelectorAll("[data-i18n]").forEach((node) => { const value = i18n[state.language][node.dataset.i18n]; if (value) node.textContent = value; }); document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => { const value = i18n[state.language][node.dataset.i18nPlaceholder]; if (value) node.placeholder = value; }); applyUzTranslation(); }
 $("languageToggle").onclick = () => { state.language = state.language === "ru" ? "uz" : "ru"; localStorage.setItem("crm-language", state.language); applyLanguage(); };
 function renderLanguageToggle() {
