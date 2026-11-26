@@ -5,11 +5,13 @@ const TOKEN_SHA256 = Deno.env.get("MAKE_TOKEN_SHA256") ?? "";
 const DRIVER_FORM_ID = "1116743630843921";
 const ADMIN_FORM_ID = "1471428244799477";
 const YBA_FORM_ID = "1657196732409379";
+// Вакансия «Sotuv agenti | Farg'ona | Ishga ariza | Nov 2026 | hajm» — агент по продажам с личным авто (добавлено 26.11.2026).
+const SALES_AGENT_FORM_ID = "1978722713097224";
 // Маршрутизация по ID формы. Формы академии идут во вкладку CRM, формы вакансий в meta_admin_leads,
 // любая другая форма отклоняется (422), чтобы лиды академии не попадали в таблицу вакансий.
 const idList = (value: string | undefined) => (value ?? "").split(",").map((item) => item.trim()).filter(Boolean);
 const YBA_FORM_IDS = new Set([YBA_FORM_ID, ...idList(Deno.env.get("META_YBA_FORM_IDS"))]);
-const HR_FORM_IDS = new Set([DRIVER_FORM_ID, ADMIN_FORM_ID, ...idList(Deno.env.get("META_HR_FORM_IDS"))]);
+const HR_FORM_IDS = new Set([DRIVER_FORM_ID, ADMIN_FORM_ID, SALES_AGENT_FORM_ID, ...idList(Deno.env.get("META_HR_FORM_IDS"))]);
 const YBA_TAB_ID = "d52d616c-a91f-47f4-a151-8bb9c069d06d";
 const HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 function safeEqual(a: string, b: string): boolean { if (a.length !== b.length) return false; let diff = 0; for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i); return diff === 0; }
@@ -17,6 +19,30 @@ async function sha256(value: string): Promise<string> { const digest = await cry
 function response(body: Record<string, unknown>, status = 200) { return new Response(JSON.stringify(body), { status, headers: HEADERS }); }
 const norm = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/[’‘ʻʼ']/g, "").toLowerCase().replace(/[_\s]+/g, " ").trim();
 function asText(value: unknown): string | null { if (value === null || value === undefined) return null; const text = Array.isArray(value) ? value.map(x => String(x)).join(", ") : String(value); return text.trim() || null; }
+// Уведомление руководителю о новой заявке агента: без личных данных в Telegram (как у формы водителя),
+// best effort — заявка уже сохранена в CRM, поэтому ошибка Telegram не ломает приём лида.
+async function notifyOwnersDirect(supabase: any, text: string): Promise<boolean> {
+ const token = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+ if (!token) { console.error("sales agent notification: TELEGRAM_BOT_TOKEN missing"); return false; }
+ const { data: owners, error } = await supabase.from("tg_chatlar").select("chat_id").eq("rol", "owner").eq("tasdiqlangan", true).eq("bloklangan", false);
+ if (error || !owners?.length) { console.error("sales agent notification: owner chats unavailable", error?.code ?? "none"); return false; }
+ let sent = 0;
+ for (const owner of owners) {
+  try {
+   const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: owner.chat_id, text, link_preview_options: { is_disabled: true } }),
+    signal: AbortSignal.timeout(10000),
+   });
+   const result = await r.json().catch(() => ({}));
+   if (result?.ok === true) sent++;
+  } catch (e) {
+   console.error("sales agent notification: telegram request failed", String(e).replaceAll(token, "***").slice(0, 120));
+  }
+ }
+ return sent > 0;
+}
 Deno.serve(async (req: Request) => {
  if (req.method !== "POST") return response({ error: "POST only" }, 405);
  const authorization = req.headers.get("authorization") ?? "";
@@ -112,6 +138,13 @@ Deno.serve(async (req: Request) => {
   console.error("meta-admin-lead-ingest unknown form", String(row.meta_form_id).slice(0, 40));
   return response({ error: "unknown_form_id", form_id: String(row.meta_form_id), hint: "Add the form ID to META_YBA_FORM_IDS (academy) or META_HR_FORM_IDS (vacancies)" }, 422);
  }
+ // Повтор от Make по той же заявке агента не должен слать уведомление второй раз.
+ let isNewSalesAgentLead = false;
+ if (row.meta_form_id === SALES_AGENT_FORM_ID) {
+  const { data: existingLead, error: existingError } = await supabase.from("meta_admin_leads").select("meta_lead_id").eq("meta_lead_id", String(row.meta_lead_id)).maybeSingle();
+  if (existingError) { console.error("sales agent lead lookup error", existingError.code); return response({error:"database read failed"},500); }
+  isNewSalesAgentLead = !existingLead;
+ }
  const { error } = await supabase.from("meta_admin_leads").upsert(row as any,{onConflict:"meta_lead_id"});
  if (error) { console.error("meta-admin-lead-ingest database error",error.code); return response({error:"database write failed"},500); }
  if (row.meta_form_id === DRIVER_FORM_ID) {
@@ -136,6 +169,10 @@ Deno.serve(async (req: Request) => {
    console.error("driver notification request failed",String(e).slice(0,120));
    return response({error:"notification delivery pending"},503);
   }
+ }
+ if (isNewSalesAgentLead) {
+  const delivered = await notifyOwnersDirect(supabase, "🚗 Новая заявка: агент по продажам с личным авто (Фергана). Заявка уже в CRM — откройте карточку и позвоните кандидату в течение 15–30 минут.");
+  if (!delivered) console.error("sales agent notification not delivered");
  }
  return response({ok:true,lead:row});
 });

@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
-import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-29";
+import { translateTree, restoreTree, startUzObserver, uzText } from "./uz-phrases.js?v=polish-30";
 
 const config = window.SUPABASE_CONFIG || {};
 const db = createClient(config.url, config.publishableKey, {
@@ -11,12 +11,13 @@ const excelLeadsTabName = "Загрузка лидов через Excel";
 // В базе вкладка называется по-старому (по этому имени её находят вебхук meta-yba-webhook и код CRM),
 // а в интерфейсе — коротко «Лиды». Само имя в базе не меняем.
 function tabDisplayName(tab) { return tab?.name === excelLeadsTabName ? "Лиды" : String(tab?.name || ""); }
+// Этапы HR-заявки: те же подписи, что в фильтре «Все этапы» (по-узбекски — через uzPhrases).
 const statuses = {
-  new: "Yangi",
-  contacted: "Bog‘lanildi",
-  interview: "Suhbat",
-  hired: "Ishga olindi",
-  rejected: "Mos kelmadi"
+  new: "Новая",
+  contacted: "Связались",
+  interview: "Собеседование",
+  hired: "Принята",
+  rejected: "Отказ"
 };
 
 function escapeHtml(value) {
@@ -220,32 +221,146 @@ function showCRM() {
   document.querySelectorAll(".page").forEach((node) => node.classList.toggle("active", node.id === "bootPage"));
   document.querySelectorAll("[data-view]").forEach((node) => node.classList.remove("active"));
 }
+// ---------- HR: вакансии и ответы анкет (polish-30) ----------
+// Вакансия определяется по ID формы. Ответы Meta приходят с ключами из текста вопроса
+// (подчёркивания, обрезка), а значения — вида «ha,_o‘zimniki»: здесь им даны короткие подписи
+// и правила «подходит / уточнить / не подходит». Новую форму вакансии добавляй в hrVacancies.
+const hrVacancies = {
+  "1978722713097224": { title: "Агент по продажам с личным авто", icon: "💼" },
+  "1116743630843921": { title: "Водитель-координатор", icon: "🚗" },
+  "1471428244799477": { title: "Администратор (Qirg‘uli)", icon: "🗂" },
+  "zamonaviy-kasb-vakansiya": { title: "B2B-представитель (сайт вакансии)", icon: "🌐" }
+};
+const hrOtherVacancy = { title: "Другая форма", icon: "📄" };
+const hrVacancyKey = (lead) => (hrVacancies[lead?.meta_form_id] ? lead.meta_form_id : "other");
+const hrVacancy = (lead) => hrVacancies[lead?.meta_form_id] || hrOtherVacancy;
+const hrKey = (value) => String(value ?? "").toLowerCase().replace(/[‘’ʻʼ`']/g, "'").replace(/[_\s]+/g, " ").trim();
+// test — по ключу вопроса (с начала ключа: в длинных вопросах встречаются чужие слова);
+// good / warn / bad — по ответу (оба сравниваются через hrKey). verdict: false — ответ не влияет на вердикт.
+const hrQuestionRules = [
+  { test: /^shartlarni tushundingizmi/, label: "Условия понятны", good: /^ha/, bad: /^yo'q/ },
+  { test: /^shaxsiy avtomobil/, label: "Своё авто", good: /^ha|oilam/, bad: /^yo'q/ },
+  { test: /^rus tili/, label: "Русский язык", good: /erkin|o'rtacha/, bad: /olmayman/ },
+  { test: /^sotuv yoki mijoz/, label: "Опыт продаж", good: /yil/ },
+  { test: /^belgilangan oyliksiz|faqat foizga/, label: "Работа только за %", good: /^ha/, warn: /avval/, bad: /^yo'q/ },
+  { test: /^dushanbadan shanbagacha to'liq kun/, label: "Полный день, пн–сб", good: /^ha/, bad: /^yo'q/ },
+  { test: /^avtomobilingiz.*marka/, label: "Авто (марка)" },
+  { test: /^avtomobilingiz.*yoqilg/, label: "Топливо" },
+  { test: /^city$/, label: "Город" },
+  { test: /^license$/, label: "Права B", good: /^yes$/, bad: /^no$/ },
+  { test: /^car$/, label: "Своё авто", good: /^yes$/, bad: /^no$/ },
+  { test: /^fuel$/, label: "Топливо" },
+  { test: /^schedule$/, label: "График", good: /^yes$/, warn: /^discuss$/, bad: /^no$/ },
+  { test: /^total score$/, label: "Тест, баллов из 5" },
+  { test: /^answer \d+ /, label: (key) => key.replace(/^answer \d+ /, ""), good: /(^|— )(верно|to'g'ri)$/, bad: /неверно|noto'g'ri/, verdict: false }
+];
+// Служебные поля и контакты (они уже в шапке карточки) в анкете не показываем.
+const hrHiddenKeys = /^(full name|name|first name|phone|phone number|telefon|ism|source|consent|submitted at|language|total max|communication max|flexibility max|communication score|flexibility score)$/;
+const hrValueLabels = { yes: "Да", no: "Нет", discuss: "Обсудить" };
+function hrValueText(value) {
+  const text = Array.isArray(value) ? value.join(", ") : String(value ?? "");
+  if (hrValueLabels[text]) return hrValueLabels[text];
+  const clean = text.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+  return clean ? clean.charAt(0).toUpperCase() + clean.slice(1) : "";
+}
+function hrLabelText(key) {
+  const clean = String(key ?? "").replace(/_/g, " ").replace(/\s+/g, " ").trim();
+  return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
+function hrTone(rule, value) {
+  const text = hrKey(value);
+  if (!rule) return "";
+  if (rule.bad && rule.bad.test(text)) return "bad";
+  if (rule.warn && rule.warn.test(text)) return "warn";
+  if (rule.good && rule.good.test(text)) return "good";
+  return "";
+}
+function hrAnswers(lead) {
+  const rows = [];
+  for (const [key, raw] of Object.entries(lead?.meta_answers || {})) {
+    const normalized = hrKey(key);
+    if (hrHiddenKeys.test(normalized) || raw == null || (typeof raw === "object" && !Array.isArray(raw))) continue;
+    const value = hrValueText(raw);
+    if (!value) continue;
+    const rule = hrQuestionRules.find((item) => item.test.test(normalized));
+    const label = rule ? (typeof rule.label === "function" ? hrLabelText(rule.label(normalized)) : rule.label) : hrLabelText(key);
+    const full = hrLabelText(key);
+    rows.push({ label: label.length > 70 ? label.slice(0, 68).trimEnd() + "…" : label, full, value, tone: hrTone(rule, raw), verdict: rule?.verdict !== false });
+  }
+  // Ранние анкеты администратора: ответы лежат в колонках, meta_answers пустой.
+  if (!rows.length) {
+    [["Живёт в Qirg‘uli или может ездить", lead?.kirgili_answer, { good: /^ha/, bad: /^yo'q/ }], ["Учится сейчас", lead?.study_answer], ["Удобное время", lead?.availability]]
+      .forEach(([label, raw, rule]) => {
+        const value = hrValueText(raw);
+        if (value) rows.push({ label, full: label, value, tone: hrTone(rule, raw), verdict: true });
+      });
+  }
+  return rows;
+}
+function hrVerdict(rows) {
+  const counted = rows.filter((row) => row.verdict !== false);
+  if (counted.some((row) => row.tone === "bad")) return { tone: "bad", mark: "✕", text: "Не проходит фильтр" };
+  if (counted.some((row) => row.tone === "warn")) return { tone: "warn", mark: "?", text: "Уточнить на звонке" };
+  if (counted.some((row) => row.tone === "good")) return { tone: "good", mark: "✓", text: "Подходит по анкете" };
+  return null;
+}
+const hrMark = (tone) => (tone === "good" ? "✓" : tone === "bad" ? "✕" : tone === "warn" ? "?" : "");
+function hrVerdictBadge(verdict) {
+  return verdict ? '<span class="hr-verdict ' + verdict.tone + '"><i aria-hidden="true">' + verdict.mark + '</i><span>' + verdict.text + "</span></span>" : "";
+}
+function hrChip(row) {
+  const mark = hrMark(row.tone);
+  return '<span class="hr-chip ' + (row.tone || "neutral") + '" title="' + escapeHtml(row.full + ": " + row.value) + '"><span class="hr-chip-label">' + escapeHtml(row.label) +
+    '</span><b>' + (mark ? '<i aria-hidden="true">' + mark + "</i>" : "") + "<span>" + escapeHtml(row.value) + "</span></b></span>";
+}
 function leadSearchText(lead) {
-  return [lead.full_name, lead.phone, lead.kirgili_answer, lead.study_answer, lead.availability, lead.crm_note, ...Object.values(lead.meta_answers || {})]
+  return [lead.full_name, lead.phone, lead.crm_note, hrVacancy(lead).title, ...hrAnswers(lead).map((row) => row.value)]
     .join(" ").toLowerCase();
 }
 function filteredLeads() {
   const query = $("leadSearch").value.trim().toLowerCase();
   const filter = $("leadFilter").value;
+  const vacancy = $("leadVacancy").value;
   return state.leads.filter((lead) => {
     const status = lead.pipeline_status || "new";
-    return (filter === "all" || filter === status) && (!query || leadSearchText(lead).includes(query));
+    return (filter === "all" || filter === status) && (vacancy === "all" || hrVacancyKey(lead) === vacancy) &&
+      (!query || leadSearchText(lead).includes(query));
   });
 }
-function leadCard(lead, index, compact) {
-  const answer = lead.availability || lead.kirgili_answer || "Ariza yuborgan";
-  const sub = lead.phone || "Telefon kiritilmagan";
-  if (compact) {
-    return '<button class="mini-row lead-open" data-lead-index="' + index + '"><span class="mini-avatar">' + escapeHtml(initials(lead.full_name)) +
-      '</span><span class="mini-main"><b>' + escapeHtml(lead.full_name || "Nomsiz nomzod") + '</b><small>' + escapeHtml(sub) +
-      '</small></span>' + statusPill(lead.pipeline_status || "new") + "</button>";
-  }
-  return '<button class="lead-card lead-open" data-lead-index="' + index + '"><span class="lead-card-top"><span class="mini-avatar">' +
+// Список вакансий в фильтре — только те, по которым есть заявки (порядок — по свежести заявок).
+function renderLeadVacancyOptions() {
+  const select = $("leadVacancy");
+  const keys = [...new Set(state.leads.map(hrVacancyKey))];
+  const signature = keys.join("|");
+  if (select.dataset.signature === signature) return;
+  const current = select.value;
+  select.innerHTML = '<option value="all">Все вакансии</option>' + keys.map((key) => {
+    const vacancy = hrVacancies[key] || hrOtherVacancy;
+    return '<option value="' + escapeHtml(key) + '">' + escapeHtml(vacancy.title) + "</option>";
+  }).join("");
+  select.value = keys.includes(current) ? current : "all";
+  select.dataset.signature = signature;
+  select.classList.toggle("hidden", keys.length < 2);
+}
+function hrLeadCard(lead, index) {
+  const rows = hrAnswers(lead);
+  const chips = rows.slice(0, 5).map(hrChip).join("") + (rows.length > 5 ? '<span class="hr-chip more">+' + (rows.length - 5) + "</span>" : "");
+  const phone = lead.phone ? escapeHtml(lead.phone) : "<span>Телефон не указан</span>";
+  const note = String(lead.crm_note || "").trim() ? '<span class="hr-card-note"><i aria-hidden="true">✎</i><span>Есть заметка</span></span>' : "";
+  const verdict = hrVerdictBadge(hrVerdict(rows));
+  return '<button class="lead-card hr-card lead-open" data-lead-index="' + index + '"><span class="lead-card-top"><span class="mini-avatar">' +
     escapeHtml(initials(lead.full_name)) + '</span><span class="lead-card-info"><span class="lead-card-name">' +
-    escapeHtml(lead.full_name || "Nomsiz nomzod") + '</span><span class="lead-card-secondary">' + escapeHtml(sub) +
-    '</span></span>' + statusPill(lead.pipeline_status || "new") + '</span><span class="lead-card-foot"><span class="lead-answer">' +
-    escapeHtml(answer) + '</span><span class="lead-card-secondary">' + escapeHtml(dateText(lead.meta_created_at || lead.received_at)) +
-    "</span></span></button>";
+    (lead.full_name ? escapeHtml(lead.full_name) : "<span>Без имени</span>") + '</span><span class="lead-card-secondary hr-card-meta"><span>' + phone +
+    '</span><span aria-hidden="true">·</span><span>' + escapeHtml(dateText(lead.meta_created_at || lead.received_at)) + "</span></span></span>" +
+    statusPill(lead.pipeline_status || "new") + "</span>" + (chips ? '<span class="hr-card-chips">' + chips + "</span>" : "") +
+    (verdict || note ? '<span class="hr-card-foot">' + verdict + note + "</span>" : "") + "</button>";
+}
+function leadCard(lead, index, compact) {
+  if (!compact) return hrLeadCard(lead, index);
+  const sub = lead.phone || "Telefon kiritilmagan";
+  return '<button class="mini-row lead-open" data-lead-index="' + index + '"><span class="mini-avatar">' + escapeHtml(initials(lead.full_name)) +
+    '</span><span class="mini-main"><b>' + escapeHtml(lead.full_name || "Nomsiz nomzod") + '</b><small>' + escapeHtml(sub) +
+    '</small></span>' + statusPill(lead.pipeline_status || "new") + "</button>";
 }
 function orderCard(order, index, compact) {
   const signed = order.status === "signed";
@@ -274,8 +389,21 @@ function renderLeads() {
     return;
   }
   $("leadsNotice").classList.add("hidden");
+  renderLeadVacancyOptions();
   const rows = filteredLeads();
-  $("leadList").innerHTML = rows.map((lead) => leadCard(lead, state.leads.indexOf(lead), false)).join("");
+  // Группы по вакансиям: первой идёт вакансия с самой свежей заявкой (список уже отсортирован по дате).
+  const groups = new Map();
+  rows.forEach((lead) => {
+    const key = hrVacancyKey(lead);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(lead);
+  });
+  $("leadList").innerHTML = [...groups.entries()].map(([key, leads]) => {
+    const vacancy = hrVacancies[key] || hrOtherVacancy;
+    return '<section class="hr-group"><h2 class="hr-group-title"><span class="hr-group-icon" aria-hidden="true">' + vacancy.icon + "</span><span>" +
+      escapeHtml(vacancy.title) + '</span><span class="hr-group-count">' + leads.length + '</span></h2><div class="lead-list">' +
+      leads.map((lead) => leadCard(lead, state.leads.indexOf(lead), false)).join("") + "</div></section>";
+  }).join("");
   $("leadEmpty").classList.toggle("hidden", rows.length > 0);
   bindOpenButtons();
 }
@@ -387,7 +515,7 @@ async function loadCoreSections() {
   renderHome(); renderPromos(); renderShows(); renderCustomTabs();
   restoreLastView();
   if (state.manager) {
-    const leads = await db.from("meta_admin_leads").select("meta_lead_id,full_name,phone,kirgili_answer,study_answer,availability,meta_answers,meta_created_at,received_at,pipeline_status,crm_note").order("received_at", { ascending: false }).limit(300);
+    const leads = await db.from("meta_admin_leads").select("meta_lead_id,meta_form_id,full_name,phone,kirgili_answer,study_answer,availability,meta_answers,meta_created_at,received_at,pipeline_status,crm_note").order("received_at", { ascending: false }).limit(300);
     state.leadAccess = !leads.error; state.leads = leads.data || []; renderLeads();
     if (leads.error) { $("leadsNotice").textContent = "Не удалось загрузить HR-лиды. Проверьте миграцию и права руководителя."; $("leadsNotice").classList.remove("hidden"); }
     renderHome();
@@ -409,17 +537,17 @@ async function loadData() {
 function openLead(lead) {
   if (!lead) return;
   state.selectedLead = lead;
-  $("leadDialogName").textContent = lead.full_name || "Nomsiz nomzod";
-  const metaAnswerRows = Object.entries(lead.meta_answers || {}).filter(([key, value]) => {
-    const normalized = key.toLowerCase().replace(/[^a-zа-яё0-9]/gi, "");
-    return value != null && String(value).trim() && !["fullname", "name", "phone", "phonenumber", "telefon", "ism", "ismfamiliya"].includes(normalized);
-  }).map(([key, value]) => {
-    const label = key.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
-    return detailRow(label.charAt(0).toUpperCase() + label.slice(1), Array.isArray(value) ? value.join(", ") : String(value));
+  const vacancy = hrVacancy(lead), rows = hrAnswers(lead);
+  $("leadDialogName").textContent = lead.full_name || "Без имени";
+  $("leadDialogVacancy").innerHTML = '<span aria-hidden="true">' + vacancy.icon + "</span><span>" + escapeHtml(vacancy.title) + "</span>";
+  const answers = rows.map((row) => {
+    const mark = hrMark(row.tone);
+    return '<div class="hr-answer ' + (row.tone || "neutral") + '"><span class="hr-answer-q" title="' + escapeHtml(row.full) + '">' + escapeHtml(row.label) +
+      '</span><b class="hr-answer-a">' + (mark ? '<i aria-hidden="true">' + mark + "</i>" : "") + "<span>" + escapeHtml(row.value) + "</span></b></div>";
   }).join("");
-  $("leadDialogInfo").innerHTML = detailRow("Telefon", lead.phone) + detailRow("Kirguli", lead.kirgili_answer) +
-    detailRow("O‘qish / talabalik", lead.study_answer) + detailRow("Bo‘sh vaqt", lead.availability) +
-    detailRow("Ariza kelgan sana", dateText(lead.meta_created_at || lead.received_at)) + metaAnswerRows;
+  $("leadDialogInfo").innerHTML = '<div class="hr-dialog-summary">' + hrVerdictBadge(hrVerdict(rows)) + '<span class="hr-dialog-date"><span>Заявка</span> ' +
+    escapeHtml(dateText(lead.meta_created_at || lead.received_at)) + "</span></div>" + detailRow("Телефон", lead.phone) +
+    '<h3 class="hr-dialog-section">Ответы анкеты</h3><div class="hr-answers">' + (answers || '<p class="subtle">Ответов нет</p>') + "</div>";
   $("leadStatus").value = lead.pipeline_status || "new";
   $("leadNote").value = lead.crm_note || "";
   const call = $("leadCall");
@@ -441,20 +569,20 @@ $("saveLead").onclick = async () => {
   if (!lead) return;
   const button = $("saveLead");
   button.disabled = true;
-  button.textContent = "Saqlanmoqda…";
+  button.textContent = "Сохранение…";
   const update = await db.from("meta_admin_leads")
     .update({ pipeline_status: $("leadStatus").value, crm_note: $("leadNote").value.trim() })
     .eq("meta_lead_id", lead.meta_lead_id).select("meta_lead_id,pipeline_status,crm_note").single();
   if (update.error) {
-    showMessage("leadDialogMessage", "Saqlab bo‘lmadi. CRM migratsiyasini qo‘llang va qayta urinib ko‘ring.", "error");
+    showMessage("leadDialogMessage", "Не удалось сохранить. Попробуйте ещё раз.", "error");
   } else {
     Object.assign(lead, update.data);
     $("leadDialog").close();
     renderHome(); renderLeads();
-    toast("Nomzod ma’lumoti saqlandi");
+    toast("Кандидат сохранён");
   }
   button.disabled = false;
-  button.textContent = "Saqlash";
+  button.textContent = "Сохранить";
 };
 function openOrder(order) {
   if (!order) return;
@@ -541,6 +669,7 @@ document.querySelectorAll("[data-view]").forEach((button) => button.onclick = ()
 document.querySelectorAll("[data-close]").forEach((button) => button.onclick = () => $(button.dataset.close).close());
 $("leadSearch").addEventListener("input", renderLeads);
 $("leadFilter").addEventListener("change", renderLeads);
+$("leadVacancy").addEventListener("change", renderLeads);
 $("refreshLeads").onclick = loadData;
 $("promoSearch").addEventListener("input", renderPromos);
 $("promoPeriod").addEventListener("change", renderPromos);

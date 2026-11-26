@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&display=swap">
-  <link rel="stylesheet" href="./styles.css?v=polish-29">
+  <link rel="stylesheet" href="./styles.css?v=polish-30">
 </head>
 <body>
   <div class="app-shell">
@@ -84,10 +84,10 @@
 
         <section class="page" id="leadsPage">
           <div class="page-heading"><div><p class="eyebrow">HR</p><h1 data-i18n="hrTitle">HR-лиды по вакансии</h1><p class="subtle" data-i18n="hrSubtitle">Ответы кандидатов и этап найма.</p></div></div>
-          <div class="toolbar"><label class="search-box"><span>⌕</span><input id="leadSearch" type="search" data-i18n-placeholder="searchNamePhone" placeholder="Имя или телефон" autocomplete="off"></label><select id="leadFilter" class="filter-select" aria-label="Этап заявки"><option value="all" data-i18n="allStages">Все этапы</option><option value="new" data-i18n="new">Новая</option><option value="contacted" data-i18n="contacted">Связались</option><option value="interview" data-i18n="interview">Собеседование</option><option value="hired" data-i18n="hired">Принята</option><option value="rejected" data-i18n="rejected">Отказ</option></select><button class="icon-button" id="refreshLeads" aria-label="Обновить">↻</button></div>
+          <div class="toolbar"><label class="search-box"><span>⌕</span><input id="leadSearch" type="search" data-i18n-placeholder="searchNamePhone" placeholder="Имя или телефон" autocomplete="off"></label><select id="leadFilter" class="filter-select" aria-label="Этап заявки"><option value="all" data-i18n="allStages">Все этапы</option><option value="new" data-i18n="new">Новая</option><option value="contacted" data-i18n="contacted">Связались</option><option value="interview" data-i18n="interview">Собеседование</option><option value="hired" data-i18n="hired">Принята</option><option value="rejected" data-i18n="rejected">Отказ</option></select><select id="leadVacancy" class="filter-select hidden" aria-label="Вакансия"><option value="all">Все вакансии</option></select><button class="icon-button" id="refreshLeads" aria-label="Обновить">↻</button></div>
           <div id="leadsNotice" class="message hidden" role="status"></div>
-          <div id="leadList" class="lead-list"><div class="loading-row">Yuklanmoqda…</div></div>
-          <div id="leadEmpty" class="empty-state hidden"><span class="empty-icon">◎</span><b>Arizalar topilmadi</b><p class="subtle">Qidiruvni o‘zgartiring yoki keyinroq tekshiring.</p></div>
+          <div id="leadList" class="lead-list hr-lead-groups"><div class="loading-row">Загрузка…</div></div>
+          <div id="leadEmpty" class="empty-state hidden"><span class="empty-icon">◎</span><b>Заявок не найдено</b><p class="subtle">Измените поиск или фильтр либо загляните позже.</p></div>
         </section>
 
         <section class="page" id="ordersPage">
@@ -111,13 +111,13 @@
   <dialog class="dialog" id="customRecordDialog"><div class="dialog-head"><div><p class="eyebrow">CRM</p><h2 id="customRecordTitle">Новая запись</h2></div><button class="icon-button" data-close="customRecordDialog">×</button></div><form id="customRecordForm"><div id="customRecordFields"></div><div id="customRecordMessage" class="message hidden"></div><div class="dialog-actions"><button class="button secondary" type="button" data-close="customRecordDialog">Отмена</button><button class="button primary" type="submit">Сохранить</button></div></form></dialog>
 
   <dialog class="dialog" id="leadDialog">
-    <div class="dialog-head"><div><p class="eyebrow">NOMZOD MA’LUMOTI</p><h2 id="leadDialogName">Nomzod</h2></div><button class="icon-button" data-close="leadDialog" aria-label="Yopish">×</button></div>
-    <div id="leadDialogInfo" class="detail-grid"></div>
-    <label class="field-label" for="leadStatus">Ariza bosqichi</label>
-    <select id="leadStatus" class="input-control"><option value="new">Yangi</option><option value="contacted">Bog‘lanildi</option><option value="interview">Suhbat</option><option value="hired">Ishga olindi</option><option value="rejected">Mos kelmadi</option></select>
-    <label class="field-label" for="leadNote">Ichki eslatma <span>Faqat jamoa uchun</span></label>
-    <textarea id="leadNote" class="input-control note-area" maxlength="1200" placeholder="Masalan: payshanba kuni qayta qo‘ng‘iroq qilish"></textarea>
-        <div class="dialog-actions"><a id="leadCall" class="button secondary hidden" href="#">☎ Qo‘ng‘iroq</a><a id="leadTelegram" class="button secondary hidden" href="#" target="_blank" rel="noopener noreferrer">Telegram ↗</a><button class="button primary" id="saveLead">Saqlash</button></div>
+    <div class="dialog-head"><div><p class="eyebrow">КАНДИДАТ</p><h2 id="leadDialogName">Кандидат</h2><p id="leadDialogVacancy" class="hr-dialog-vacancy"></p></div><button class="icon-button" data-close="leadDialog" aria-label="Закрыть">×</button></div>
+    <div id="leadDialogInfo" class="detail-grid hr-dialog-info"></div>
+    <label class="field-label" for="leadStatus">Этап найма</label>
+    <select id="leadStatus" class="input-control"><option value="new">Новая</option><option value="contacted">Связались</option><option value="interview">Собеседование</option><option value="hired">Принята</option><option value="rejected">Отказ</option></select>
+    <label class="field-label" for="leadNote">Заметка <span>видна только команде</span></label>
+    <textarea id="leadNote" class="input-control note-area" maxlength="1200" placeholder="Например: перезвонить в четверг"></textarea>
+        <div class="dialog-actions"><a id="leadCall" class="button secondary hidden" href="#">☎ Позвонить</a><a id="leadTelegram" class="button secondary hidden" href="#" target="_blank" rel="noopener noreferrer">Telegram ↗</a><button class="button primary" id="saveLead">Сохранить</button></div>
     <div id="leadDialogMessage" class="message hidden" role="status"></div>
   </dialog>
 
@@ -165,7 +165,7 @@
   <div class="toast hidden" id="toast" role="status"></div>
   <script>window.SUPABASE_CONFIG={url:"https://uzivivmrixstxjvzkksz.supabase.co",publishableKey:"sb_publishable_8z5WQbInjqHDvigfDSOcuQ_FOq7LQWJ"};</script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script type="module" src="./app.js?v=polish-29"></script>
+  <script type="module" src="./app.js?v=polish-30"></script>
   <script type="module" src="./yba-results-panel.js?v=payment-receipt-1"></script>
   <script type="module" src="./intellekt-lab-results.js?v=20261026-2"></script>
   <script type="module" src="./nav-archive.js?v=polish-13"></script>
