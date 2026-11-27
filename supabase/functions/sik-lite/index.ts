@@ -50,8 +50,18 @@ const PAID = ["paid", "attended", "no_show", "converted"];
 const SHORT_DESCRIPTION = "Super Intellekt Kids: bloging, matematika va tez aytish. Super Ayiq har kuni o‘sadi!";
 const DESCRIPTION = "Farzandingizning Super Ayiq’i: har kuni 1 ta tez aytish — ayiqcha o‘sadi, ball yig‘iladi. Sinov paketi 99 000 so‘m: markazda ochiq dars + 48 soat ilova. Ro‘yxatdan o‘tish 1 daqiqa.";
 
+// The first REST calls of a freshly started instance are sometimes refused with 401 (PGRST303). A refused call
+// never ran, so one retry is safe for reads and writes alike.
+const retry401: typeof fetch = async (input, init) => {
+  const r = await fetch(input, init);
+  if (r.status !== 401) return r;
+  await r.body?.cancel();
+  await new Promise((ok) => setTimeout(ok, 400));
+  return await fetch(input, init);
+};
 const db = createClient(SUPA_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", {
   auth: { persistSession: false, autoRefreshToken: false },
+  global: { fetch: retry401 },
 });
 
 type Row = Record<string, any>;
