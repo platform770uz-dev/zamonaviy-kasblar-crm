@@ -14,7 +14,7 @@
   - `yba-results-panel.js`, `intellekt-lab-results.js` — панели «Bolalar tanishuvi» и «Intellekt Lab» в архиве.
   - `vakansiya/` — сайт вакансии, `maxfiylik-siyosati.html` — политика конфиденциальности.
 - **Supabase** `uzivivmrixstxjvzkksz` (проект «zamonaviy-kasblar», eu-central-1): база и функции. Код функций — `supabase/functions/<slug>/`, миграции — `supabase/migrations/`.
-- Второй проект Supabase `trxnsqpdekokqvtefxlt` («yba-family-platform»: семейная платформа, «Tez aytish») — его функции в этом репозитории не хранятся, кроме `tez-aytish-route` (папка `yba-family-platform/`, см. «Dars yoʻli»).
+- Второй проект Supabase `trxnsqpdekokqvtefxlt` («yba-family-platform»: семейная платформа, «Tez aytish») — его функции в этом репозитории не хранятся, кроме `tez-aytish-route` (папка `yba-family-platform/`, см. «Dars yoʻli») и `tez-aytish-api` (см. «Super Intellekt Kids»).
 - `dars-yoli/` — страница «Dars yoʻli» (маршрут урока для учителей Tez aytish) и листы уроков `dars-yoli/varaqalar/`; генератор листов — `tools/varaqa/gen.js`.
 - Маршруты лидов и формы Meta — `docs/lead-routes.md`, `docs/meta-lead-setup.md`.
 - Рабочие лиды — `custom_records` вкладки «Загрузка лидов через Excel». Таблицы `crm_*` (сделки, контакты, задачи старой CRM) с 2026-10-05 не пополняются; в них пишет `crm-lead`, читает `tg-bot`. Служебные `crm_maxfiy`, `crm_browser_login_tokens`, `crm_web_login` используются и сейчас.
@@ -41,6 +41,7 @@ Mini App ботов — отдельные репозитории аккаунт
 | @zamonaviykasbuz_bot | «Zamonaviy Kasblar Kids»: тренажёр «Tez aytish»; у учителей и админов кнопка меню «Dars yoʻli» | `yba-public-parent-bot` | `YBA_PUBLIC_BOT_TOKEN` |
 | «1924 admin-bot» | меню ссылок, вход в CRM, подтверждение админов, новые лиды | `tg-bot` | `TELEGRAM_BOT_TOKEN` |
 | @kidscast_bot | родители учеников Tez aytish: «Keldi», итоги урока, домашка, профиль ребёнка | `kidscast-bot` (проект `trxnsqpdekokqvtefxlt`) | `KIDSCAST_BOT_TOKEN` (там же) |
+| @SuperIntellektBot | родители «Super Intellekt Kids»: пробный урок за 99 000, медвежонок Super Ayiq, баллы и монеты; у сотрудников — «Boshqaruv» | `sik-lite` | `SIK_LITE_BOT_TOKEN` (тот же токен и в проекте `trxnsqpdekokqvtefxlt` для `tez-aytish-api`) |
 
 Вебхук каждого бота указывает на его функцию: `https://uzivivmrixstxjvzkksz.supabase.co/functions/v1/<slug>` (у @kidscast_bot — в проекте `trxnsqpdekokqvtefxlt`).
 Роли и доступ к CRM — таблица `tg_chatlar` (общая для `tg-bot` и `teachnova-bot`), доступ операторов — `skript_operatorlar`.
@@ -69,6 +70,7 @@ Mini App ботов — отдельные репозитории аккаунт
 | `kv-admin` | админ-API квитанций по PIN (`KV_ADMIN_PIN`, import map `deno.json`) | false |
 | `vacancy-assessment` | приём анкет с сайта вакансии | false |
 | `intellekt-lab-submit` | результаты «Intellekt Lab» | false |
+| `sik-lite` | бот @SuperIntellektBot, API его Mini App и тик каждые 5 минут (см. «Super Intellekt Kids») | false |
 
 `yba-public-intro-submit` лежит в репозитории, но не развёрнута.
 
@@ -109,6 +111,19 @@ $SB secrets list --remote uzivivmrixstxjvzkksz       # имена и SHA-256 з�
 
 Секреты через API задавай только с несекретными значениями (например, модель ИИ). Токены и ключи вводит владелец сам — в панели Supabase или в форме коннектора, никогда не в чат.
 После смены секретов Supabase перезапускает функции: номер версии растёт на 1, а код (`ezbr_sha256`, `updated_at`) прежний — это не деплой.
+
+## Super Intellekt Kids — бот родителей и медвежонок (с 2026-11-28)
+
+Ребрендинг академии: родитель покупает пробный пакет за 99 000 (офлайн-урок в центре + Mini App до конца урока + 48 часов). 99 000 засчитываются в первый месяц, если курс куплен за эти 48 часов. В Mini App живёт медвежонок «Super Ayiq»: он растёт от **баллов** (ДЗ — одна скороговорка в день, посещение, оценки учителя). **Монеты** (tanga, 1 = 100 сум) дают только B2B-заказы, рефералы и призы. Академия деньги детей не хранит: выплату делает владелец и отмечает её в «Boshqaruv».
+
+- **Функция** `sik-lite` (исходник `supabase/functions/sik-lite/index.ts`): вебхук бота, `/api/<action>` для Mini App (проверка `initData`), `?dz=1` для `tez-aytish-api` (заголовок `x-sik-dz` = sha256(`sik-dz:` + токен бота)), `?tick=1` (cron `sik-lite-tick`, каждые 5 минут, только когда в `sik_parents` есть строки), `?setup=1|0` (вебхук, команды, кнопка меню). `tick` и `setup` требуют `x-crm-secret` = `crm_maxfiy.tg_ichki`.
+- **Тесты без отправки**: `x-crm-secret` + `x-selftest-dry: 1` возвращает исходящие вызовы Telegram в `out` вместо отправки (CRM, очередь операторов и баллы не пишутся). `x-selftest-as: <telegram id>` выполняет API от имени этого пользователя. Вызовы — через `net.http_post` из базы, чтобы секрет не попадал в чат. Тестовые строки (вымышленный id, например 1000000001) после проверки удалять.
+- **Таблицы** `sik_*` (только service role): `sik_parents`, `sik_children`, `sik_lessons`, `sik_bookings`, `sik_dz`, `sik_points`, `sik_coins`, `sik_referrals`, `sik_invites`, `sik_staff`, `sik_settings`, `sik_sent`, `sik_child_sent`. Суммы и рейтинг считают `sik_totals` и `sik_rating`: PostgREST отдаёт не больше 1000 строк, поэтому строки не суммируют на стороне функции. Записи пробных уроков — во вкладке CRM «Super Intellekt Kids» (`sik_crm_put`).
+- **Как задеплоено**: коннектором задеплоена обёртка, которая импортирует файл из этого репозитория по `raw.githubusercontent.com` на конкретном коммите. Поэтому в Supabase попадает ровно файл из репозитория, без ручного переноса текста. Чтобы обновить: закоммитить, затем задеплоить обёртку с новым SHA. Деплой CLI из папки тоже подходит, с `--no-verify-jwt`.
+- **Первый вызов REST** только что запущенного экземпляра иногда получает 401 (PGRST303), поэтому в клиенте базы есть один повтор: отклонённый запрос не выполнялся.
+- **Mini App** — `yba-public-miniapp/sik-lite/` (кнопка меню бота). Проверка без Telegram: `?mock`, `?mock=guest|expired|student|staff|teacher`.
+- **ДЗ** открывает тренажёр `../tez-aytish/?lite=1&c=<ребёнок>`. `tez-aytish-api` по `SIK_LITE_BOT_TOKEN` узнаёт этого бота, спрашивает `sik-lite`, открыт ли ребёнок, выбирает «скороговорку дня» и отправляет звёзды в `sik-lite`. За день: 5 баллов + звёзды, максимум 8; каждые 7 дней подряд +20.
+- **`tez-aytish-api`** теперь лежит здесь: `yba-family-platform/functions/tez-aytish-api/index.ts`, деплой такой же обёрткой с коммитом. Хеша тестового токена `/selftest` в публичном файле нет. Его передаёт файл обёртки `selftest-hash.ts` (только в развёрнутой версии, через `globalThis.__TEZ_SELFTEST_SHA256`) или секрет `TEZ_AYTISH_SELFTEST_SHA256`. При деплое обёртки этот файл не терять.
 
 ## Dars yoʻli — маршрут урока для учителя (Tez aytish)
 
