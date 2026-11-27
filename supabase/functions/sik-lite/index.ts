@@ -23,6 +23,7 @@
 // tez-aytish-api), TEACHNOVA_BOT_TOKEN (owner alerts), SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 // Personal data never goes to the logs.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 const TOKEN = (Deno.env.get("SIK_LITE_BOT_TOKEN") ?? "").trim();
 const TEACHNOVA = (Deno.env.get("TEACHNOVA_BOT_TOKEN") ?? "").trim();
@@ -67,7 +68,10 @@ class HttpError extends Error {
     super(code);
   }
 }
-let DRY: Row[] | null = null;
+// A test call (x-selftest-dry with the internal secret) collects its outgoing Telegram calls instead of sending them
+// and skips CRM, operator and ledger writes. Kept per request: concurrent real requests must still send.
+const dryStore = new AsyncLocalStorage<Row[] | null>();
+const dryOut = (): Row[] | null => dryStore.getStore() ?? null;
 const enc = new TextEncoder();
 
 // ---------- helpers ----------
@@ -120,12 +124,14 @@ const cors = (origin: string): Record<string, string> => ORIGINS.has(origin)
 const json = (body: Row, status = 200, origin = "") =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json; charset=utf-8", ...cors(origin) } });
 
-let internalSecret: string | null = null;
+// The secret is cached only once read; a failed read is retried on the next call.
+let internalSecret = "";
 async function isInternal(req: Request) {
   const got = req.headers.get("x-crm-secret") ?? "";
   if (!got) return false;
-  if (internalSecret === null) {
-    const { data } = await db.from("crm_maxfiy").select("qiymat").eq("kalit", "tg_ichki").maybeSingle();
+  if (!internalSecret) {
+    const { data, error } = await db.from("crm_maxfiy").select("qiymat").eq("kalit", "tg_ichki").maybeSingle();
+    if (error) console.error("internal secret read failed", error.code);
     internalSecret = String(data?.qiymat ?? "");
   }
   return !!internalSecret && constEq(got, internalSecret);
@@ -136,31 +142,34 @@ Deno.serve(async (req: Request) => {
   const origin = req.headers.get("origin") ?? "";
   if (req.method === "OPTIONS") return new Response(null, { status: ORIGINS.has(origin) ? 204 : 403, headers: cors(origin) });
   if (req.method !== "POST") return json({ ok: false, error: "method" }, 405, origin);
+  const dry = req.headers.get("x-selftest-dry") === "1" && (await isInternal(req)) ? [] : null;
+  return await dryStore.run(dry, () => route(req, url, origin));
+});
+async function route(req: Request, url: URL, origin: string): Promise<Response> {
   const parts = url.pathname.split("/").filter(Boolean);
   const apiAt = parts.indexOf("api");
-  DRY = null;
   try {
     if (url.searchParams.has("dz")) return await dzHook(req);
     if (url.searchParams.has("tick") || url.searchParams.has("setup")) {
       if (!(await isInternal(req))) throw new HttpError(403, "forbidden");
-      if (req.headers.get("x-selftest-dry") === "1") DRY = [];
       const result = url.searchParams.has("tick") ? await tick() : await setup(url.searchParams.get("setup") === "1");
-      return json({ ...result, ...(DRY ? { out: DRY } : {}) });
+      const out = dryOut();
+      return json({ ...result, ...(out ? { out } : {}) });
     }
     if (apiAt >= 0) return await api(req, parts[apiAt + 1] ?? "", origin);
     return await webhook(req);
   } catch (error) {
     if (error instanceof HttpError) return json({ ok: false, error: error.code }, error.status, origin);
     console.error("sik-lite failed", String(error).slice(0, 200));
-    return json({ ok: false, error: "server", ...(DRY ? { detail: String(error).slice(0, 300), out: DRY } : {}) }, 500, origin);
-  } finally {
-    DRY = null;
+    const out = dryOut();
+    return json({ ok: false, error: "server", ...(out ? { detail: String(error).slice(0, 300), out } : {}) }, 500, origin);
   }
-});
+}
 
 // ---------- Telegram ----------
 async function tg(method: string, body: Row, token = TOKEN): Promise<Row> {
-  if (DRY) { DRY.push({ method, ...body }); return { ok: true, result: { message_id: DRY.length } }; }
+  const out = dryOut();
+  if (out) { out.push({ method, ...body }); return { ok: true, result: { message_id: out.length } }; }
   if (!token) return { ok: false, description: "no_token" };
   try {
     const r = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
@@ -273,7 +282,7 @@ async function openTrial(child: Row, until: number) {
   await award(child.id, "welcome", WELCOME_POINTS, "welcome", "Xush kelibsiz");
 }
 async function award(childId: string, kind: string, points: number, ref: string, note = "", by: number | null = null): Promise<boolean> {
-  if (DRY) return true;
+  if (dryOut()) return true;
   const { error } = await db.from("sik_points").insert({ child_id: childId, kind, points, ref, note: note.slice(0, 120), created_by: by });
   if (error && error.code !== "23505") console.error("points insert", error.code);
   return !error;
@@ -391,12 +400,12 @@ async function createBooking(row: Row): Promise<Row> {
   throw new Error("booking code");
 }
 async function claim(id: string, kind: string) {
-  if (DRY) return true;
+  if (dryOut()) return true;
   const { error } = await db.from("sik_sent").insert({ booking_id: id, kind });
   return !error;
 }
 async function claimChild(id: string, kind: string) {
-  if (DRY) return true;
+  if (dryOut()) return true;
   const { error } = await db.from("sik_child_sent").insert({ child_id: id, kind });
   return !error;
 }
@@ -443,7 +452,7 @@ const CRM_HOLAT: Record<string, string> = {
   no_show: "Darsga kelmadi", converted: "O‘quvchi (asosiy kurs)", expired: "Bron muddati o‘tdi", cancelled: "Bekor qilindi",
 };
 async function crmPut(externalId: string, patch: Row) {
-  if (DRY) return;
+  if (dryOut()) return;
   const { error } = await db.rpc("sik_crm_put", { p_external_id: externalId, p_patch: patch });
   if (error) console.error("crm put failed", error.code);
 }
@@ -466,7 +475,8 @@ async function crmProspect(p: Row) {
   });
 }
 async function toOperators(key: string, p: Row, form: string) {
-  if (DRY) { DRY.push({ method: "operator_notifications", dedupe_key: key, form }); return; }
+  const out = dryOut();
+  if (out) { out.push({ method: "operator_notifications", dedupe_key: key, form }); return; }
   const { error } = await db.from("operator_notifications").upsert(
     { dedupe_key: key, kind: "lead", payload: { name: parentName(p), phone: p.phone ?? "", form: form.slice(0, 160), repeat: false, at: new Date().toISOString() } },
     { onConflict: "dedupe_key", ignoreDuplicates: true },
@@ -474,7 +484,7 @@ async function toOperators(key: string, p: Row, form: string) {
   if (error) console.error("operator queue failed", error.code);
 }
 async function ownersAlert(text: string, onceKey: string | null) {
-  if (onceKey && !DRY) {
+  if (onceKey && !dryOut()) {
     const { error } = await db.from("sik_settings").insert({ key: `alert:${onceKey}`, value: { at: new Date().toISOString() } });
     if (error) return;
   }
@@ -506,7 +516,7 @@ async function rewardReferral(inviteeId: number) {
   const at = new Date().toISOString();
   await db.from("sik_referrals").update({ paid_at: r.paid_at ?? at, ...(target ? { rewarded_at: at } : {}) }).eq("invitee", inviteeId);
   if (!target || !s.referral.inviter_coins) return;
-  const { error } = DRY ? { error: null } : await db.from("sik_coins").insert({ child_id: target.id, kind: "referral", amount: s.referral.inviter_coins, note: "Do‘st taklifi", ref: `ref:${inviteeId}` });
+  const { error } = dryOut() ? { error: null } : await db.from("sik_coins").insert({ child_id: target.id, kind: "referral", amount: s.referral.inviter_coins, note: "Do‘st taklifi", ref: `ref:${inviteeId}` });
   if (!error) await send(r.inviter, `🎁 Do‘stingiz to‘lov qildi — <b>${esc(target.name)}</b> hamyoniga <b>+${s.referral.inviter_coins} tanga</b> (${sum(s.referral.inviter_coins * COIN_SOM)} so‘m)!`, inline([[app("🐻 Hamyonni ochish", "#wallet")]]));
 }
 async function priceFor(p: Row, s: Settings) {
@@ -519,17 +529,18 @@ async function webhook(req: Request): Promise<Response> {
   if (!internal) {
     const got = req.headers.get("x-telegram-bot-api-secret-token") ?? "";
     if (!TOKEN || !constEq(got, await sha256Hex(`sik-lite-webhook:${TOKEN}`))) return new Response("forbidden", { status: 403 });
-  } else if (req.headers.get("x-selftest-dry") === "1") DRY = [];
+  }
   const update = await req.json().catch(() => null);
+  const out = dryOut();
   if (update && typeof update === "object") {
     try {
       await onUpdate(update);
     } catch (error) {
       console.error("update failed", String(error).slice(0, 200));
-      if (DRY) DRY.push({ error: String(error).slice(0, 300) });
+      out?.push({ error: String(error).slice(0, 300) });
     }
   }
-  return json(DRY ? { ok: true, out: DRY } : { ok: true });
+  return json(out ? { ok: true, out } : { ok: true });
 }
 
 async function onUpdate(u: Row) {
@@ -689,7 +700,7 @@ async function pickLesson(p: Row, id8: string) {
     status: "pending_payment", hold_until: iso(Date.now() + HOLD_MIN * 60000), source: p.source ?? null,
   });
   await saveParent(p, { state: "done", state_data: {} });
-  if (!DRY) await db.from("custom_records").delete().eq("tab_id", CRM_TAB).eq("external_id", `sikp:${p.telegram_id}`);
+  if (!dryOut()) await db.from("custom_records").delete().eq("tab_id", CRM_TAB).eq("external_id", `sikp:${p.telegram_id}`);
   await crmBooking(b, p, lesson);
   return await paymentInfo(p, b, lesson);
 }
@@ -737,7 +748,7 @@ async function onCheck(p: Row, m: Row) {
     const r = await tg(kind === "photo" ? "sendPhoto" : "sendDocument", { chat_id: chat, [kind]: fileId, caption, parse_mode: "HTML", ...inline([[cb("✅ Tasdiqlash", `PAY:OK:${checkId}`), cb("❌ Rad etish", `PAY:NO:${checkId}`)]]) });
     if (r.ok && r.result?.message_id) sent.push({ chat_id: chat, message_id: r.result.message_id });
   }
-  if (!DRY) await db.from("sik_bookings").update({ check_messages: sent }).eq("check_id", checkId);
+  if (!dryOut()) await db.from("sik_bookings").update({ check_messages: sent }).eq("check_id", checkId);
   if (!sent.length) await ownersAlert(`💳 <b>Super Intellekt Kids</b>: to‘lov cheki tasdiqlashni kutmoqda, lekin bot sizga yoza olmadi.\nBotni oching va /start bosing${s.bot.username ? `: @${esc(s.bot.username)}` : ""}.`, null);
   for (const b of due) await crmBooking({ ...b, status: "check_sent" }, p, lessons[b.lesson_id] ?? null);
 }
@@ -1043,7 +1054,7 @@ async function tick() {
     const p = await parent(b.parent_id);
     if (!p) continue;
     if (Date.parse(b.hold_until) <= now) {
-      if (!DRY) {
+      if (!dryOut()) {
         const { data: done } = await db.from("sik_bookings").update({ status: "expired", updated_at: iso(now) }).eq("id", b.id).eq("status", "pending_payment").select("id");
         if (!done?.length) continue;
       }
@@ -1144,7 +1155,7 @@ async function tick() {
 
   const { data: quiet } = await db.from("sik_parents").select("*").not("phone", "is", null).is("abandon_notified_at", null).neq("state", "done").neq("state", "code").lt("updated_at", iso(now - 60 * 60000)).limit(50);
   for (const p of quiet ?? []) {
-    if (!DRY) await db.from("sik_parents").update({ abandon_notified_at: iso(now) }).eq("telegram_id", p.telegram_id);
+    if (!dryOut()) await db.from("sik_parents").update({ abandon_notified_at: iso(now) }).eq("telegram_id", p.telegram_id);
     const { count } = await db.from("sik_bookings").select("id", { count: "exact", head: true }).eq("parent_id", p.telegram_id);
     if (count) continue;
     out.abandoned++;
@@ -1158,7 +1169,7 @@ async function setup(apply: boolean) {
   if (!TOKEN) return { ok: false, error: "SIK_LITE_BOT_TOKEN is not set" };
   const me = await tg("getMe", {});
   const info = await tg("getWebhookInfo", {});
-  if (me.ok && me.result?.username && !DRY) await setSetting("bot", { username: me.result.username, name: me.result.first_name ?? "" });
+  if (me.ok && me.result?.username && !dryOut()) await setSetting("bot", { username: me.result.username, name: me.result.first_name ?? "" });
   const status: Row = { ok: !!me.ok, username: me.result?.username ?? null, webhook: info.result?.url ?? null, webhookOk: info.result?.url === FN_URL, pending: info.result?.pending_update_count ?? null, lastError: info.result?.last_error_message ?? null };
   if (!apply || !me.ok) return status;
   const hook = await tg("setWebhook", { url: FN_URL, secret_token: await sha256Hex(`sik-lite-webhook:${TOKEN}`), allowed_updates: ["message", "callback_query"], max_connections: 20 });
@@ -1202,7 +1213,6 @@ async function api(req: Request, action: string, origin: string): Promise<Respon
   const as = Number(req.headers.get("x-selftest-as"));
   if (internal && Number.isSafeInteger(as) && as > 0) {
     user = { id: as, name: "Selftest", username: null };
-    if (req.headers.get("x-selftest-dry") === "1") DRY = [];
   } else user = await verifyInit(req.headers.get("x-telegram-init-data") ?? "");
   if (!user) throw new HttpError(401, "init_data");
   let body: Row = {};
@@ -1236,7 +1246,8 @@ async function api(req: Request, action: string, origin: string): Promise<Respon
   const fn = Object.prototype.hasOwnProperty.call(ACTIONS, action) ? ACTIONS[action] : null;
   if (!fn) throw new HttpError(404, "action");
   const result = await fn();
-  return json({ ok: true, ...result, ...(DRY ? { out: DRY } : {}) }, 200, origin);
+  const out = dryOut();
+  return json({ ok: true, ...result, ...(out ? { out } : {}) }, 200, origin);
 }
 
 async function apiState(user: Row, role: string | null) {
