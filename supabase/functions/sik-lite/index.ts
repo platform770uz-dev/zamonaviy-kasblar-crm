@@ -823,7 +823,7 @@ async function newPayment(p: Row, purpose: "trial" | "course", bookings: Row[], 
   const s = await settings();
   const amount = purpose === "trial" ? (await priceFor(p, s)) * bookings.length : Number(o.amount);
   const { data, error } = await db.from("sik_payments").insert({
-    parent_id: p.telegram_id, purpose, amount, booking_ids: bookings.map((b) => b.id), source: o.source,
+    parent_id: p.telegram_id, purpose, amount, booking_ids: bookings.map((b) => b.id), source: o.source, method: o.method === "cash" ? "cash" : "card",
     file_path: o.file_path ?? null, file_id: o.file_id ?? null, file_kind: o.file_kind ?? null,
   }).select("*").single();
   if (error || !data) throw new Error(`payment insert ${error?.code}`);
@@ -836,15 +836,35 @@ async function newPayment(p: Row, purpose: "trial" | "course", bookings: Row[], 
   return data;
 }
 async function payCaption(p: Row, pay: Row) {
-  const lines = [`💳 <b>Super Intellekt Kids: ${pay.purpose === "trial" ? "sinov darsi to‘lovi" : "o‘qish uchun to‘lov"}</b>`, `👤 ${esc(parentName(p))} · ${esc(p.phone ?? "")}`];
+  const cash = pay.method === "cash";
+  const lines = [`${cash ? "💵" : "💳"} <b>Super Intellekt Kids: ${cash ? "naqd to‘lov so‘rovi" : pay.purpose === "trial" ? "sinov darsi to‘lovi" : "o‘qish uchun to‘lov"}</b>`, `👤 ${esc(parentName(p))} · ${esc(p.phone ?? "")}`];
   if (Array.isArray(pay.booking_ids) && pay.booking_ids.length) {
     const { data: bs } = await db.from("sik_bookings").select("child_name,child_age,code,lesson_id").in("id", pay.booking_ids);
     const lessons = await lessonsById((bs ?? []).map((b: Row) => b.lesson_id));
     for (const b of bs ?? []) { const l = lessons[b.lesson_id]; lines.push(`👦 ${esc(b.child_name)}, ${b.child_age} yosh${l ? ` — ${fmtShort(l.starts_at)}` : ""} · №${b.code}`); }
   }
-  lines.push(`💰 Summa: <b>${sum(pay.amount)} so‘m</b>${pay.purpose === "trial" && p.referred_by ? " (do‘st taklifi chegirmasi bilan)" : ""}`, "", "Kartaga pul tushganini tekshirib, tasdiqlang.");
+  lines.push(`💰 Summa: <b>${sum(pay.amount)} so‘m</b>${pay.purpose === "trial" && p.referred_by ? " (do‘st taklifi chegirmasi bilan)" : ""}`, "",
+    cash ? "Ota-ona markazda naqd to‘laydi. Pulni qabul qilganingizda tasdiqlang — summa uning balansiga tushadi." : "Kartaga pul tushganini tekshirib, tasdiqlang.");
   return lines.join("\n").slice(0, 900);
 }
+// Who may take a parent's cash: the owners and the active administrators of «Boshqaruv».
+async function cashStaff(): Promise<number[]> {
+  const { data } = await db.from("sik_staff").select("telegram_id").eq("status", "active").eq("role", "admin");
+  return [...new Set([...(await ownerIds()), ...(data ?? []).map((r: Row) => Number(r.telegram_id))])];
+}
+// A parent's cash request goes to them with «Qabul qilindi / Rad etish» (also in Boshqaruv → To‘lovlar).
+async function sendCashToStaff(p: Row, pay: Row) {
+  const text = await payCaption(p, pay);
+  const buttons = { inline_keyboard: [[cb("✅ Qabul qilindi", `PAY:OK:${pay.id}`), cb("❌ Rad etish", `PAY:NO:${pay.id}`)]] };
+  const sent: Row[] = [];
+  for (const chat of await cashStaff()) {
+    const r = await send(chat, text, { reply_markup: buttons });
+    if (r.ok && r.result?.message_id) sent.push({ chat_id: chat, message_id: r.result.message_id, text: true });
+  }
+  if (!dryOut()) await db.from("sik_payments").update({ messages: sent }).eq("id", pay.id);
+  if (!sent.length) await ownersAlert(`💵 <b>Super Intellekt Kids</b>: naqd to‘lov so‘rovi — ${esc(parentName(p))}, ${sum(pay.amount)} so‘m. Tasdiqlash: ilovada «Boshqaruv» → «To‘lovlar».`, null);
+}
+const canDecide = (role: string | null, pay: Row | null) => role === "owner" || (role === "admin" && pay?.method === "cash");
 // A file for Telegram as multipart (the check photo uploaded in the Mini App).
 async function tgUpload(method: string, field: string, bytes: Uint8Array, filename: string, mime: string, fields: Row): Promise<Row> {
   const out = dryOut();
@@ -913,19 +933,25 @@ async function decidePayment(id: string, ok: boolean, by: number, byName: string
   const { data: found } = ids.length ? await db.from("sik_bookings").select("*").in("id", ids) : { data: [] };
   const bs: Row[] = (found ?? []).filter((b: Row) => b.status === "check_sent" && b.check_id === pay.id);
   const lessons = await lessonsById(bs.map((b) => b.lesson_id));
-  const amount = Number(pay.amount);
+  const amount = Number(pay.amount), cash = pay.method === "cash";
   let receipt: Receipt | null = null;
   if (ok) {
     const kids = bs.length ? bs.map((b) => b.child_name) : (await childrenOf(pay.parent_id)).map((c) => c.name);
-    receipt = await kvReceipt({ payer: parentName(p), child: kids.join(", "), phone: p.phone ?? null, trial: pay.purpose === "trial", amount, method: "Karta", paidAt: pay.created_at });
+    receipt = await kvReceipt({ payer: parentName(p), child: kids.join(", "), phone: p.phone ?? null, trial: pay.purpose === "trial", amount, method: cash ? "Naqd" : "Karta", paidAt: cash ? at : pay.created_at });
     if (realReceiptId(receipt)) await db.from("sik_payments").update({ receipt_id: realReceiptId(receipt) }).eq("id", pay.id);
-    await moneyLine({ parent_id: pay.parent_id, kind: "payment", amount, note: pay.purpose === "trial" ? "Sinov darsi to‘lovi (karta)" : "O‘qish uchun to‘lov (karta)", ref: `pay:${pay.id}`, payment_id: pay.id, receipt_id: realReceiptId(receipt), created_by: by });
+    await moneyLine({
+      parent_id: pay.parent_id, kind: cash ? "cash" : "payment", amount, ref: `pay:${pay.id}`, payment_id: pay.id, receipt_id: realReceiptId(receipt), created_by: by,
+      note: `${pay.purpose === "trial" ? "Sinov darsi to‘lovi" : "O‘qish uchun to‘lov"} (${cash ? "naqd" : "karta"})`,
+    });
     const each = bs.length ? Math.round(amount / bs.length) : 0;
     for (const b of bs) { await bookingPaid(b, lessons[b.lesson_id] ?? null, by, each, pay.id); await crmBooking(b, p, lessons[b.lesson_id] ?? null); }
     const balance = dryOut() ? 0 : await moneyBalance(pay.parent_id);
     if (pay.purpose === "trial" && bs.length) await paidMessage(p, bs, lessons, receipt, balance);
-    else await send(pay.parent_id, [`✅ <b>To‘lov qabul qilindi:</b> +${sum(amount)} so‘m`, `💼 Balans: <b>${sum(balance)} so‘m</b>`, receipt ? `🧾 Kvitansiya №${kvNo(receipt.number)}` : ""].filter(Boolean).join("\n"), inline([[app("💼 Hamyon", "#wallet")]]));
-    await notice(pay.parent_id, "payment", pay.purpose === "trial" ? "Sinov darsi to‘lovi tasdiqlandi" : "To‘lov qabul qilindi", `+${sum(amount)} so‘m · balans ${sum(balance)} so‘m`, { amount, receipt: receipt?.view ?? null });
+    else await send(pay.parent_id, [`✅ <b>To‘lov qabul qilindi:</b> +${sum(amount)} so‘m${cash ? " (naqd)" : ""}`, `💼 Balans: <b>${sum(balance)} so‘m</b>`, receipt ? `🧾 Kvitansiya №${kvNo(receipt.number)}` : ""].filter(Boolean).join("\n"), inline([[app("💼 Hamyon", "#wallet")]]));
+    await notice(pay.parent_id, "payment", pay.purpose === "trial" ? "Sinov darsi to‘lovi tasdiqlandi" : cash ? "Naqd to‘lov qabul qilindi" : "To‘lov qabul qilindi", `+${sum(amount)} so‘m · balans ${sum(balance)} so‘m`, { amount, receipt: receipt?.view ?? null });
+  } else if (cash) {
+    await send(pay.parent_id, `😔 Naqd to‘lov so‘rovi (${sum(amount)} so‘m) bekor qilindi. Savol bo‘lsa, administratorga murojaat qiling.`, inline([[app("💼 Hamyon", "#wallet")]]));
+    await notice(pay.parent_id, "payment_rejected", "Naqd to‘lov so‘rovi bekor qilindi", `${sum(amount)} so‘m · savol bo‘lsa, administratorga murojaat qiling.`, { amount });
   } else {
     const hold = iso(Date.now() + HOLD_MIN * 60000);
     for (const b of bs) {
@@ -937,9 +963,22 @@ async function decidePayment(id: string, ok: boolean, by: number, byName: string
     await send(pay.parent_id, `😔 To‘lov tasdiqlanmadi — kartaga mablag‘ tushgani ko‘rinmadi. Chekni tekshirib, qayta yuboring.${bs.length ? " Joy yana 2 soat saqlanadi." : ""}`, inline([[app("💳 Qayta yuborish", pay.purpose === "trial" ? "" : "#wallet")]]));
     await notice(pay.parent_id, "payment_rejected", "To‘lov tasdiqlanmadi", `${sum(amount)} so‘m: kartaga mablag‘ tushgani ko‘rinmadi. Chekni tekshirib, qayta yuboring.`, { amount });
   }
-  const caption = `${await payCaption(p, pay)}\n\n${ok ? "✅ Tasdiqlandi" : "❌ Rad etildi"} — ${esc(byName)}, ${fmtShort(at)}${receipt ? ` · Kvitansiya №${kvNo(receipt.number)}` : ""}`;
-  for (const c of Array.isArray(pay.messages) ? pay.messages : []) await tg("editMessageCaption", { chat_id: c.chat_id, message_id: c.message_id, caption: caption.slice(0, 1024), parse_mode: "HTML", reply_markup: { inline_keyboard: [] } });
+  const caption = `${await payCaption(p, pay)}\n\n${ok ? (cash ? "✅ Pul qabul qilindi" : "✅ Tasdiqlandi") : "❌ Rad etildi"} — ${esc(byName)}, ${fmtShort(at)}${receipt ? ` · Kvitansiya №${kvNo(receipt.number)}` : ""}`;
+  await closeStaffMessages(pay, caption);
   return { done: true, status: ok ? "confirmed" : "rejected", receipt: receipt?.view ?? null };
+}
+// The copies the owners and administrators got (a photo with a caption, or a text for a cash request) lose their buttons.
+async function closeStaffMessages(pay: Row, text: string) {
+  for (const c of Array.isArray(pay.messages) ? pay.messages : []) {
+    if (c.text) await tg("editMessageText", { chat_id: c.chat_id, message_id: c.message_id, text: text.slice(0, 4096), parse_mode: "HTML", reply_markup: { inline_keyboard: [] } });
+    else await tg("editMessageCaption", { chat_id: c.chat_id, message_id: c.message_id, caption: text.slice(0, 1024), parse_mode: "HTML", reply_markup: { inline_keyboard: [] } });
+  }
+}
+// An administrator took cash: the owners hear about it (the money is in the administrator's hands).
+async function cashTakenAlert(byName: string, pay: Row | null, r: Row) {
+  if (!pay || pay.method !== "cash" || r.status !== "confirmed") return;
+  const p = await parentOf(Number(pay.parent_id));
+  await ownersAlert(`💵 <b>Super Intellekt Kids</b>: administrator ${esc(byName)} naqd pul qabul qildi — ${esc(parentName(p ?? {}))}, ${sum(Number(pay.amount))} so‘m${r.receipt ? ` (Kvitansiya №${esc(r.receipt.no)})` : ""}. Pul sizga yetib kelganini tekshiring.`, null);
 }
 
 async function onCallback(cq: Row) {
@@ -972,12 +1011,16 @@ async function onCallback(cq: Row) {
   return await showMenu(p);
 }
 
+// A card check: the owner only. A cash request: the owner or an administrator (who then holds the money).
 async function payDecision(cq: Row, ok: boolean, id: string) {
-  if (!(await ownerIds()).includes(cq.from.id)) return await answer(cq, "Faqat egasi tasdiqlaydi");
-  const who = [cq.from.first_name, cq.from.last_name].filter(Boolean).join(" ") || "Egasi";
+  const role = await roleOf(cq.from.id);
+  const { data: pay } = /^[0-9a-f-]{36}$/.test(id) ? await db.from("sik_payments").select("method,amount,parent_id").eq("id", id).maybeSingle() : { data: null };
+  if (!canDecide(role, pay)) return await answer(cq, pay?.method === "cash" ? "Faqat administrator yoki egasi" : "Faqat egasi tasdiqlaydi");
+  const who = [cq.from.first_name, cq.from.last_name].filter(Boolean).join(" ") || (role === "owner" ? "Egasi" : "Administrator");
   const r = await decidePayment(id, ok, cq.from.id, who);
   if (cq.message) await tg("editMessageReplyMarkup", { chat_id: cq.message.chat.id, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] } });
-  if (!r.done) return await answer(cq, r.status === "missing" ? "Chek topilmadi" : "Bu chek allaqachon ko‘rib chiqilgan");
+  if (!r.done) return await answer(cq, r.status === "missing" ? "To‘lov topilmadi" : "Bu to‘lov allaqachon ko‘rib chiqilgan");
+  if (role !== "owner") await cashTakenAlert(who, pay, r);
   return await answer(cq, ok ? "Tasdiqlandi ✅" : "Rad etildi");
 }
 async function paidMessage(p: Row, list: Row[], lessons: Record<string, Row>, receipt: Receipt | null, balance: number) {
@@ -1338,6 +1381,18 @@ async function tick() {
     }
   }
 
+  // A cash request nobody confirmed in 14 days is closed (the parent can send a new one).
+  const { data: stale } = await db.from("sik_payments").select("*").eq("status", "pending").eq("method", "cash").lt("created_at", iso(now - 14 * 86400000)).limit(50);
+  for (const pay of stale ?? []) {
+    if (!dryOut()) {
+      const { data: done } = await db.from("sik_payments").update({ status: "rejected", decided_at: iso(now) }).eq("id", pay.id).eq("status", "pending").select("id");
+      if (!done?.length) continue;
+    }
+    out.cash_stale = (out.cash_stale ?? 0) + 1;
+    await closeStaffMessages(pay, `💵 Naqd to‘lov so‘rovi (${sum(Number(pay.amount))} so‘m) — 14 kun ichida tasdiqlanmadi, yopildi.`);
+    await notice(Number(pay.parent_id), "payment_rejected", "Naqd to‘lov so‘rovi yopildi", `${sum(Number(pay.amount))} so‘m: 14 kun ichida to‘lanmadi. Kerak bo‘lsa, yangi so‘rov yuboring.`, { amount: Number(pay.amount) });
+  }
+
   // An invitation whose friend paid while the inviter had no child yet is rewarded later.
   const { data: unpaid } = await db.from("sik_referrals").select("invitee").not("paid_at", "is", null).is("rewarded_at", null).limit(20);
   for (const r of unpaid ?? []) { out.referrals++; await rewardReferral(Number(r.invitee)); }
@@ -1454,13 +1509,15 @@ async function api(req: Request, action: string, origin: string): Promise<Respon
     book: () => apiBook(user!, body),
     move: () => apiMove(user!, body),
     pay_check: () => apiPayCheck(user!, body),
+    pay_cash: () => apiPayCash(user!, body),
+    pay_cancel: () => apiPayCancel(user!, body),
     notices: () => apiNotices(user!),
     notices_read: () => apiNoticesRead(user!),
     money: () => apiMoney(user!),
     coins_to_money: () => apiCoinsToMoney(user!, body),
     // staff: checks, cash, the months of the course
     payments: async () => { need("owner", "admin"); return await apiPayments(); },
-    pay_decide: async () => { need("owner"); return await apiPayDecide(user!, body); },
+    pay_decide: async () => { need("owner", "admin"); return await apiPayDecide(user!, body, role); },
     families: async () => { need("owner", "admin"); return await apiFamilies(body); },
     family: async () => { need("owner", "admin"); return await apiFamily(body); },
     cash_add: async () => { need("owner", "admin"); return await apiCashAdd(user!, body, role); },
@@ -1497,7 +1554,7 @@ async function apiState(user: Row, role: string | null) {
   const [balance, unread, pending] = p ? await Promise.all([
     moneyBalance(user.id),
     db.from("sik_notices").select("id", { count: "exact", head: true }).eq("parent_id", user.id).is("read_at", null).then((r: Row) => r.count ?? 0),
-    db.from("sik_payments").select("id,purpose,amount,created_at").eq("parent_id", user.id).eq("status", "pending").order("created_at").then((r: Row) => r.data ?? []),
+    db.from("sik_payments").select("id,purpose,amount,method,created_at").eq("parent_id", user.id).eq("status", "pending").order("created_at").then((r: Row) => r.data ?? []),
   ]) : [0, 0, []];
   return {
     me: { id: user.id, name: parentName(p ?? { tg_name: user.name }), first: String(p?.parent_name ?? user.name ?? "").split(" ")[0], phone: !!p?.phone },
@@ -1613,6 +1670,30 @@ async function apiPayCheck(user: Row, body: Row) {
   await sendCheckToOwners(p, pay, { bytes, mime: m[1], ext });
   return { payment: { id: pay.id, purpose, amount: Number(pay.amount), status: "pending" } };
 }
+// Cash for the studies: the parent pays at the center; an administrator or the owner confirms, and only then the
+// balance grows (with a Kvitansiya receipt «Naqd»).
+async function apiPayCash(user: Row, body: Row) {
+  const p = await parentOf(user.id);
+  if (!p) throw new HttpError(404, "parent");
+  const amount = intIn(body.amount, 10000, 50000000);
+  if (amount === null) throw new HttpError(400, "amount");
+  const { count } = await db.from("sik_payments").select("id", { count: "exact", head: true }).eq("parent_id", user.id).eq("status", "pending");
+  if ((count ?? 0) >= PENDING_MAX) throw new HttpError(429, "pending");
+  const pay = await newPayment(p, "course", [], { amount, source: "app", method: "cash" });
+  await sendCashToStaff(p, pay);
+  return { payment: { id: pay.id, purpose: "course", method: "cash", amount, status: "pending" } };
+}
+// The parent withdraws a cash request that nobody confirmed yet (a card check cannot be withdrawn: the money moved).
+async function apiPayCancel(user: Row, body: Row) {
+  const id = String(body.id ?? "");
+  if (!/^[0-9a-f-]{36}$/.test(id)) throw new HttpError(400, "payment");
+  const { data: rows } = await db.from("sik_payments").update({ status: "rejected", decided_by: user.id, decided_at: new Date().toISOString() })
+    .eq("id", id).eq("parent_id", user.id).eq("status", "pending").eq("method", "cash").select("*");
+  const pay = rows?.[0];
+  if (!pay) throw new HttpError(409, "decided");
+  await closeStaffMessages(pay, `💵 Naqd to‘lov so‘rovi (${sum(Number(pay.amount))} so‘m) — ota-ona bekor qildi.`);
+  return { cancelled: true };
+}
 async function apiNotices(user: Row) {
   const { data } = await db.from("sik_notices").select("id,kind,title,body,data,child_id,read_at,created_at").eq("parent_id", user.id).order("created_at", { ascending: false }).limit(50);
   return { notices: data ?? [], unread: (data ?? []).filter((n: Row) => !n.read_at).length };
@@ -1624,7 +1705,7 @@ async function apiNoticesRead(user: Row) {
 async function apiMoney(user: Row) {
   const [balance, lines, { data: pending }] = await Promise.all([
     moneyBalance(user.id), moneyLines(user.id, 50),
-    db.from("sik_payments").select("id,purpose,amount,created_at").eq("parent_id", user.id).eq("status", "pending").order("created_at"),
+    db.from("sik_payments").select("id,purpose,amount,method,created_at").eq("parent_id", user.id).eq("status", "pending").order("created_at"),
   ]);
   return { balance, lines, pending: pending ?? [] };
 }
@@ -1657,13 +1738,19 @@ async function apiPayments() {
     if (x.file_path) { const { data: u } = await db.storage.from("sik-checks").createSignedUrl(x.file_path, 900); photo = u?.signedUrl ?? null; }
     const { data: bs } = Array.isArray(x.booking_ids) && x.booking_ids.length ? await db.from("sik_bookings").select("child_name,child_age,code").in("id", x.booking_ids) : { data: [] };
     const p = byId.get(Number(x.parent_id)) ?? {};
-    list.push({ id: x.id, purpose: x.purpose, amount: Number(x.amount), created_at: x.created_at, source: x.source, photo, parent_id: Number(x.parent_id), parent: parentName(p), phone: p.phone ?? "", children: (bs ?? []).map((b: Row) => `${b.child_name} (${b.child_age})`) });
+    list.push({ id: x.id, purpose: x.purpose, method: x.method, amount: Number(x.amount), created_at: x.created_at, source: x.source, photo, parent_id: Number(x.parent_id), parent: parentName(p), phone: p.phone ?? "", children: (bs ?? []).map((b: Row) => `${b.child_name} (${b.child_age})`) });
   }
   return { payments: list };
 }
-async function apiPayDecide(user: Row, body: Row) {
-  const r = await decidePayment(String(body.id ?? ""), body.ok === true, user.id, user.name || "Egasi");
+async function apiPayDecide(user: Row, body: Row, role: string | null) {
+  const id = String(body.id ?? "");
+  const { data: pay } = /^[0-9a-f-]{36}$/.test(id) ? await db.from("sik_payments").select("method,amount,parent_id").eq("id", id).maybeSingle() : { data: null };
+  if (!pay) throw new HttpError(404, "payment");
+  if (!canDecide(role, pay)) throw new HttpError(403, "forbidden");
+  const who = user.name || (role === "owner" ? "Egasi" : "Administrator");
+  const r = await decidePayment(id, body.ok === true, user.id, who);
   if (!r.done) throw new HttpError(409, r.status === "missing" ? "payment" : "decided");
+  if (role !== "owner") await cashTakenAlert(who, pay, r);
   return r;
 }
 async function apiFamilies(body: Row) {
