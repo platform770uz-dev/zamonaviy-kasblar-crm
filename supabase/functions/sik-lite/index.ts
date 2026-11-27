@@ -45,6 +45,11 @@ const B2B_POINTS = 300; // monthly points that open B2B orders (plus the teacher
 const COIN_SOM = 100, DISCOUNT_MAX_PCT = 10, PRIZE_SOM = 100000;
 const CODE_TRIES = 10, INVITE_DAYS = 14; // wrong invite codes a day per parent; an unused invite lives two weeks
 const SETTING_KEYS = ["card", "center", "prices", "discounts", "referral", "bot"];
+const CHECK_MAX_BYTES = 4_000_000, PENDING_MAX = 5; // a check photo from the Mini App; open checks a parent may have
+// Receipts go to the academy's Kvitansiya book; its purposes, the verification page and the footer of its receipts.
+const KV_TRIAL = "Sinov mashgʻuloti", KV_OTHER = "Boshqa", KV_PREPAY = "Oʻqish uchun oldindan toʻlov (Super Intellekt Kids)";
+const KV_VERIFY = "https://platform770uz-dev.github.io/yba-kvitansiya/v.html?c=";
+const KV_FOOTER = "Bu toʻlov kvitansiyasi. Davlat soliq xizmatining fiskal cheki emas.";
 const LIVE = ["pending_payment", "check_sent", "paid", "attended", "no_show", "converted"];
 const PAID = ["paid", "attended", "no_show", "converted"];
 const SHORT_DESCRIPTION = "Super Intellekt Kids: bloging, matematika va tez aytish. Super Ayiq har kuni o‘sadi!";
@@ -297,6 +302,60 @@ async function award(childId: string, kind: string, points: number, ref: string,
   if (error && error.code !== "23505") console.error("points insert", error.code);
   return !error;
 }
+// ---------- the bell, the so'm balance, receipts ----------
+// A notice in the parent's bell (the Mini App); the Telegram message, if any, is sent by the caller.
+async function notice(parentId: number, kind: string, title: string, body = "", data: Row = {}, childId: string | null = null) {
+  const out = dryOut();
+  if (out) { out.push({ method: "notice", parent_id: parentId, kind, title, body }); return; }
+  const { error } = await db.from("sik_notices").insert({ parent_id: parentId, child_id: childId, kind, title: title.slice(0, 120), body: body.slice(0, 600) || null, data });
+  if (error) console.error("notice failed", error.code);
+}
+async function moneyBalance(parentId: number): Promise<number> {
+  const { data, error } = await db.rpc("sik_money_balance", { p_parent: parentId });
+  if (error) throw new Error(`balance ${error.code}`);
+  return Number(data) || 0;
+}
+// One line of the family's so'm ledger; false when a line with that ref exists already.
+async function moneyLine(row: Row): Promise<boolean> {
+  if (dryOut()) return true;
+  const { error } = await db.from("sik_money").insert(row);
+  if (error && error.code !== "23505") throw new Error(`money ${error.code}`);
+  return !error;
+}
+type Receipt = { id: string; number: number; code: string; view: Row };
+const kvNo = (n: number) => String(n).padStart(6, "0");
+// An official receipt in the academy's Kvitansiya book (the same numbering and verification code as the Kvitansiya
+// app), and what the Mini App shows of it. null when the book refuses it (the payment itself still counts).
+async function kvReceipt(o: { payer: string; child: string; phone: string | null; trial: boolean; amount: number; method: "Karta" | "Naqd"; paidAt: string }): Promise<Receipt | null> {
+  const name = (s: string, fallback: string) => (s && s.trim().length >= 2 ? s.trim().slice(0, 160) : fallback);
+  const payer = name(o.payer, "Ota-ona"), child = name(o.child, "Farzand");
+  const view = (number: number, code: string) => ({ no: kvNo(number), code, url: KV_VERIFY + code, paid_at: o.paidAt, payer, child, purpose: o.trial ? KV_TRIAL : KV_PREPAY, amount: o.amount, method: o.method, footer: KV_FOOTER });
+  if (dryOut()) return { id: "dry", number: 0, code: "DRYRUN0000", view: view(0, "DRYRUN0000") };
+  const { data, error } = await db.rpc("sik_kv_receipt", {
+    p_payer_name: payer, p_child_name: child, p_phone: o.phone && o.phone.length >= 7 ? o.phone : null,
+    p_purpose: o.trial ? KV_TRIAL : KV_OTHER, p_purpose_other: o.trial ? null : KV_PREPAY, p_amount: o.amount, p_method: o.method, p_paid_at: o.paidAt,
+  });
+  const r = Array.isArray(data) ? data[0] : data;
+  if (error || !r) { console.error("receipt failed", error?.code); return null; }
+  return { id: String(r.receipt_id), number: Number(r.receipt_number), code: String(r.receipt_code), view: view(Number(r.receipt_number), String(r.receipt_code)) };
+}
+const realReceiptId = (r: Receipt | null) => (r && r.id !== "dry" ? r.id : null);
+const receiptOut = (k: Row) => ({
+  no: kvNo(k.number), code: k.code, url: KV_VERIFY + k.code, paid_at: k.paid_at, payer: k.payer_name, child: k.child_name,
+  purpose: k.purpose === KV_OTHER ? k.purpose_other : k.purpose, amount: Number(k.amount), method: k.method, status: k.status, footer: KV_FOOTER,
+});
+// The family's so'm statement, newest first, with the receipt of each payment.
+async function moneyLines(parentId: number, n = 50) {
+  const { data } = await db.from("sik_money").select("id,kind,amount,note,child_id,receipt_id,created_at").eq("parent_id", parentId).order("created_at", { ascending: false }).limit(n);
+  const rids = [...new Set((data ?? []).map((r: Row) => r.receipt_id).filter(Boolean))];
+  const { data: rs } = rids.length ? await db.from("kv_receipts").select("id,number,code,paid_at,payer_name,child_name,purpose,purpose_other,amount,method,status").in("id", rids) : { data: [] };
+  const byId = new Map<string, Row>((rs ?? []).map((r: Row) => [String(r.id), r]));
+  return (data ?? []).map((r: Row) => {
+    const k = r.receipt_id ? byId.get(String(r.receipt_id)) : null;
+    return { kind: r.kind, amount: Number(r.amount), note: r.note, at: r.created_at, child_id: r.child_id, receipt: k ? receiptOut(k) : null };
+  });
+}
+
 // Ledger sums come from the database (PostgREST returns at most 1000 rows per request).
 type Totals = { points: number; period: number; coins: number };
 async function totals(ids: string[], since = leagueStart(true)): Promise<Record<string, Totals>> {
@@ -420,9 +479,13 @@ async function claimChild(id: string, kind: string) {
   return !error;
 }
 // A booking became paid: Lite opens for its child until the lesson end + 48 h, and a friend's invitation pays off.
-async function bookingPaid(b: Row, l: Row | null, by: number | null) {
+// The price paid for it stays on the family's so'm balance until then and pays for the first month, or for the trial.
+async function bookingPaid(b: Row, l: Row | null, by: number | null, amount: number | null = null, paymentId: string | null = null) {
   const until = l ? lessonEnd(l) + AFTER_MS : Date.now() + AFTER_MS;
-  const patch = { status: "paid", paid_at: new Date().toISOString(), confirmed_by: by, access_until: iso(until), credit_until: iso(until), updated_at: new Date().toISOString() };
+  const patch = {
+    status: "paid", paid_at: new Date().toISOString(), confirmed_by: by, access_until: iso(until), credit_until: iso(until), updated_at: new Date().toISOString(),
+    ...(amount ? { paid_amount: amount } : {}), ...(paymentId ? { payment_id: paymentId } : {}),
+  };
   await db.from("sik_bookings").update(patch).eq("id", b.id);
   Object.assign(b, patch);
   const child = b.child_id ? await childById(b.child_id) : null;
@@ -527,7 +590,9 @@ async function rewardReferral(inviteeId: number) {
   await db.from("sik_referrals").update({ paid_at: r.paid_at ?? at, ...(target ? { rewarded_at: at } : {}) }).eq("invitee", inviteeId);
   if (!target || !s.referral.inviter_coins) return;
   const { error } = dryOut() ? { error: null } : await db.from("sik_coins").insert({ child_id: target.id, kind: "referral", amount: s.referral.inviter_coins, note: "Do‘st taklifi", ref: `ref:${inviteeId}` });
-  if (!error) await send(r.inviter, `🎁 Do‘stingiz to‘lov qildi — <b>${esc(target.name)}</b> hamyoniga <b>+${s.referral.inviter_coins} tanga</b> (${sum(s.referral.inviter_coins * COIN_SOM)} so‘m)!`, inline([[app("🐻 Hamyonni ochish", "#wallet")]]));
+  if (error) return;
+  await send(r.inviter, `🎁 Do‘stingiz to‘lov qildi — <b>${esc(target.name)}</b> hamyoniga <b>+${s.referral.inviter_coins} tanga</b> (${sum(s.referral.inviter_coins * COIN_SOM)} so‘m)!`, inline([[app("🐻 Hamyonni ochish", "#wallet")]]));
+  await notice(r.inviter, "coins", `+${s.referral.inviter_coins} tanga`, `Do‘st taklifi: ${target.name} hamyoniga`, {}, target.id);
 }
 async function priceFor(p: Row, s: Settings) {
   return Math.max(0, s.prices.price - (p.referred_by ? s.referral.friend_discount : 0));
@@ -565,6 +630,8 @@ async function onUpdate(u: Row) {
   if (text === "/admin") return await adminButton(p);
   if (m.contact) {
     if (m.contact.user_id && m.contact.user_id !== m.from.id) return await send(p.telegram_id, "Iltimos, o‘zingizning raqamingizni yuboring — pastdagi tugma orqali.", phoneKeyboard());
+    // Shared from the Mini App's «Raqamni ulash»: the app goes on by itself, the chat stays quiet.
+    if (p.state === "app") { await savePhone(p, m.contact.phone_number); return; }
     if (p.state === "phone" || !p.phone) {
       const k = phoneKey(m.contact.phone_number);
       return k ? await gotPhone(p, k) : await send(p.telegram_id, "Bu raqam O‘zbekiston raqamiga o‘xshamayapti. Raqamni yozib yuboring: masalan, 90 123 45 67.");
@@ -602,9 +669,19 @@ async function welcome(p: Row) {
     `🏫 Sinov paketi — <b>${sum(price)} so‘m</b>${price < s.prices.price ? ` (do‘st taklifi bilan, odatda ${sum(s.prices.price)})` : ""}: markazda ochiq dars + 48 soat Super Ayiq ilovasi.`,
     `🎁 Asosiy kursga dars kunidan keyingi 48 soat ichida yozilsangiz, ${sum(s.prices.price)} so‘m birinchi oydan chegiriladi.`,
     "",
-    "Ro‘yxatdan o‘tish 1 daqiqa 👇",
+    "Boshlash 1 daqiqa: farzandingiz ismi va yoshi — keyin Super Ayiq 👇",
   ].join("\n");
-  return await send(p.telegram_id, text, inline([[cb("📝 Ro‘yxatdan o‘tish", "REG")], [cb("🔢 Menda kod bor", "CODE")]]));
+  return await send(p.telegram_id, text, inline([[app("🐻 Boshlash")], [cb("🔢 Menda kod bor", "CODE")]]));
+}
+// The parent's phone, shared with the Telegram button (the bot chat or the Mini App); a non-Uzbek number is kept as is.
+async function savePhone(p: Row, raw: unknown): Promise<boolean> {
+  const k = phoneKey(raw), digits = String(raw ?? "").replace(/\D/g, "");
+  const phone = k ? `+998${k}` : digits.length >= 10 && digits.length <= 15 ? `+${digits}` : "";
+  if (!phone) return false;
+  await saveParent(p, { phone, phone_key: k || digits });
+  const { count } = await db.from("sik_bookings").select("id", { count: "exact", head: true }).eq("parent_id", p.telegram_id);
+  if (!count) await crmProspect(p);
+  return true;
 }
 
 const phoneKeyboard = () => ({ reply_markup: { keyboard: [[{ text: "📱 Raqamni yuborish", request_contact: true }]], resize_keyboard: true, one_time_keyboard: true } });
@@ -628,8 +705,7 @@ async function askChild(p: Row) {
 }
 const askAge = (p: Row) => send(p.telegram_id, `🎂 ${esc(p.state_data?.child_name ?? "Farzandingiz")} necha yoshda?`, inline(AGE_ROWS));
 async function gotPhone(p: Row, k: string) {
-  await saveParent(p, { phone: `+998${k}`, phone_key: k });
-  await crmProspect(p);
+  await savePhone(p, k);
   await send(p.telegram_id, "✅ Raqam qabul qilindi.", { reply_markup: { remove_keyboard: true } });
   return p.parent_name ? await askChild(p) : await askParentName(p);
 }
@@ -734,42 +810,136 @@ async function paymentInfo(p: Row, b: Row, lesson: Row | null) {
   return await send(p.telegram_id, lines.join("\n"), inline([[cb("➕ Yana bir farzandni yozish", "NEW")], [cb("🔁 Boshqa kunni tanlash", `RS:${b.code}`)]]));
 }
 
-// A photo or file of the card transfer covers every booking of this parent that waits for payment.
+// ---------- card payments with a check (the Mini App or the bot chat) ----------
+// Trial bookings of this parent that wait for the money: held seats, or a lapsed hold whose lesson is still ahead.
+async function dueBookings(parentId: number): Promise<Row[]> {
+  const { data } = await db.from("sik_bookings").select("*").eq("parent_id", parentId).in("status", ["pending_payment", "expired"]).gte("created_at", iso(Date.now() - 7 * 86400000)).order("created_at");
+  const lessons = await lessonsById((data ?? []).map((b: Row) => b.lesson_id));
+  const now = Date.now();
+  return (data ?? []).filter((b: Row) => b.status === "pending_payment" || (lessons[b.lesson_id] && Date.parse(lessons[b.lesson_id].starts_at) > now));
+}
+// A reported transfer: trial = the price of every due booking (they wait as check_sent), course = the amount given.
+async function newPayment(p: Row, purpose: "trial" | "course", bookings: Row[], o: Row): Promise<Row> {
+  const s = await settings();
+  const amount = purpose === "trial" ? (await priceFor(p, s)) * bookings.length : Number(o.amount);
+  const { data, error } = await db.from("sik_payments").insert({
+    parent_id: p.telegram_id, purpose, amount, booking_ids: bookings.map((b) => b.id), source: o.source,
+    file_path: o.file_path ?? null, file_id: o.file_id ?? null, file_kind: o.file_kind ?? null,
+  }).select("*").single();
+  if (error || !data) throw new Error(`payment insert ${error?.code}`);
+  if (bookings.length) {
+    const at = new Date().toISOString();
+    await db.from("sik_bookings").update({ status: "check_sent", check_id: data.id, payment_id: data.id, check_sent_at: at, hold_until: null, updated_at: at }).in("id", bookings.map((b) => b.id));
+    const lessons = await lessonsById(bookings.map((b) => b.lesson_id));
+    for (const b of bookings) await crmBooking({ ...b, status: "check_sent" }, p, lessons[b.lesson_id] ?? null);
+  }
+  return data;
+}
+async function payCaption(p: Row, pay: Row) {
+  const lines = [`💳 <b>Super Intellekt Kids: ${pay.purpose === "trial" ? "sinov darsi to‘lovi" : "o‘qish uchun to‘lov"}</b>`, `👤 ${esc(parentName(p))} · ${esc(p.phone ?? "")}`];
+  if (Array.isArray(pay.booking_ids) && pay.booking_ids.length) {
+    const { data: bs } = await db.from("sik_bookings").select("child_name,child_age,code,lesson_id").in("id", pay.booking_ids);
+    const lessons = await lessonsById((bs ?? []).map((b: Row) => b.lesson_id));
+    for (const b of bs ?? []) { const l = lessons[b.lesson_id]; lines.push(`👦 ${esc(b.child_name)}, ${b.child_age} yosh${l ? ` — ${fmtShort(l.starts_at)}` : ""} · №${b.code}`); }
+  }
+  lines.push(`💰 Summa: <b>${sum(pay.amount)} so‘m</b>${pay.purpose === "trial" && p.referred_by ? " (do‘st taklifi chegirmasi bilan)" : ""}`, "", "Kartaga pul tushganini tekshirib, tasdiqlang.");
+  return lines.join("\n").slice(0, 900);
+}
+// A file for Telegram as multipart (the check photo uploaded in the Mini App).
+async function tgUpload(method: string, field: string, bytes: Uint8Array, filename: string, mime: string, fields: Row): Promise<Row> {
+  const out = dryOut();
+  if (out) { out.push({ method, ...fields, [field]: `<${bytes.length} bytes>` }); return { ok: true, result: { message_id: out.length, photo: [{ file_id: "dry" }] } }; }
+  if (!TOKEN) return { ok: false, description: "no_token" };
+  try {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(fields)) fd.append(k, typeof v === "string" ? v : JSON.stringify(v));
+    fd.append(field, new Blob([bytes], { type: mime }), filename);
+    const r = await fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, { method: "POST", body: fd, signal: AbortSignal.timeout(20000) });
+    const j = await r.json().catch(() => ({ ok: false, description: `http ${r.status}` }));
+    if (!j.ok) console.error("telegram", method, String(j.description ?? "").slice(0, 120));
+    return j;
+  } catch {
+    console.error("telegram upload failed", method);
+    return { ok: false, description: "network" };
+  }
+}
+// The check goes to every owner with «Tasdiqlash / Rad etish» (also in Boshqaruv → To‘lovlar).
+async function sendCheckToOwners(p: Row, pay: Row, f: { fileId?: string; kind?: string; bytes?: Uint8Array; mime?: string; ext?: string }) {
+  const caption = await payCaption(p, pay);
+  const buttons = { inline_keyboard: [[cb("✅ Tasdiqlash", `PAY:OK:${pay.id}`), cb("❌ Rad etish", `PAY:NO:${pay.id}`)]] };
+  const sent: Row[] = [];
+  let fileId = f.fileId ?? null, kind = f.kind ?? "photo";
+  for (const chat of await ownerIds()) {
+    let r: Row;
+    if (!fileId && f.bytes) {
+      r = await tgUpload("sendPhoto", "photo", f.bytes, `chek.${f.ext ?? "jpg"}`, f.mime ?? "image/jpeg", { chat_id: String(chat), caption, parse_mode: "HTML", reply_markup: buttons });
+      const ph = r.result?.photo;
+      if (r.ok && Array.isArray(ph) && ph.length) { fileId = String(ph[ph.length - 1].file_id); kind = "photo"; }
+    } else if (fileId) {
+      r = await tg(kind === "photo" ? "sendPhoto" : "sendDocument", { chat_id: chat, [kind]: fileId, caption, parse_mode: "HTML", reply_markup: buttons });
+    } else continue;
+    if (r.ok && r.result?.message_id) sent.push({ chat_id: chat, message_id: r.result.message_id });
+  }
+  if (!dryOut()) await db.from("sik_payments").update({ messages: sent, ...(fileId && !pay.file_id ? { file_id: fileId, file_kind: kind } : {}) }).eq("id", pay.id);
+  if (!sent.length) await ownersAlert(`💳 <b>Super Intellekt Kids</b>: to‘lov cheki (${sum(pay.amount)} so‘m) tasdiqlashni kutmoqda, lekin bot sizga yoza olmadi. Botni oching va /start bosing — yoki ilovada «Boshqaruv» → «To‘lovlar».`, null);
+}
+// A check photo or file sent to the bot chat covers every booking of this parent that waits for payment.
 async function onCheck(p: Row, m: Row) {
   const kind = m.photo ? "photo" : "document";
   const fileId = m.photo ? m.photo[m.photo.length - 1]?.file_id : m.document?.file_id;
   if (!fileId) return;
-  const { data } = await db.from("sik_bookings").select("*").eq("parent_id", p.telegram_id).in("status", ["pending_payment", "expired"]).gte("created_at", iso(Date.now() - 7 * 86400000)).order("created_at");
-  const lessons = await lessonsById((data ?? []).map((b: Row) => b.lesson_id));
-  const now = Date.now();
-  const due = (data ?? []).filter((b: Row) => b.status === "pending_payment" || (lessons[b.lesson_id] && Date.parse(lessons[b.lesson_id].starts_at) > now));
+  const due = await dueBookings(p.telegram_id);
   if (!due.length) {
-    const { data: waiting } = await db.from("sik_bookings").select("id").eq("parent_id", p.telegram_id).eq("status", "check_sent").limit(1);
-    return await send(p.telegram_id, waiting?.length ? "Chekingiz tekshirilmoqda — biroz kuting 🙏" : "Hozir to‘lov kutilayotgan bron yo‘q. Ro‘yxatdan o‘tish uchun /start bosing.");
+    const { data: waiting } = await db.from("sik_payments").select("id").eq("parent_id", p.telegram_id).eq("status", "pending").limit(1);
+    return await send(p.telegram_id, waiting?.length ? "Chekingiz tekshirilmoqda — biroz kuting 🙏" : "Hozir to‘lov kutilayotgan yozuv yo‘q. O‘qish uchun to‘lov — ilovada: «Hamyon» → «To‘ldirish».", inline([[app("💼 Hamyon", "#wallet")]]));
   }
-  const checkId = crypto.randomUUID();
-  const at = new Date().toISOString();
-  await db.from("sik_bookings").update({ status: "check_sent", check_id: checkId, check_file_id: fileId, check_kind: kind, check_sent_at: at, hold_until: null, updated_at: at }).in("id", due.map((b: Row) => b.id));
-  await send(p.telegram_id, "🙏 Rahmat! Chek tekshirilmoqda — odatda 30 daqiqagacha. Tasdiqlangach, shu yerga xabar keladi va Super Ayiq ochiladi.");
-  const s = await settings();
-  const caption = checkCaption(p, due, lessons, await priceFor(p, s));
-  const sent: Row[] = [];
-  for (const chat of await ownerIds()) {
-    const r = await tg(kind === "photo" ? "sendPhoto" : "sendDocument", { chat_id: chat, [kind]: fileId, caption, parse_mode: "HTML", ...inline([[cb("✅ Tasdiqlash", `PAY:OK:${checkId}`), cb("❌ Rad etish", `PAY:NO:${checkId}`)]]) });
-    if (r.ok && r.result?.message_id) sent.push({ chat_id: chat, message_id: r.result.message_id });
-  }
-  if (!dryOut()) await db.from("sik_bookings").update({ check_messages: sent }).eq("check_id", checkId);
-  if (!sent.length) await ownersAlert(`💳 <b>Super Intellekt Kids</b>: to‘lov cheki tasdiqlashni kutmoqda, lekin bot sizga yoza olmadi.\nBotni oching va /start bosing${s.bot.username ? `: @${esc(s.bot.username)}` : ""}.`, null);
-  for (const b of due) await crmBooking({ ...b, status: "check_sent" }, p, lessons[b.lesson_id] ?? null);
+  const pay = await newPayment(p, "trial", due, { source: "chat", file_id: fileId, file_kind: kind });
+  await send(p.telegram_id, "🙏 Rahmat! Chek tekshirilmoqda — odatda 30 daqiqagacha. Tasdiqlangach, shu yerga xabar keladi va Super Ayiq uyg‘onadi.");
+  await sendCheckToOwners(p, pay, { fileId, kind });
 }
-function checkCaption(p: Row, list: Row[], lessons: Record<string, Row>, price: number) {
-  const lines = ["💳 <b>Super Intellekt Kids: to‘lov cheki</b>", `👤 ${esc(parentName(p))} · ${esc(p.phone ?? "")}`];
-  for (const b of list) {
-    const l = lessons[b.lesson_id];
-    lines.push(`👦 ${esc(b.child_name)}, ${b.child_age} yosh${l ? ` — ${fmtShort(l.starts_at)}` : ""} · №${b.code}${b.status === "expired" ? " ⚠️ bron muddati o‘tgan edi" : ""}`);
+// The owner's word on a check: confirmed = the receipt in the Kvitansiya book, the money on the family's balance,
+// the trial bookings paid (Lite opens); rejected = the bookings wait for a new check (2 more hours).
+async function decidePayment(id: string, ok: boolean, by: number, byName: string): Promise<{ done: boolean; status: string; receipt?: Row | null }> {
+  if (!/^[0-9a-f-]{36}$/.test(id)) return { done: false, status: "missing" };
+  const at = new Date().toISOString();
+  const { data: rows } = await db.from("sik_payments").update({ status: ok ? "confirmed" : "rejected", decided_by: by, decided_at: at }).eq("id", id).eq("status", "pending").select("*");
+  const pay = rows?.[0];
+  if (!pay) {
+    const { data: was } = await db.from("sik_payments").select("status").eq("id", id).maybeSingle();
+    return { done: false, status: was?.status ?? "missing" };
   }
-  lines.push(`💰 Kutilgan summa: <b>${sum(price * list.length)} so‘m</b>${p.referred_by ? " (do‘st taklifi chegirmasi bilan)" : ""}`, "", "Kartaga pul tushganini tekshirib, tasdiqlang.");
-  return lines.join("\n").slice(0, 1000);
+  const p = await parentOf(pay.parent_id) ?? { telegram_id: pay.parent_id };
+  const ids: string[] = Array.isArray(pay.booking_ids) ? pay.booking_ids : [];
+  const { data: found } = ids.length ? await db.from("sik_bookings").select("*").in("id", ids) : { data: [] };
+  const bs: Row[] = (found ?? []).filter((b: Row) => b.status === "check_sent" && b.check_id === pay.id);
+  const lessons = await lessonsById(bs.map((b) => b.lesson_id));
+  const amount = Number(pay.amount);
+  let receipt: Receipt | null = null;
+  if (ok) {
+    const kids = bs.length ? bs.map((b) => b.child_name) : (await childrenOf(pay.parent_id)).map((c) => c.name);
+    receipt = await kvReceipt({ payer: parentName(p), child: kids.join(", "), phone: p.phone ?? null, trial: pay.purpose === "trial", amount, method: "Karta", paidAt: pay.created_at });
+    if (realReceiptId(receipt)) await db.from("sik_payments").update({ receipt_id: realReceiptId(receipt) }).eq("id", pay.id);
+    await moneyLine({ parent_id: pay.parent_id, kind: "payment", amount, note: pay.purpose === "trial" ? "Sinov darsi to‘lovi (karta)" : "O‘qish uchun to‘lov (karta)", ref: `pay:${pay.id}`, payment_id: pay.id, receipt_id: realReceiptId(receipt), created_by: by });
+    const each = bs.length ? Math.round(amount / bs.length) : 0;
+    for (const b of bs) { await bookingPaid(b, lessons[b.lesson_id] ?? null, by, each, pay.id); await crmBooking(b, p, lessons[b.lesson_id] ?? null); }
+    const balance = dryOut() ? 0 : await moneyBalance(pay.parent_id);
+    if (pay.purpose === "trial" && bs.length) await paidMessage(p, bs, lessons, receipt, balance);
+    else await send(pay.parent_id, [`✅ <b>To‘lov qabul qilindi:</b> +${sum(amount)} so‘m`, `💼 Balans: <b>${sum(balance)} so‘m</b>`, receipt ? `🧾 Kvitansiya №${kvNo(receipt.number)}` : ""].filter(Boolean).join("\n"), inline([[app("💼 Hamyon", "#wallet")]]));
+    await notice(pay.parent_id, "payment", pay.purpose === "trial" ? "Sinov darsi to‘lovi tasdiqlandi" : "To‘lov qabul qilindi", `+${sum(amount)} so‘m · balans ${sum(balance)} so‘m`, { amount, receipt: receipt?.view ?? null });
+  } else {
+    const hold = iso(Date.now() + HOLD_MIN * 60000);
+    for (const b of bs) {
+      const patch = { status: "pending_payment", check_id: null, hold_until: hold, rejected_count: (b.rejected_count ?? 0) + 1, updated_at: at };
+      await db.from("sik_bookings").update(patch).eq("id", b.id).eq("status", "check_sent");
+      Object.assign(b, patch);
+      await crmBooking(b, p, lessons[b.lesson_id] ?? null);
+    }
+    await send(pay.parent_id, `😔 To‘lov tasdiqlanmadi — kartaga mablag‘ tushgani ko‘rinmadi. Chekni tekshirib, qayta yuboring.${bs.length ? " Joy yana 2 soat saqlanadi." : ""}`, inline([[app("💳 Qayta yuborish", pay.purpose === "trial" ? "" : "#wallet")]]));
+    await notice(pay.parent_id, "payment_rejected", "To‘lov tasdiqlanmadi", `${sum(amount)} so‘m: kartaga mablag‘ tushgani ko‘rinmadi. Chekni tekshirib, qayta yuboring.`, { amount });
+  }
+  const caption = `${await payCaption(p, pay)}\n\n${ok ? "✅ Tasdiqlandi" : "❌ Rad etildi"} — ${esc(byName)}, ${fmtShort(at)}${receipt ? ` · Kvitansiya №${kvNo(receipt.number)}` : ""}`;
+  for (const c of Array.isArray(pay.messages) ? pay.messages : []) await tg("editMessageCaption", { chat_id: c.chat_id, message_id: c.message_id, caption: caption.slice(0, 1024), parse_mode: "HTML", reply_markup: { inline_keyboard: [] } });
+  return { done: true, status: ok ? "confirmed" : "rejected", receipt: receipt?.view ?? null };
 }
 
 async function onCallback(cq: Row) {
@@ -802,45 +972,22 @@ async function onCallback(cq: Row) {
   return await showMenu(p);
 }
 
-async function payDecision(cq: Row, ok: boolean, checkId: string) {
+async function payDecision(cq: Row, ok: boolean, id: string) {
   if (!(await ownerIds()).includes(cq.from.id)) return await answer(cq, "Faqat egasi tasdiqlaydi");
-  if (!/^[0-9a-f-]{36}$/.test(checkId)) return await answer(cq);
-  const { data } = await db.from("sik_bookings").select("*").eq("check_id", checkId);
-  const list = (data ?? []).filter((b: Row) => b.status === "check_sent");
-  if (!list.length) {
-    if (cq.message) await tg("editMessageReplyMarkup", { chat_id: cq.message.chat.id, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] } });
-    return await answer(cq, "Bu chek allaqachon ko‘rib chiqilgan");
-  }
-  const p = await parentOf(list[0].parent_id) ?? { telegram_id: list[0].parent_id };
-  const lessons = await lessonsById(list.map((b: Row) => b.lesson_id));
-  const at = new Date().toISOString();
-  if (ok) {
-    for (const b of list) { await bookingPaid(b, lessons[b.lesson_id] ?? null, cq.from.id); await crmBooking(b, p, lessons[b.lesson_id] ?? null); }
-    await paidMessage(p, list, lessons);
-  } else {
-    const hold = iso(Date.now() + HOLD_MIN * 60000);
-    for (const b of list) {
-      const patch = { status: "pending_payment", check_id: null, hold_until: hold, rejected_count: (b.rejected_count ?? 0) + 1, updated_at: at };
-      await db.from("sik_bookings").update(patch).eq("id", b.id).eq("status", "check_sent");
-      Object.assign(b, patch);
-      await crmBooking(b, p, lessons[b.lesson_id] ?? null);
-    }
-    await send(p.telegram_id, "😔 To‘lov tasdiqlanmadi — kartaga mablag‘ tushgani ko‘rinmadi. Chekni tekshirib, qayta yuboring. Joy yana 2 soat saqlanadi.");
-  }
-  const who = esc([cq.from.first_name, cq.from.last_name].filter(Boolean).join(" ") || "Egasi");
-  const caption = `${checkCaption(p, list, lessons, await priceFor(p, await settings()))}\n\n${ok ? "✅ Tasdiqlandi" : "❌ Rad etildi"} — ${who}, ${fmtShort(at)}`;
-  const copies: Row[] = Array.isArray(list[0].check_messages) ? [...list[0].check_messages] : [];
-  if (cq.message && !copies.some((c) => c.chat_id === cq.message.chat.id && c.message_id === cq.message.message_id)) copies.push({ chat_id: cq.message.chat.id, message_id: cq.message.message_id });
-  for (const c of copies) await tg("editMessageCaption", { chat_id: c.chat_id, message_id: c.message_id, caption, parse_mode: "HTML", reply_markup: { inline_keyboard: [] } });
+  const who = [cq.from.first_name, cq.from.last_name].filter(Boolean).join(" ") || "Egasi";
+  const r = await decidePayment(id, ok, cq.from.id, who);
+  if (cq.message) await tg("editMessageReplyMarkup", { chat_id: cq.message.chat.id, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] } });
+  if (!r.done) return await answer(cq, r.status === "missing" ? "Chek topilmadi" : "Bu chek allaqachon ko‘rib chiqilgan");
   return await answer(cq, ok ? "Tasdiqlandi ✅" : "Rad etildi");
 }
-async function paidMessage(p: Row, list: Row[], lessons: Record<string, Row>) {
+async function paidMessage(p: Row, list: Row[], lessons: Record<string, Row>, receipt: Receipt | null, balance: number) {
   const s = await settings();
   const lines = ["🎉 <b>To‘lov tasdiqlandi!</b>", ""];
   for (const b of list) { const l = lessons[b.lesson_id]; lines.push(`👦 ${esc(b.child_name)} — ${l ? fmtWhen(l.starts_at) : "dars kuni keyinroq aytiladi"}`); }
   lines.push(...centerLines(s));
-  lines.push("", `🐻 Super Ayiq uyg‘ondi! Har kuni 1 ta tez aytish — ayiqcha o‘sadi. Ilova ${fmtWhen(list[0].access_until)} gacha ochiq.`);
-  return await send(p.telegram_id, lines.join("\n"), inline([[app("🐻 Super Ayiq’ni ochish")], [cb("📋 Mening yozuvlarim", "MENU")]]));
+  if (receipt) lines.push("", `🧾 Kvitansiya №${kvNo(receipt.number)} · balans ${sum(balance)} so‘m (1-oy to‘loviga hisoblanadi)`);
+  if (list[0]?.access_until) lines.push("", `🐻 Super Ayiq uyg‘ondi! Har kuni 1 ta tez aytish — ayiqcha o‘sadi. Ilova ${fmtWhen(list[0].access_until)} gacha ochiq.`);
+  return await send(p.telegram_id, lines.join("\n"), inline([[app("🐻 Super Ayiq’ni ochish")]]));
 }
 
 const STATUS_LINE: Record<string, string> = {
@@ -885,6 +1032,12 @@ async function doMove(p: Row, b: Row, id8: string) {
   if (!canMove(b)) return await startMove(p, b);
   const lesson = (await openLessons(b.lesson_id)).find((l) => l.id.startsWith(id8));
   if (!lesson) return await askLessons(p, b, "Bu darsda joy qolmadi.");
+  await moveBooking(b, lesson);
+  await crmBooking(b, p, lesson);
+  return await send(p.telegram_id, `✅ Dars ko‘chirildi: <b>${esc(b.child_name)}</b> — ${fmtWhen(lesson.starts_at)}${b.status === "paid" ? "\nBepul ko‘chirish ishlatildi." : ""}`, inline([[cb("📋 Mening yozuvlarim", "MENU")]]));
+}
+// Another lesson for a booking (the one free reschedule of a paid one moves Lite and the credit along).
+async function moveBooking(b: Row, lesson: Row) {
   const patch: Row = { lesson_id: lesson.id, updated_at: new Date().toISOString() };
   if (b.status === "paid") {
     const until = lessonEnd(lesson) + AFTER_MS;
@@ -894,9 +1047,7 @@ async function doMove(p: Row, b: Row, id8: string) {
   }
   await db.from("sik_bookings").update(patch).eq("id", b.id);
   await db.from("sik_sent").delete().eq("booking_id", b.id).in("kind", ["r24", "r2"]);
-  Object.assign(b, patch);
-  await crmBooking(b, p, lesson);
-  return await send(p.telegram_id, `✅ Dars ko‘chirildi: <b>${esc(b.child_name)}</b> — ${fmtWhen(lesson.starts_at)}${b.status === "paid" ? "\nBepul ko‘chirish ishlatildi." : ""}`, inline([[cb("📋 Mening yozuvlarim", "MENU")]]));
+  Object.assign(b, patch, { lesson });
 }
 async function rebook(p: Row, b: Row) {
   if (b.status !== "expired") return await showMenu(p);
@@ -938,7 +1089,9 @@ async function redeemInvite(p: Row, code: string) {
   const k = phoneKey(inv.phone);
   await saveParent(p, { parent_name: p.parent_name ?? inv.parent_name ?? null, ...(k && !p.phone ? { phone: `+998${k}`, phone_key: k } : {}), source: p.source ?? "admin", state: "done", state_data: {} });
   const lesson = inv.lesson_id ? (await lessonsById([inv.lesson_id]))[inv.lesson_id] ?? null : null;
+  const price = (await settings()).prices.price;
   const made: Row[] = [];
+  let paidCount = 0;
   for (const raw of Array.isArray(inv.children) ? inv.children : []) {
     const name = cleanName(raw?.name), age = intIn(raw?.age, 3, 18);
     if (!name || !age) continue;
@@ -947,21 +1100,26 @@ async function redeemInvite(p: Row, code: string) {
     if (child.status === "student" || b) { made.push({ child, b }); continue; }
     if (lesson) {
       b = await createBooking({ parent_id: p.telegram_id, child_id: child.id, child_name: name, child_age: age, lesson_id: lesson.id, status: inv.paid ? "paid" : "pending_payment", hold_until: inv.paid ? null : iso(Date.now() + HOLD_MIN * 60000), source: "admin" });
-      if (inv.paid) await bookingPaid(b, lesson, Number(inv.created_by) || null);
+      if (inv.paid) { await bookingPaid(b, lesson, Number(inv.created_by) || null, price); paidCount++; }
       await crmBooking(b, p, lesson);
-    } else if (inv.paid) await openTrial(child, Date.now() + AFTER_MS);
+    } else if (inv.paid) { await openTrial(child, Date.now() + AFTER_MS); paidCount++; }
     made.push({ child, b });
   }
   if (!made.length) return await showMenu(p);
   const names = made.map((x) => esc(x.child.name)).join(", ");
   if (inv.paid) {
+    // The cash the administrator took at the meeting: a receipt and the family's balance (as a card payment would).
+    if (paidCount) {
+      const amount = price * paidCount;
+      const receipt = await kvReceipt({ payer: parentName(p), child: made.map((x) => x.child.name).join(", "), phone: p.phone ?? null, trial: true, amount, method: "Naqd", paidAt: inv.created_at });
+      if (await moneyLine({ parent_id: p.telegram_id, kind: "cash", amount, note: "Sinov darsi to‘lovi (naqd)", ref: `inv:${inv.code}`, receipt_id: realReceiptId(receipt), created_by: Number(inv.created_by) || null })) {
+        await notice(p.telegram_id, "payment", "Sinov darsi to‘lovi qabul qilindi", `+${sum(amount)} so‘m (naqd)`, { amount, receipt: receipt?.view ?? null });
+      }
+    }
     const until = made.map((x) => x.child.access_until).filter(Boolean).sort().pop();
     return await send(p.telegram_id, [`✅ Xush kelibsiz, ${esc(parentName(p))}!`, `<b>${names}</b> — Super Intellekt Kids oilasida.`, lesson ? `📅 Sinov darsi: ${fmtWhen(lesson.starts_at)}` : "", "", `🐻 Super Ayiq uyg‘ondi! Har kuni 1 ta tez aytish — ayiqcha o‘sadi.${until ? ` Ilova ${fmtWhen(until)} gacha ochiq.` : ""}`].filter((x) => x !== "").join("\n"), inline([[app("🐻 Super Ayiq’ni ochish")]]));
   }
-  if (made[0].b) return await paymentInfo(p, made[0].b, lesson);
-  await send(p.telegram_id, `✅ Xush kelibsiz! <b>${names}</b> ro‘yxatga olindi. Endi sinov darsi kunini tanlang.`);
-  await saveParent(p, { state: "lesson", state_data: { child_name: made[0].child.name, child_age: made[0].child.age } });
-  return await askLessons(p);
+  return await send(p.telegram_id, `✅ Xush kelibsiz, ${esc(parentName(p))}! <b>${names}</b> ro‘yxatga olindi.\n${made[0].b ? "📅 Joy band qilindi — to‘lov va chek ilovada." : "📅 Sinov darsi kuni va to‘lov — ilovada."}`, inline([[app("🐻 Super Ayiq’ni ochish")]]));
 }
 
 // ---------- staff ----------
@@ -1031,7 +1189,10 @@ async function recordDz(tgId: number, childId: string, twister: number | null, s
     const add = stars - Number(had.stars);
     await award(c.id, "dz", add, `dz:${day}:${stars}`, `Tez aytish ${stars}⭐`);
     const total = before + add, level = levelOf(total), levelUp = level > levelOf(before);
-    if (levelUp) await send(tgId, `🐻 ${esc(c.bear_name)} o‘sdi: <b>${level}-daraja — ${LEVEL_NAMES[level - 1]}</b>! (${esc(c.name)}, ${stars}⭐)`, inline([[app("🐻 Super Ayiq")]]));
+    if (levelUp) {
+      await send(tgId, `🐻 ${esc(c.bear_name)} o‘sdi: <b>${level}-daraja — ${LEVEL_NAMES[level - 1]}</b>! (${esc(c.name)}, ${stars}⭐)`, inline([[app("🐻 Super Ayiq")]]));
+      await notice(tgId, "level", `${level}-daraja: ${LEVEL_NAMES[level - 1]}`, `${c.bear_name} o‘sdi (${c.name})`, { level }, c.id);
+    }
     return { ok: true, recorded: true, upgraded: true, child: c.id, stars, points: add, total, level, levelUp };
   }
   const pts = DZ_BASE + stars;
@@ -1047,13 +1208,14 @@ async function recordDz(tgId: number, childId: string, twister: number | null, s
   else if (streak > 1) lines.push(`🔥 ${streak} kun ketma-ket`);
   lines.push(levelUp ? `🐻 ${esc(c.bear_name)} o‘sdi: <b>${level}-daraja — ${LEVEL_NAMES[level - 1]}</b>!` : `🐻 ${esc(c.bear_name)}: ${level}-daraja · jami ${total} ball`);
   await send(tgId, lines.join("\n"), inline([[app("🐻 Super Ayiq")]]));
+  await notice(tgId, "dz", `+${pts + bonus} ball`, `${c.name}: bugungi tez aytish ${stars ? "⭐".repeat(stars) : "aytildi"}${bonus ? ` · ${streak} kun ketma-ket +${bonus}` : ""}${levelUp ? ` · ${level}-daraja: ${LEVEL_NAMES[level - 1]}!` : ""}`, { stars, points: pts + bonus }, c.id);
   return { ok: true, recorded: true, child: c.id, stars, points: pts, bonus, streak, total, level, levelUp };
 }
 
 // ---------- tick (pg_cron, every 5 minutes) ----------
 async function tick() {
   const now = Date.now();
-  const out: Record<string, number> = { expired: 0, hold1: 0, r24: 0, r2: 0, offer0: 0, offer12: 0, closed: 0, abandoned: 0, evening: 0, weekly: 0, referrals: 0, prize: 0 };
+  const out: Record<string, number> = { expired: 0, hold1: 0, r24: 0, r2: 0, offer0: 0, offer12: 0, closed: 0, abandoned: 0, evening: 0, weekly: 0, referrals: 0, prize: 0, trial: 0 };
   const s = await settings();
   const parents = new Map<number, Row | null>();
   const parent = async (id: number) => { if (!parents.has(id)) parents.set(id, await parentOf(id)); return parents.get(id) ?? null; };
@@ -1071,7 +1233,8 @@ async function tick() {
       b.status = "expired";
       out.expired++;
       await crmBooking(b, p, heldLessons[b.lesson_id] ?? null);
-      await send(p.telegram_id, `⌛ <b>${esc(b.child_name)}</b> uchun bron muddati tugadi va joy bo‘shatildi.\nTo‘lov qilgan bo‘lsangiz, chekni shu yerga yuboring — tekshiramiz.`, inline([[cb("🔄 Qayta band qilish", `RB:${b.code}`)]]));
+      await send(p.telegram_id, `⌛ <b>${esc(b.child_name)}</b> uchun bron muddati tugadi va joy bo‘shatildi.\nTo‘lov qilgan bo‘lsangiz, chekni ilovada yoki shu yerga yuboring — tekshiramiz.`, inline([[app("🐻 Qayta band qilish")]]));
+      await notice(p.telegram_id, "lesson", "Bron muddati tugadi", `${b.child_name}: joy bo‘shatildi. To‘lov qilgan bo‘lsangiz, chekni yuboring.`, {}, b.child_id ?? null);
       await toOperators(`sik-unpaid:${b.id}`, p, `⭐ SIK: to‘lov qilmadi (bron muddati o‘tdi) · ${b.child_name}, ${b.child_age} yosh`);
     } else if (await claim(b.id, "hold1")) {
       out.hold1++;
@@ -1092,7 +1255,11 @@ async function tick() {
       if (start - now <= 2 * 3600_000) {
         if (await claim(b.id, "r2")) { out.r2++; await send(p.telegram_id, [`🔔 <b>2 soatdan keyin sinov darsi!</b>`, `👦 ${esc(b.child_name)} — bugun ${fmtTime(l.starts_at)}`, ...centerLines(s), "", "Kechikmang — dars o‘z vaqtida boshlanadi 🙂"].join("\n")); }
       } else if (start - now <= 24 * 3600_000 && start - Date.parse(b.paid_at ?? b.created_at) > 26 * 3600_000) {
-        if (await claim(b.id, "r24")) { out.r24++; await send(p.telegram_id, [`⏰ <b>Eslatma: sinov darsi yaqin!</b>`, `👦 ${esc(b.child_name)} — ${fmtWhen(l.starts_at)}`, ...centerLines(s), "", "Super Ayiq bilan bugungi tez aytishni ham unutmang 😉"].join("\n"), inline([[app("🐻 Super Ayiq")]])); }
+        if (await claim(b.id, "r24")) {
+          out.r24++;
+          await send(p.telegram_id, [`⏰ <b>Eslatma: sinov darsi yaqin!</b>`, `👦 ${esc(b.child_name)} — ${fmtWhen(l.starts_at)}`, ...centerLines(s), "", "Super Ayiq bilan bugungi tez aytishni ham unutmang 😉"].join("\n"), inline([[app("🐻 Super Ayiq")]]));
+          await notice(p.telegram_id, "lesson", "Sinov darsi yaqin", `${b.child_name} — ${fmtWhen(l.starts_at)}${s.center.address ? ` · ${s.center.address}` : ""}`, {}, b.child_id ?? null);
+        }
       }
       continue;
     }
@@ -1106,6 +1273,7 @@ async function tick() {
         if (!p) continue;
         out.closed++;
         await send(p.telegram_id, `📱 <b>${esc(b.child_name)}</b> uchun sinov muddati tugadi. Super Ayiq kutib qoladi 🐻\n\nAsosiy kursda bloging, matematika va tez aytish davom etadi — guruhlarda joy cheklangan.`, b.want_main_at ? {} : inline([[cb("✅ Asosiy kursga yozilish", `MAIN:${b.code}`)]]));
+        await notice(p.telegram_id, "trial_end", "Sinov muddati tugadi", `${b.child_name}: Super Ayiq asosiy kursda davom etadi.`, {}, b.child_id ?? null);
       }
       continue;
     }
@@ -1146,6 +1314,27 @@ async function tick() {
       const t = week[c.id] ?? { points: 0, period: 0, coins: 0 }, level = levelOf(t.points);
       out.weekly++;
       await send(c.parent_id, `📊 <b>${esc(c.name)}</b> o‘tgan haftada: <b>+${t.period} ball</b>, ${(dzs ?? []).length} kun tez aytish.\n🐻 ${esc(c.bear_name)} — ${level}-daraja (${LEVEL_NAMES[level - 1]}), jami ${t.points} ball.`, inline([[app("🐻 Super Ayiq")]]));
+      await notice(c.parent_id, "weekly", "Haftalik natija", `${c.name}: +${t.period} ball, ${(dzs ?? []).length} kun tez aytish · ${level}-daraja`, {}, c.id);
+    }
+  }
+
+  // The trial's price stays on the family's balance as a credit for the first month; when the course was not bought
+  // with it (48 h after the lesson; 14 days more when the parent asked for the course), it pays for the trial lesson.
+  const DAY = 86400000;
+  const [{ data: plain }, { data: asked }] = await Promise.all([
+    db.from("sik_bookings").select("id,parent_id,child_id,child_name,paid_amount,credit_until").in("status", ["paid", "attended", "no_show"]).not("paid_amount", "is", null).is("want_main_at", null).lt("credit_until", iso(now)).gt("credit_until", iso(now - 2 * DAY)).limit(200),
+    db.from("sik_bookings").select("id,parent_id,child_id,child_name,paid_amount,credit_until").in("status", ["paid", "attended", "no_show"]).not("paid_amount", "is", null).not("want_main_at", "is", null).lt("credit_until", iso(now - 14 * DAY)).gt("credit_until", iso(now - 16 * DAY)).limit(200),
+  ]);
+  const trials = [...(plain ?? []), ...(asked ?? [])];
+  for (let i = 0; i < trials.length; i += 100) {
+    const part = trials.slice(i, i + 100);
+    const { data: done } = await db.from("sik_money").select("ref").in("ref", part.map((b: Row) => `trial:${b.id}`));
+    const had = new Set((done ?? []).map((r: Row) => r.ref));
+    for (const b of part) {
+      if (had.has(`trial:${b.id}`) || !(Number(b.paid_amount) > 0)) continue;
+      if (!(await moneyLine({ parent_id: b.parent_id, child_id: b.child_id, kind: "trial", amount: -Number(b.paid_amount), note: `Sinov darsi: ${b.child_name}`, ref: `trial:${b.id}` }))) continue;
+      out.trial++;
+      await notice(b.parent_id, "money", "Sinov darsi hisobdan yechildi", `${b.child_name}: −${sum(Number(b.paid_amount))} so‘m (asosiy kursga yozilmadingiz)`, {}, b.child_id);
     }
   }
 
@@ -1193,18 +1382,23 @@ async function setup(apply: boolean) {
 }
 
 // ---------- Mini App API ----------
-async function verifyInit(raw: string): Promise<Row | null> {
+// A string Telegram signed for this bot's Mini App (initData, or the answer of requestContact): its fields, or null.
+async function signedParams(raw: string, maxAge = 86400): Promise<URLSearchParams | null> {
   if (!raw || raw.length > 8192 || !TOKEN) return null;
   const params = new URLSearchParams(raw);
   const hash = (params.get("hash") ?? "").toLowerCase();
   const authDate = Number(params.get("auth_date"));
-  const userText = params.get("user");
   const age = Date.now() / 1000 - authDate;
-  if (!/^[a-f0-9]{64}$/.test(hash) || !Number.isFinite(authDate) || age > 86400 || age < -60 || !userText) return null;
+  if (!/^[a-f0-9]{64}$/.test(hash) || !Number.isFinite(authDate) || age > maxAge || age < -60) return null;
   params.delete("hash");
   const check = [...params.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${k}=${v}`).join("\n");
   const secret = await hmac(enc.encode("WebAppData"), enc.encode(TOKEN));
-  if (!constEq(hex(await hmac(secret, enc.encode(check))), hash)) return null;
+  return constEq(hex(await hmac(secret, enc.encode(check))), hash) ? params : null;
+}
+async function verifyInit(raw: string): Promise<Row | null> {
+  const params = await signedParams(raw);
+  const userText = params?.get("user");
+  if (!params || !userText) return null;
   try {
     const u = JSON.parse(userText);
     if (!Number.isSafeInteger(u.id) || u.id <= 0) return null;
@@ -1218,7 +1412,7 @@ async function api(req: Request, action: string, origin: string): Promise<Respon
   const internal = await isInternal(req);
   if (!internal && !ORIGINS.has(origin)) throw new HttpError(403, "origin");
   const raw = await req.text();
-  if (raw.length > 20000) throw new HttpError(413, "size");
+  if (raw.length > (action === "pay_check" ? 6_000_000 : 20000)) throw new HttpError(413, "size");
   let user: Row | null;
   const as = Number(req.headers.get("x-selftest-as"));
   if (internal && Number.isSafeInteger(as) && as > 0) {
@@ -1252,6 +1446,27 @@ async function api(req: Request, action: string, origin: string): Promise<Respon
     settings_save: async () => { need("owner"); return await apiSettingsSave(user!, body); },
     staff: async () => { need("owner"); return await apiStaff(); },
     staff_set: async () => { need("owner"); return await apiStaffSet(user!, body); },
+    // the parent: sign-up, booking and paying inside the Mini App, the bell, the so'm balance
+    onboard: () => apiOnboard(user!, body),
+    contact: () => apiContact(user!, body),
+    redeem: () => apiRedeem(user!, body),
+    slots: () => apiSlots(),
+    book: () => apiBook(user!, body),
+    move: () => apiMove(user!, body),
+    pay_check: () => apiPayCheck(user!, body),
+    notices: () => apiNotices(user!),
+    notices_read: () => apiNoticesRead(user!),
+    money: () => apiMoney(user!),
+    coins_to_money: () => apiCoinsToMoney(user!, body),
+    // staff: checks, cash, the months of the course
+    payments: async () => { need("owner", "admin"); return await apiPayments(); },
+    pay_decide: async () => { need("owner"); return await apiPayDecide(user!, body); },
+    families: async () => { need("owner", "admin"); return await apiFamilies(body); },
+    family: async () => { need("owner", "admin"); return await apiFamily(body); },
+    cash_add: async () => { need("owner", "admin"); return await apiCashAdd(user!, body, role); },
+    month_quote: async () => { need("owner", "admin"); return await apiMonthQuote(body); },
+    month_charge: async () => { need("owner"); return await apiMonthCharge(user!, body); },
+    money_adjust: async () => { need("owner"); return await apiMoneyAdjust(user!, body); },
   };
   const fn = Object.prototype.hasOwnProperty.call(ACTIONS, action) ? ACTIONS[action] : null;
   if (!fn) throw new HttpError(404, "action");
@@ -1279,11 +1494,272 @@ async function apiState(user: Row, role: string | null) {
     const { data: refs } = await db.from("sik_referrals").select("paid_at").eq("inviter", user.id);
     referral = { code, link: s.bot.username ? `https://t.me/${s.bot.username}?start=r_${code}` : null, invited: (refs ?? []).length, paid: (refs ?? []).filter((r: Row) => r.paid_at).length, coins: s.referral.inviter_coins, friend_discount: s.referral.friend_discount };
   }
+  const [balance, unread, pending] = p ? await Promise.all([
+    moneyBalance(user.id),
+    db.from("sik_notices").select("id", { count: "exact", head: true }).eq("parent_id", user.id).is("read_at", null).then((r: Row) => r.count ?? 0),
+    db.from("sik_payments").select("id,purpose,amount,created_at").eq("parent_id", user.id).eq("status", "pending").order("created_at").then((r: Row) => r.data ?? []),
+  ]) : [0, 0, []];
   return {
-    me: { id: user.id, name: parentName(p ?? { tg_name: user.name }) }, role, children, bookings, referral,
+    me: { id: user.id, name: parentName(p ?? { tg_name: user.name }), first: String(p?.parent_name ?? user.name ?? "").split(" ")[0], phone: !!p?.phone },
+    role, children, bookings, referral, money: { balance }, unread, pending,
+    card: s.card, price: p ? await priceFor(p, s) : s.prices.price,
     center: s.center, prices: s.prices, bot: s.bot.username ?? null, levels: LEVELS, level_names: LEVEL_NAMES,
-    coin_som: COIN_SOM, discount_max_pct: DISCOUNT_MAX_PCT, now: iso(now), today: tday(now),
+    coin_som: COIN_SOM, discount_max_pct: DISCOUNT_MAX_PCT, month_cap: Math.round(s.prices.course_price * DISCOUNT_MAX_PCT / 100),
+    now: iso(now), today: tday(now),
   };
+}
+
+// ---------- the parent in the Mini App: sign-up, booking, paying, the bell, the so'm balance ----------
+async function apiOnboard(user: Row, body: Row) {
+  const child = cleanName(body.child_name), age = intIn(body.age, 3, 18), name = cleanName(body.parent_name);
+  if (!child || !age) throw new HttpError(400, "child");
+  const p = await touchParent({ id: user.id, first_name: user.name, username: user.username });
+  const patch: Row = {};
+  if (name) patch.parent_name = name;
+  if (!p.phone) patch.state = "app"; // the phone comes next, shared with Telegram's button
+  if (Object.keys(patch).length) await saveParent(p, patch);
+  const kids = await childrenOf(user.id);
+  const c = kids.find((k) => k.name.toLowerCase() === child.toLowerCase()) ?? await newChild(user.id, child, age);
+  return { child: c.id };
+}
+// The answer of Telegram's requestContact, signed for this bot; without it the phone still arrives in the bot chat.
+async function apiContact(user: Row, body: Row) {
+  const p = await parentOf(user.id);
+  if (!p) throw new HttpError(404, "parent");
+  const params = await signedParams(String(body.response ?? ""), 3600);
+  let saved = false;
+  if (params) {
+    try {
+      const c = JSON.parse(params.get("contact") ?? "{}");
+      if (Number(c.user_id) === Number(user.id)) saved = await savePhone(p, c.phone_number);
+    } catch { /* the bot chat still gets the contact */ }
+  }
+  return { phone: saved || !!p.phone };
+}
+async function apiRedeem(user: Row, body: Row) {
+  const code = String(body.code ?? "").replace(/\D/g, "");
+  if (!/^\d{6}$/.test(code)) throw new HttpError(400, "code");
+  const p = await touchParent({ id: user.id, first_name: user.name, username: user.username });
+  const day = tday();
+  if (p.code_fail_day === day && Number(p.code_fails) >= CODE_TRIES) throw new HttpError(429, "tries");
+  const { data: inv } = await db.from("sik_invites").select("code,used_by").eq("code", code).maybeSingle();
+  if (!inv || (inv.used_by && Number(inv.used_by) !== Number(user.id))) {
+    await saveParent(p, { code_fails: p.code_fail_day === day ? Number(p.code_fails || 0) + 1 : 1, code_fail_day: day });
+    throw new HttpError(inv ? 409 : 404, inv ? "code_used" : "code");
+  }
+  await redeemInvite(p, code);
+  return { redeemed: true };
+}
+async function apiSlots() {
+  return { slots: (await openLessons()).map((l) => ({ id: l.id, starts_at: l.starts_at, duration_min: l.duration_min, free: l.free, title: l.title })) };
+}
+async function apiBook(user: Row, body: Row) {
+  const p = await parentOf(user.id);
+  if (!p) throw new HttpError(404, "parent");
+  if (!p.phone) throw new HttpError(409, "phone");
+  const c = await ownChild(user, body.child);
+  if (c.status === "student") throw new HttpError(409, "student");
+  if (await liveBookingOf(c.id)) throw new HttpError(409, "booked");
+  const lesson = (await openLessons()).find((l) => l.id === String(body.lesson ?? ""));
+  if (!lesson) throw new HttpError(409, "full");
+  const b = await createBooking({
+    parent_id: user.id, child_id: c.id, child_name: c.name, child_age: c.age, lesson_id: lesson.id,
+    status: "pending_payment", hold_until: iso(Date.now() + HOLD_MIN * 60000), source: p.source ?? "app",
+  });
+  if (!dryOut()) await db.from("custom_records").delete().eq("tab_id", CRM_TAB).eq("external_id", `sikp:${user.id}`);
+  await crmBooking(b, p, lesson);
+  return { booking: { code: b.code, hold_until: b.hold_until, lesson: { starts_at: lesson.starts_at, duration_min: lesson.duration_min } }, price: await priceFor(p, await settings()) };
+}
+async function apiMove(user: Row, body: Row) {
+  const b = await bookingByCode(String(body.code ?? ""), user.id);
+  if (!b) throw new HttpError(404, "booking");
+  if (!canMove(b)) throw new HttpError(409, "move");
+  const lesson = (await openLessons(b.lesson_id)).find((l) => l.id === String(body.lesson ?? ""));
+  if (!lesson) throw new HttpError(409, "full");
+  await moveBooking(b, lesson);
+  const p = await parentOf(user.id);
+  if (p) await crmBooking(b, p, lesson);
+  return { lesson: { starts_at: lesson.starts_at, duration_min: lesson.duration_min } };
+}
+// The check photo of a card transfer, already shrunk by the page (JPEG data URL): kept privately, sent to the owner.
+async function apiPayCheck(user: Row, body: Row) {
+  const p = await parentOf(user.id);
+  if (!p) throw new HttpError(404, "parent");
+  const purpose = body.purpose === "course" ? "course" : "trial";
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(body.image ?? ""));
+  if (!m) throw new HttpError(400, "image");
+  const bin = atob(m[2]);
+  if (bin.length < 2000 || bin.length > CHECK_MAX_BYTES) throw new HttpError(400, "image");
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const { count } = await db.from("sik_payments").select("id", { count: "exact", head: true }).eq("parent_id", user.id).eq("status", "pending");
+  if ((count ?? 0) >= PENDING_MAX) throw new HttpError(429, "pending");
+  let due: Row[] = [], amount = 0;
+  if (purpose === "trial") {
+    due = await dueBookings(user.id);
+    if (!due.length) throw new HttpError(409, "nothing_due");
+  } else {
+    const a = intIn(body.amount, 10000, 50000000);
+    if (a === null) throw new HttpError(400, "amount");
+    amount = a;
+  }
+  const ext = m[1] === "image/png" ? "png" : m[1] === "image/webp" ? "webp" : "jpg";
+  const path = `${user.id}/${crypto.randomUUID()}.${ext}`;
+  if (!dryOut()) {
+    const { error } = await db.storage.from("sik-checks").upload(path, bytes, { contentType: m[1], upsert: false });
+    if (error) throw new HttpError(500, "upload");
+  }
+  const pay = await newPayment(p, purpose, due, { amount, source: "app", file_path: path, file_kind: "photo" });
+  await sendCheckToOwners(p, pay, { bytes, mime: m[1], ext });
+  return { payment: { id: pay.id, purpose, amount: Number(pay.amount), status: "pending" } };
+}
+async function apiNotices(user: Row) {
+  const { data } = await db.from("sik_notices").select("id,kind,title,body,data,child_id,read_at,created_at").eq("parent_id", user.id).order("created_at", { ascending: false }).limit(50);
+  return { notices: data ?? [], unread: (data ?? []).filter((n: Row) => !n.read_at).length };
+}
+async function apiNoticesRead(user: Row) {
+  if (!dryOut()) await db.from("sik_notices").update({ read_at: new Date().toISOString() }).eq("parent_id", user.id).is("read_at", null);
+  return { unread: 0 };
+}
+async function apiMoney(user: Row) {
+  const [balance, lines, { data: pending }] = await Promise.all([
+    moneyBalance(user.id), moneyLines(user.id, 50),
+    db.from("sik_payments").select("id,purpose,amount,created_at").eq("parent_id", user.id).eq("status", "pending").order("created_at"),
+  ]);
+  return { balance, lines, pending: pending ?? [] };
+}
+// The parent turns a child's coins into so'm on the family balance (a discount on the studies, at most 10% of a month).
+async function apiCoinsToMoney(user: Row, body: Row) {
+  const c = await ownChild(user, body.child);
+  const coins = intIn(body.coins, 1, 1000000);
+  if (coins === null) throw new HttpError(400, "amount");
+  const s = await settings();
+  if (dryOut()) return { balance: 0 };
+  const { data, error } = await db.rpc("sik_coins_to_money", {
+    p_parent: user.id, p_child: c.id, p_coins: coins, p_rate: COIN_SOM, p_cap: Math.round(s.prices.course_price * DISCOUNT_MAX_PCT / 100), p_month_start: leagueStart(true),
+  });
+  if (error) {
+    const msg = String(error.message ?? "");
+    throw new HttpError(409, ["cap", "balance", "amount", "child"].find((k) => msg.includes(k)) ?? "db");
+  }
+  return { balance: Number(data) || 0 };
+}
+
+// ---------- staff: checks, cash, the months of the course ----------
+async function apiPayments() {
+  const { data } = await db.from("sik_payments").select("*").eq("status", "pending").order("created_at").limit(30);
+  const ids = [...new Set((data ?? []).map((x: Row) => Number(x.parent_id)))];
+  const { data: ps } = ids.length ? await db.from("sik_parents").select("telegram_id,parent_name,tg_name,phone").in("telegram_id", ids) : { data: [] };
+  const byId = new Map<number, Row>((ps ?? []).map((p: Row) => [Number(p.telegram_id), p]));
+  const list = [];
+  for (const x of data ?? []) {
+    let photo: string | null = null;
+    if (x.file_path) { const { data: u } = await db.storage.from("sik-checks").createSignedUrl(x.file_path, 900); photo = u?.signedUrl ?? null; }
+    const { data: bs } = Array.isArray(x.booking_ids) && x.booking_ids.length ? await db.from("sik_bookings").select("child_name,child_age,code").in("id", x.booking_ids) : { data: [] };
+    const p = byId.get(Number(x.parent_id)) ?? {};
+    list.push({ id: x.id, purpose: x.purpose, amount: Number(x.amount), created_at: x.created_at, source: x.source, photo, parent_id: Number(x.parent_id), parent: parentName(p), phone: p.phone ?? "", children: (bs ?? []).map((b: Row) => `${b.child_name} (${b.child_age})`) });
+  }
+  return { payments: list };
+}
+async function apiPayDecide(user: Row, body: Row) {
+  const r = await decidePayment(String(body.id ?? ""), body.ok === true, user.id, user.name || "Egasi");
+  if (!r.done) throw new HttpError(409, r.status === "missing" ? "payment" : "decided");
+  return r;
+}
+async function apiFamilies(body: Row) {
+  const q = String(body.q ?? "").trim().toLowerCase(), digits = q.replace(/\D/g, "");
+  const [{ data: ps }, { data: kids }] = await Promise.all([
+    db.from("sik_parents").select("telegram_id,parent_name,tg_name,phone,created_at").order("created_at", { ascending: false }).limit(500),
+    db.from("sik_children").select("id,parent_id,name,age,status").neq("status", "left").limit(1000),
+  ]);
+  const byParent = new Map<number, Row[]>();
+  for (const c of kids ?? []) byParent.set(Number(c.parent_id), [...(byParent.get(Number(c.parent_id)) ?? []), c]);
+  const list = (ps ?? []).map((p: Row) => ({ p, kids: byParent.get(Number(p.telegram_id)) ?? [] }))
+    .filter(({ p, kids }: Row) => kids.length && (!q || parentName(p).toLowerCase().includes(q) || kids.some((c: Row) => c.name.toLowerCase().includes(q)) || (digits.length >= 3 && String(p.phone ?? "").includes(digits))))
+    .slice(0, 25);
+  const ids = list.map(({ p }: Row) => Number(p.telegram_id));
+  const bal: Record<number, number> = {};
+  if (ids.length) {
+    const { data: m } = await db.from("sik_money").select("parent_id,amount").in("parent_id", ids).limit(1000);
+    for (const r of m ?? []) bal[Number(r.parent_id)] = (bal[Number(r.parent_id)] ?? 0) + Number(r.amount);
+  }
+  return { families: list.map(({ p, kids }: Row) => ({ parent_id: Number(p.telegram_id), parent: parentName(p), phone: p.phone ?? "", balance: bal[Number(p.telegram_id)] ?? 0, children: kids.map((c: Row) => ({ id: c.id, name: c.name, age: c.age, status: c.status })) })) };
+}
+async function familyOf(body: Row): Promise<Row> {
+  const id = Number(body.parent);
+  const p = Number.isSafeInteger(id) && id > 0 ? await parentOf(id) : null;
+  if (!p) throw new HttpError(404, "parent");
+  return p;
+}
+async function apiFamily(body: Row) {
+  const p = await familyOf(body);
+  const id = Number(p.telegram_id);
+  const [kids, balance, lines, { data: due }] = await Promise.all([
+    childrenOf(id), moneyBalance(id), moneyLines(id, 30),
+    db.from("sik_bookings").select("id").eq("parent_id", id).eq("status", "pending_payment"),
+  ]);
+  return { parent_id: id, parent: parentName(p), phone: p.phone ?? "", balance, lines, trial_due: (due ?? []).length, children: kids.map((c) => ({ id: c.id, name: c.name, age: c.age, status: c.status })) };
+}
+// Cash taken at the center: for the studies (any amount), or the trial of the family's held bookings (its price each).
+async function apiCashAdd(user: Row, body: Row, role: string | null) {
+  const p = await familyOf(body);
+  const id = Number(p.telegram_id);
+  const kids = await childrenOf(id);
+  const trial = body.purpose === "trial";
+  const due = trial ? await dueBookings(id) : [];
+  if (trial && !due.length) throw new HttpError(409, "nothing_due");
+  const s = await settings();
+  const price = await priceFor(p, s);
+  const amount = trial ? price * due.length : intIn(body.amount, 1000, 100000000);
+  if (!amount) throw new HttpError(400, "amount");
+  const note = String(body.note ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  const at = new Date().toISOString();
+  const receipt = await kvReceipt({ payer: parentName(p), child: (trial ? due.map((b) => b.child_name) : kids.map((c) => c.name)).join(", "), phone: p.phone ?? null, trial, amount, method: "Naqd", paidAt: at });
+  await moneyLine({ parent_id: id, kind: "cash", amount, note: note || (trial ? "Sinov darsi to‘lovi (naqd)" : "Naqd to‘lov"), ref: `cash:${crypto.randomUUID()}`, receipt_id: realReceiptId(receipt), created_by: user.id });
+  if (trial) {
+    const lessons = await lessonsById(due.map((b) => b.lesson_id));
+    for (const b of due) { await bookingPaid(b, lessons[b.lesson_id] ?? null, user.id, price); await crmBooking(b, p, lessons[b.lesson_id] ?? null); }
+  }
+  const balance = dryOut() ? 0 : await moneyBalance(id);
+  await send(id, [`✅ <b>To‘lov qabul qilindi:</b> +${sum(amount)} so‘m (naqd)`, `💼 Balans: <b>${sum(balance)} so‘m</b>`, receipt ? `🧾 Kvitansiya №${kvNo(receipt.number)}` : "", trial ? "🐻 Super Ayiq uyg‘ondi!" : ""].filter(Boolean).join("\n"), inline([[app(trial ? "🐻 Super Ayiq’ni ochish" : "💼 Hamyon", trial ? "" : "#wallet")]]));
+  await notice(id, "payment", trial ? "Sinov darsi to‘lovi qabul qilindi" : "Naqd to‘lov qabul qilindi", `+${sum(amount)} so‘m · balans ${sum(balance)} so‘m`, { amount, receipt: receipt?.view ?? null });
+  if (role !== "owner") await ownersAlert(`💵 <b>Super Intellekt Kids</b>: ${esc(user.name || user.id)} naqd to‘lov kiritdi — ${esc(parentName(p))}, ${sum(amount)} so‘m${receipt ? ` (Kvitansiya №${kvNo(receipt.number)})` : ""}. Pul sizga yetib kelganini tekshiring.`, null);
+  return { balance, receipt: receipt?.view ?? null };
+}
+// The price of a month of the course today: the course price with the running season discount.
+async function apiMonthQuote(body: Row) {
+  const c = await childById(String(body.child ?? ""));
+  if (!c) throw new HttpError(404, "child");
+  const s = await settings();
+  const o = offer(s, {});
+  return { child: c.id, name: c.name, status: c.status, price: o.after, course: o.course, pct: o.pct, season: o.season, balance: await moneyBalance(Number(c.parent_id)) };
+}
+// A month of the course started: its price comes off the family's balance (a debt shows as a minus).
+async function apiMonthCharge(user: Row, body: Row) {
+  const c = await childById(String(body.child ?? ""));
+  if (!c) throw new HttpError(404, "child");
+  if (c.status !== "student") throw new HttpError(409, "not_student");
+  const amount = intIn(body.amount, 1000, 100000000);
+  if (amount === null) throw new HttpError(400, "amount");
+  const note = String(body.note ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || `O‘qish oyi: ${c.name}`;
+  await moneyLine({ parent_id: c.parent_id, child_id: c.id, kind: "month", amount: -amount, note, ref: `month:${crypto.randomUUID()}`, created_by: user.id });
+  const balance = dryOut() ? 0 : await moneyBalance(Number(c.parent_id));
+  await send(c.parent_id, [`📚 <b>${esc(c.name)}</b>: o‘qish oyi boshlandi — −${sum(amount)} so‘m`, `💼 Balans: <b>${sum(balance)} so‘m</b>${balance < 0 ? " (to‘lov kerak)" : ""}`].join("\n"), inline([[app("💼 Hamyon", "#wallet")]]));
+  await notice(c.parent_id, "money", "O‘qish oyi boshlandi", `${c.name}: −${sum(amount)} so‘m · balans ${sum(balance)} so‘m`, { amount: -amount }, c.id);
+  return { balance };
+}
+// A refund handed back to the parent, or a correction (+ or −), on the family's balance.
+async function apiMoneyAdjust(user: Row, body: Row) {
+  const p = await familyOf(body);
+  const id = Number(p.telegram_id);
+  const refund = body.kind === "refund";
+  const amount = refund ? intIn(body.amount, 1000, 100000000) : intIn(body.amount, -100000000, 100000000);
+  if (!amount) throw new HttpError(400, "amount");
+  const note = String(body.note ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || (refund ? "Pul qaytarildi" : "Tuzatish");
+  await moneyLine({ parent_id: id, kind: refund ? "refund" : "adjust", amount: refund ? -amount : amount, note, ref: `adj:${crypto.randomUUID()}`, created_by: user.id });
+  const balance = dryOut() ? 0 : await moneyBalance(id);
+  await notice(id, "money", refund ? "Pul qaytarildi" : "Balans tuzatildi", `${refund ? "−" : amount > 0 ? "+" : "−"}${sum(Math.abs(amount))} so‘m · ${note} · balans ${sum(balance)} so‘m`, {});
+  return { balance };
 }
 async function ownChild(user: Row, id: unknown): Promise<Row> {
   const c = await childById(String(id ?? ""));
@@ -1381,6 +1857,7 @@ async function apiAttend(user: Row, body: Row) {
     if (present) await toOperators(`sik-attended:${b.id}`, p, `⭐ SIK: darsga keldi — asosiy kursga taklif qiling · ${b.child_name}, ${b.child_age} yosh${b.credit_until ? ` · chegirma ${fmtShort(b.credit_until)} gacha` : ""}`);
     else if (await claim(b.id, "noshow")) {
       await send(p.telegram_id, `😔 <b>${esc(b.child_name)}</b> bugungi sinov darsida ko‘rinmadi.${b.access_until && Date.parse(b.access_until) > Date.now() ? ` Super Ayiq ${fmtWhen(b.access_until)} gacha ochiq.` : ""}\nOperatorimiz siz bilan bog‘lanadi.`);
+      await notice(p.telegram_id, "lesson", "Darsda ko‘rinmadi", `${b.child_name}: bugungi sinov darsiga kelmadi. Operatorimiz bog‘lanadi.`, {}, b.child_id ?? null);
       await toOperators(`sik-noshow:${b.id}`, p, `⭐ SIK: darsga kelmadi · ${b.child_name}, ${b.child_age} yosh`);
     }
   }
@@ -1416,6 +1893,7 @@ async function apiReport(user: Row, body: Row) {
     await crmBooking(b, p, b.lesson);
     const first = await claim(b.id, "report");
     await send(p.telegram_id, reportText(b, await settings(), !first), inline([...(b.want_main_at || b.status === "converted" ? [] : [[cb("✅ Asosiy kursga yozilish", `MAIN:${b.code}`)]]), [app("🐻 Super Ayiq")]]));
+    await notice(p.telegram_id, "report", `Ustoz bahosi: ${b.child_name}`, `Nutq ${ratings.nutq}/5 · kamera ${ratings.kamera}/5 · matematika ${ratings.matematika}/5${comment ? ` · «${comment}»` : ""}`, { ratings }, b.child_id ?? null);
     if (marking) await toOperators(`sik-attended:${b.id}`, p, `⭐ SIK: darsga keldi — asosiy kursga taklif qiling · ${b.child_name}, ${b.child_age} yosh`);
   }
   return { status: b.status, report: patch.report };
@@ -1432,6 +1910,7 @@ async function apiConvert(body: Row) {
   if (p) {
     await crmBooking(b, p, b.lesson);
     await send(p.telegram_id, `🎉 <b>${esc(b.child_name)}</b> — endi Super Intellekt Kids o‘quvchisi! Super Ayiq doim ochiq, ballar va tangalar saqlanadi.`, inline([[app("🐻 Super Ayiq")]]));
+    await notice(p.telegram_id, "student", `${b.child_name} — o‘quvchi!`, "Super Ayiq doim ochiq, ballar va tangalar saqlanadi.", {}, b.child_id ?? null);
   }
   return { status: "converted" };
 }
@@ -1497,6 +1976,7 @@ async function apiCoinsAdd(user: Row, body: Row) {
   const nb = balance + amount;
   const label: Record<string, string> = { order: "B2B buyurtma", prize: "Sovrin", payout: "Pulga aylantirildi", discount: "Kurs to‘loviga chegirma", adjust: "Tuzatish" };
   await send(c.parent_id, `💰 <b>${esc(c.name)}</b>: ${amount > 0 ? "+" : "−"}${Math.abs(amount)} tanga — ${esc(note || label[kind])}.\nBalans: <b>${nb} tanga</b> (${sum(nb * COIN_SOM)} so‘m).`, inline([[app("🐻 Hamyon", "#wallet")]]));
+  await notice(c.parent_id, "coins", `${amount > 0 ? "+" : "−"}${Math.abs(amount)} tanga`, `${c.name}: ${note || label[kind]} · balans ${nb} tanga`, { amount }, c.id);
   return { balance: nb };
 }
 async function apiLessonSave(user: Row, body: Row) {
@@ -1537,6 +2017,7 @@ async function lessonMoved(l: Row) {
     await db.from("sik_sent").delete().eq("booking_id", b.id).in("kind", ["r24", "r2"]);
     if (b.status === "pending_payment" && !holds(b, Date.now())) continue;
     await send(b.parent_id, `🔔 Sinov darsi vaqti o‘zgardi: <b>${esc(b.child_name)}</b> — ${fmtWhen(l.starts_at)}`);
+    await notice(b.parent_id, "lesson", "Dars vaqti o‘zgardi", `${b.child_name} — ${fmtWhen(l.starts_at)}`, {}, b.child_id ?? null);
   }
 }
 async function apiLessonCancel(body: Row) {
